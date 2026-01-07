@@ -1,0 +1,652 @@
+'use client';
+
+import { useState, useEffect } from "react";
+import Link from 'next/link';
+import { File, PlusCircle, Search, Upload, ArrowLeft, WifiOff, AlertCircle, RefreshCw, ExternalLink } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetTrigger } from "@/components/ui/sheet";
+import { AddDriverForm } from "@/components/add-driver-form";
+import { MoreHorizontal } from "lucide-react";
+import {
+  Avatar,
+  AvatarFallback,
+} from "@/components/ui/avatar";
+import type { Driver } from "@/lib/data";
+import { UploadDriversCSV } from "@/components/upload-drivers-csv";
+import { useUser, useCollection, useFirestore, useMemoFirebase, useDoc } from "@/firebase";
+import { collection, doc } from 'firebase/firestore';
+import { getComplianceStatus, ComplianceStatus } from "@/lib/compliance";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Star, Truck, User, FileText as FileTextIcon, CheckCircle, XCircle, AlertTriangle, MessageSquare } from 'lucide-react';
+import { format, parseISO, differenceInDays } from 'date-fns';
+import { showSuccess, showError } from '@/lib/toast-utils';
+
+// Inline ComplianceItem component with document viewing
+const ComplianceItem = ({ 
+    label, 
+    value, 
+    type = 'expiry',
+    documentUrl
+}: { 
+    label: string; 
+    value?: string; 
+    type?: 'expiry' | 'field' | 'screening';
+    documentUrl?: string;
+}) => {
+    let StatusIcon = AlertTriangle;
+    let statusColor = "text-amber-500";
+    let statusText = "Missing";
+
+    if (value) {
+        if (type === 'field') {
+            StatusIcon = CheckCircle;
+            statusColor = "text-green-500";
+            statusText = `Provided`;
+        } else if (type === 'expiry') {
+            const expiryDate = parseISO(value);
+            const now = new Date();
+            const daysUntilExpiry = differenceInDays(expiryDate, now);
+            
+            if (daysUntilExpiry < 0) {
+                StatusIcon = XCircle;
+                statusColor = "text-destructive";
+                statusText = `Expired on ${format(expiryDate, 'MM/dd/yyyy')}`;
+            } else if (daysUntilExpiry <= 30) {
+                StatusIcon = AlertTriangle;
+                statusColor = "text-amber-500";
+                statusText = `Expires soon: ${format(expiryDate, 'MM/dd/yyyy')}`;
+            } else {
+                StatusIcon = CheckCircle;
+                statusColor = "text-green-500";
+                statusText = `Expires ${format(expiryDate, 'MM/dd/yyyy')}`;
+            }
+        } else if (type === 'screening') {
+            const screeningDate = parseISO(value);
+            const expiryDate = new Date(screeningDate);
+            expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+            
+            const now = new Date();
+            const daysUntilExpiry = differenceInDays(expiryDate, now);
+            
+            if (daysUntilExpiry < 0) {
+                StatusIcon = XCircle;
+                statusColor = "text-destructive";
+                statusText = `Expired ${format(expiryDate, 'MM/dd/yyyy')}`;
+            } else if (daysUntilExpiry <= 30) {
+                StatusIcon = AlertTriangle;
+                statusColor = "text-amber-500";
+                statusText = `Expires soon: ${format(expiryDate, 'MM/dd/yyyy')}`;
+            } else {
+                StatusIcon = CheckCircle;
+                statusColor = "text-green-500";
+                statusText = `Valid until ${format(expiryDate, 'MM/dd/yyyy')}`;
+            }
+        }
+    }
+
+    return (
+        <div className="flex items-center justify-between py-3">
+            <p className="font-medium flex items-center gap-2">
+                <FileTextIcon className="h-4 w-4 text-muted-foreground"/> {label}
+            </p>
+            <div className="flex items-center gap-3">
+                <div className={`flex items-center gap-2 text-sm font-semibold ${statusColor}`}>
+                    <StatusIcon className="h-5 w-5" />
+                    <span>{statusText}</span>
+                </div>
+                {documentUrl ? (
+                    <a 
+                        href={documentUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs bg-primary text-primary-foreground px-2 py-1 rounded hover:bg-primary/90 transition-colors"
+                    >
+                        <ExternalLink className="h-3 w-3" />
+                        View
+                    </a>
+                ) : (
+                    <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                        No file
+                    </span>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const StatCard = ({ title, value, icon: Icon }: { title: string; value: string | number; icon: React.ElementType }) => (
+    <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
+        <Icon className="h-8 w-8 text-muted-foreground" />
+        <div>
+            <p className="text-sm text-muted-foreground">{title}</p>
+            <p className="text-lg font-semibold">{value}</p>
+        </div>
+    </div>
+);
+
+// Loading skeleton for table
+const TableSkeleton = () => (
+  <>
+    {[1, 2, 3, 4, 5].map((i) => (
+      <TableRow key={i}>
+        <TableCell>
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-8 w-8 rounded-full" />
+            <div>
+              <Skeleton className="h-4 w-32 mb-1" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          </div>
+        </TableCell>
+        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+        <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
+        <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
+        <TableCell><Skeleton className="h-8 w-8" /></TableCell>
+      </TableRow>
+    ))}
+  </>
+);
+
+// Loading skeleton for driver profile
+const ProfileSkeleton = () => (
+  <div className="space-y-6">
+    <Skeleton className="h-10 w-40" />
+    <div className="flex items-center gap-4">
+      <Skeleton className="h-24 w-24 rounded-full" />
+      <div>
+        <Skeleton className="h-8 w-48 mb-2" />
+        <Skeleton className="h-4 w-32" />
+      </div>
+    </div>
+    <Separator />
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {[1, 2, 3, 4].map((i) => (
+        <Skeleton key={i} className="h-24 w-full" />
+      ))}
+    </div>
+    <div className="grid gap-6 lg:grid-cols-2">
+      <Skeleton className="h-96 w-full" />
+      <Skeleton className="h-96 w-full" />
+    </div>
+  </div>
+);
+
+export default function DriversPage() {
+  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
+  const { user, isUserLoading } = useUser();
+  const firestore = useFirestore();
+
+  // Network status detection
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      showSuccess('You\'re back online!');
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    setIsOnline(navigator.onLine);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const driversQuery = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return collection(firestore, `owner_operators/${user.uid}/drivers`);
+  }, [firestore, user?.uid]);
+
+  const { data: drivers, isLoading, error: driversError } = useCollection<Driver>(driversQuery);
+
+  // Fetch selected driver details
+  const selectedDriverQuery = useMemoFirebase(() => {
+    if (!firestore || !user?.uid || !selectedDriverId) return null;
+    return doc(firestore, `owner_operators/${user.uid}/drivers/${selectedDriverId}`);
+  }, [firestore, user?.uid, selectedDriverId]);
+
+  const { data: selectedDriver, isLoading: isDriverLoading, error: driverError } = useDoc<Driver>(selectedDriverQuery);
+
+  // Show error toasts
+  useEffect(() => {
+    if (driversError) {
+      showError('Failed to load drivers. Please try again.');
+    }
+    if (driverError) {
+      showError('Failed to load driver details. Please try again.');
+    }
+  }, [driversError, driverError]);
+  
+  const getBadgeVariant = (status: string) => {
+    switch (status) {
+      case "Available":
+        return "default";
+      case "On-trip":
+        return "secondary";
+      case "Off-duty":
+      default:
+        return "outline";
+    }
+  };
+  
+  const getComplianceBadgeVariant = (status: ComplianceStatus) => {
+      switch (status) {
+          case 'Green':
+              return 'default';
+          case 'Yellow':
+              return 'secondary';
+          case 'Red':
+              return 'destructive';
+          default:
+              return 'outline';
+      }
+  };
+
+  const getInitials = (name: string) => {
+    return name?.split(' ').map(n => n[0]).join('') || '';
+  }
+
+  // If a driver is selected, show their profile
+  if (selectedDriverId) {
+    // Show loading skeleton while fetching driver
+    if (isDriverLoading) {
+      return <ProfileSkeleton />;
+    }
+
+    // Show error if driver failed to load
+    if (driverError || !selectedDriver) {
+      return (
+        <div className="space-y-6">
+          <Button variant="outline" onClick={() => setSelectedDriverId(null)} className="mb-4">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Drivers List
+          </Button>
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Failed to load driver profile. 
+              <Button 
+                variant="link" 
+                className="p-0 h-auto ml-2" 
+                onClick={() => window.location.reload()}
+              >
+                Try again
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
+    }
+
+    const complianceStatus = getComplianceStatus(selectedDriver);
+    
+    return (
+      <div className="space-y-6">
+        {/* Offline Banner */}
+        {!isOnline && (
+          <Alert variant="destructive" className="mb-4">
+            <WifiOff className="h-4 w-4" />
+            <AlertDescription>
+              You&apos;re currently offline. Data may not be up to date.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <Button variant="outline" onClick={() => setSelectedDriverId(null)} className="mb-4">
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Drivers List
+        </Button>
+
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <Avatar className="h-24 w-24">
+              <AvatarFallback className="text-3xl">{getInitials(selectedDriver.name)}</AvatarFallback>
+            </Avatar>
+            <div>
+              <h1 className="text-3xl font-bold font-headline">{selectedDriver.name}</h1>
+              <p className="text-muted-foreground">{selectedDriver.location}</p>
+            </div>
+          </div>
+        </div>
+
+        <Separator />
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <StatCard title="Availability" value={selectedDriver.availability} icon={User} />
+          <StatCard title="Vehicle Type" value={selectedDriver.vehicleType} icon={Truck} />
+          <StatCard title="Avg. Rating" value={selectedDriver.rating ? `${selectedDriver.rating.toFixed(1)} / 5.0` : 'N/A'} icon={Star} />
+          <StatCard title="Compliance Status" value={complianceStatus} icon={FileTextIcon} />
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-headline">Compliance Scorecard</CardTitle>
+              <CardDescription>Status of all required documents and screenings.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between p-4 rounded-lg mb-4" style={{ backgroundColor: `hsl(var(--${getComplianceBadgeVariant(complianceStatus)}))`}}>
+                <p className="font-bold" style={{ color: `hsl(var(--${getComplianceBadgeVariant(complianceStatus)}-foreground))`}}>
+                  Overall Status: {complianceStatus}
+                </p>
+              </div>
+
+              <div className="divide-y">
+                <ComplianceItem 
+                  label="CDL Expiry" 
+                  value={selectedDriver.cdlExpiry} 
+                  type="expiry" 
+                  documentUrl={selectedDriver.cdlDocumentUrl || selectedDriver.cdlLicenseUrl}
+                />
+                <ComplianceItem 
+                  label="CDL Number" 
+                  value={selectedDriver.cdlLicense} 
+                  type="field" 
+                  documentUrl={selectedDriver.cdlLicenseUrl}
+                />
+                <ComplianceItem 
+                  label="Medical Card" 
+                  value={selectedDriver.medicalCardExpiry} 
+                  type="expiry" 
+                  documentUrl={selectedDriver.medicalCardUrl}
+                />
+                <ComplianceItem 
+                  label="Insurance" 
+                  value={selectedDriver.insuranceExpiry} 
+                  type="expiry" 
+                  documentUrl={selectedDriver.insuranceUrl}
+                />
+                <ComplianceItem 
+                  label="Motor Vehicle Record #" 
+                  value={selectedDriver.motorVehicleRecordNumber} 
+                  type="field" 
+                  documentUrl={selectedDriver.mvrUrl}
+                />
+                <ComplianceItem 
+                  label="Background Check" 
+                  value={selectedDriver.backgroundCheckDate} 
+                  type="screening" 
+                  documentUrl={selectedDriver.backgroundCheckUrl}
+                />
+                <ComplianceItem 
+                  label="Pre-Employment Screen" 
+                  value={selectedDriver.preEmploymentScreeningDate} 
+                  type="field" 
+                  documentUrl={selectedDriver.preEmploymentScreeningUrl}
+                />
+                <ComplianceItem 
+                  label="Drug & Alcohol Screen" 
+                  value={selectedDriver.drugAndAlcoholScreeningDate} 
+                  type="screening" 
+                  documentUrl={selectedDriver.drugAndAlcoholScreeningUrl}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-headline">Ratings & Reviews</CardTitle>
+              <CardDescription>Feedback from previous loads.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {selectedDriver.reviews && selectedDriver.reviews.length > 0 ? (
+                <div className="space-y-4">
+                  {selectedDriver.reviews.map(review => (
+                    <Card key={review.id} className="bg-muted/50 shadow-none">
+                      <CardHeader className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-base">{review.reviewer}</CardTitle>
+                            <CardDescription>{format(parseISO(review.date), 'MMMM d, yyyy')}</CardDescription>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {[...Array(5)].map((_, i) => (
+                              <Star key={i} className={`h-5 w-5 ${i < review.rating ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground/50'}`} />
+                            ))}
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-4 pt-0">
+                        <p className="text-sm text-muted-foreground">{review.comment}</p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center p-8 border-2 border-dashed rounded-lg">
+                  <MessageSquare className="h-16 w-16 text-muted-foreground" />
+                  <h3 className="mt-4 text-lg font-semibold font-headline">No Reviews Yet</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">This driver has not received any feedback.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Otherwise show the drivers list
+  return (
+    <Sheet>
+      <main className="grid flex-1 items-start gap-4 sm:py-0 md:gap-8">
+        {/* Offline Banner */}
+        {!isOnline && (
+          <Alert variant="destructive">
+            <WifiOff className="h-4 w-4" />
+            <AlertDescription>
+              You&apos;re currently offline. Data may not be up to date.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Error Banner */}
+        {driversError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Failed to load drivers. 
+              <Button 
+                variant="link" 
+                className="p-0 h-auto ml-2" 
+                onClick={() => window.location.reload()}
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                Refresh
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <Tabs defaultValue="all">
+          <div className="flex items-center">
+            <TabsList>
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="available">Available</TabsTrigger>
+              <TabsTrigger value="on-trip">On-trip</TabsTrigger>
+            </TabsList>
+            <div className="ml-auto flex items-center gap-2">
+              <Button size="sm" variant="outline" className="h-8 gap-1" disabled={!isOnline}>
+                <File className="h-3.5 w-3.5" />
+                <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                  Export
+                </span>
+              </Button>
+              <UploadDriversCSV>
+                <Button size="sm" variant="outline" className="h-8 gap-1" disabled={!isOnline}>
+                  <Upload className="h-3.5 w-3.5" />
+                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                    Upload CSV
+                  </span>
+                </Button>
+              </UploadDriversCSV>
+              <SheetTrigger asChild>
+                <Button size="sm" className="h-8 gap-1" disabled={!isOnline}>
+                  <PlusCircle className="h-3.5 w-3.5" />
+                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
+                    Add Driver
+                  </span>
+                </Button>
+              </SheetTrigger>
+            </div>
+          </div>
+          <TabsContent value="all">
+            <Card>
+              <CardHeader>
+                <CardTitle className="font-headline">Drivers</CardTitle>
+                <CardDescription>
+                  Manage your drivers and view their status.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Vehicle Type</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Availability</TableHead>
+                      <TableHead>Compliance</TableHead>
+                      <TableHead>
+                        <span className="sr-only">Actions</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isLoading || isUserLoading ? (
+                      <TableSkeleton />
+                    ) : driversError ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="h-24 text-center">
+                          <div className="flex flex-col items-center gap-2">
+                            <AlertCircle className="h-8 w-8 text-destructive" />
+                            <p className="text-muted-foreground">Failed to load drivers</p>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => window.location.reload()}
+                            >
+                              <RefreshCw className="h-3 w-3 mr-1" />
+                              Retry
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ) : drivers && drivers.length > 0 ? (
+                      drivers.map((driver) => {
+                        const complianceStatus = getComplianceStatus(driver);
+                        return (
+                          <TableRow key={driver.id}>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-8 w-8">
+                                  <AvatarFallback>{getInitials(driver.name)}</AvatarFallback>
+                                </Avatar>
+                                <div className="grid">
+                                  <span>{driver.name}</span>
+                                  <span className="text-xs text-muted-foreground">{driver.certifications?.join(', ')}</span>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{driver.vehicleType}</TableCell>
+                            <TableCell>{driver.location}</TableCell>
+                            <TableCell>
+                              <Badge variant={getBadgeVariant(driver.availability)}>
+                                {driver.availability}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                             <Badge variant={getComplianceBadgeVariant(complianceStatus)} className="flex items-center gap-1.5">
+                              <span className={`h-2 w-2 rounded-full ${
+                                complianceStatus === 'Green' ? 'bg-green-500' : 
+                                complianceStatus === 'Yellow' ? 'bg-yellow-500' : 
+                                'bg-red-500'
+                              }`} />
+                              {complianceStatus}
+                            </Badge>
+                          </TableCell>
+                            <TableCell>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button aria-haspopup="true" size="icon" variant="ghost">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                    <span className="sr-only">Toggle menu</span>
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                  <DropdownMenuItem onClick={() => setSelectedDriverId(driver.id)}>
+                                    View Profile
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem disabled={!isOnline}>Edit Profile</DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem className="text-destructive" disabled={!isOnline}>
+                                    Deactivate
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={6} className="h-24 text-center">
+                          <div className="flex flex-col items-center gap-2">
+                            <User className="h-8 w-8 text-muted-foreground" />
+                            <p className="text-muted-foreground">No drivers found</p>
+                            <SheetTrigger asChild>
+                              <Button size="sm" disabled={!isOnline}>
+                                <PlusCircle className="h-3.5 w-3.5 mr-1" />
+                                Add your first driver
+                              </Button>
+                            </SheetTrigger>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </main>
+      <AddDriverForm />
+    </Sheet>
+  );
+}

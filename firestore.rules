@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isOwner(userId);
+      allow list: if false;
+      allow create: if isSignedIn() && isOwner(userId);
+      allow update: if isSignedIn() && isOwner(userId);
+      allow delete: if false;
+    }
+
+    match /driver_invitations/{invitationId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /owner_operators/{ownerOperatorId} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create: if isSignedIn() && isOwner(ownerOperatorId);
+      allow update: if isSignedIn() && isOwner(ownerOperatorId);
+      allow delete: if isSignedIn() && isOwner(ownerOperatorId);
+
+      match /drivers/{driverId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isOwner(ownerOperatorId);
+        allow update: if isSignedIn() && (isOwner(ownerOperatorId) || request.auth.uid == driverId);
+        allow delete: if isSignedIn() && isOwner(ownerOperatorId);
+      }
+
+      match /loads/{loadId} {
+        allow read: if isSignedIn() && isOwner(ownerOperatorId);
+        allow write: if isSignedIn() && isOwner(ownerOperatorId);
+      }
+
+      match /subscriptions/{subscriptionId} {
+        allow read: if isSignedIn() && isOwner(ownerOperatorId);
+        allow write: if isSignedIn() && isOwner(ownerOperatorId);
+      }
+    }
+
+    // Collection Group Query for drivers - allows querying ALL drivers across all owner_operators
+    match /{path=**}/drivers/{driverId} {
+      allow read: if isSignedIn();
+    }
+
+    // Matches collection
+    match /matches/{matchId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // TLAs collection
+    match /tlas/{tlaId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if false;
+    }
+  }
+}

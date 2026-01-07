@@ -1,0 +1,17 @@
+
+> nextn@0.1.0 dev
+> next dev
+
+   ▲ Next.js 15.3.3
+   - Local:        http://localhost:3000
+   - Network:      http://10.88.0.3:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.6s
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 2.2s (153 modules)
+ ○ Compiling / ...
+ ✓ Compiled / in 18.7s (1070 modules)
+ GET / 200 in 20414ms
+ ✓ Compiled in 1769ms (390 modules)

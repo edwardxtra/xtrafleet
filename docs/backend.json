@@ -1,0 +1,319 @@
+{
+  "entities": {
+    "OwnerOperator": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "OwnerOperator",
+      "type": "object",
+      "description": "Represents an owner-operator registered on the platform.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the OwnerOperator entity."
+        },
+        "companyName": {
+          "type": "string",
+          "description": "The name of the owner-operator's company."
+        },
+        "contactName": {
+          "type": "string",
+          "description": "The name of the contact person for the owner-operator."
+        },
+        "contactEmail": {
+          "type": "string",
+          "description": "The email address of the contact person.",
+          "format": "email"
+        },
+        "contactPhone": {
+          "type": "string",
+          "description": "The phone number of the contact person."
+        },
+        "subscriptionStatus": {
+          "type": "string",
+          "description": "The current subscription status of the owner-operator (e.g., active, inactive)."
+        },
+        "billingInfo": {
+          "type": "string",
+          "description": "Billing information for the owner operator"
+        }
+      },
+      "required": [
+        "id",
+        "companyName",
+        "contactName",
+        "contactEmail",
+        "contactPhone",
+        "subscriptionStatus"
+      ]
+    },
+    "Driver": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Driver",
+      "type": "object",
+      "description": "Represents a driver associated with an owner-operator.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Driver entity."
+        },
+        "ownerOperatorId": {
+          "type": "string",
+          "description": "Reference to OwnerOperator. (Relationship: OwnerOperator 1:N Driver)"
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the driver."
+        },
+        "location": {
+          "type": "string",
+          "description": "The current location of the driver (e.g., city, state)."
+        },
+        "loadTypes": {
+          "type": "string",
+          "description": "The type of load the driver can carry"
+        },
+        "availability": {
+          "type": "string",
+          "description": "Driver availability."
+        }
+      },
+      "required": [
+        "id",
+        "ownerOperatorId",
+        "name",
+        "location",
+        "loadTypes",
+        "availability"
+      ]
+    },
+    "Load": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Load",
+      "type": "object",
+      "description": "Represents a load available for transportation.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Load entity."
+        },
+        "ownerOperatorId": {
+          "type": "string",
+          "description": "Reference to OwnerOperator. (Relationship: OwnerOperator 1:N Load)"
+        },
+        "destination": {
+          "type": "string",
+          "description": "The destination of the load."
+        },
+        "weight": {
+          "type": "number",
+          "description": "The weight of the load in pounds."
+        },
+        "driverQualifications": {
+          "type": "string",
+          "description": "Any specific qualifications required for the driver."
+        },
+        "origin": {
+          "type": "string",
+          "description": "The origin of the load."
+        },
+        "loadTypes": {
+          "type": "string",
+          "description": "The type of load."
+        }
+      },
+      "required": [
+        "id",
+        "ownerOperatorId",
+        "destination",
+        "weight",
+        "driverQualifications",
+        "origin",
+        "loadTypes"
+      ]
+    },
+    "Match": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Match",
+      "type": "object",
+      "description": "Represents a match between a driver and a load.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Match entity."
+        },
+        "driverId": {
+          "type": "string",
+          "description": "Reference to Driver. (Relationship: Driver 1:N Match)"
+        },
+        "loadId": {
+          "type": "string",
+          "description": "Reference to Load. (Relationship: Load 1:N Match)"
+        },
+        "matchDate": {
+          "type": "string",
+          "description": "The date and time when the match was made.",
+          "format": "date-time"
+        },
+        "matchFeeBilled": {
+          "type": "boolean",
+          "description": "Indicates whether the $20 match fee has been billed to the owner-operator."
+        }
+      },
+      "required": [
+        "id",
+        "driverId",
+        "loadId",
+        "matchDate",
+        "matchFeeBilled"
+      ]
+    },
+    "Subscription": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Subscription",
+      "type": "object",
+      "description": "Represents a subscription for an owner-operator.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Subscription entity."
+        },
+        "ownerOperatorId": {
+          "type": "string",
+          "description": "Reference to OwnerOperator. (Relationship: OwnerOperator 1:N Subscription)"
+        },
+        "startDate": {
+          "type": "string",
+          "description": "The start date of the subscription.",
+          "format": "date-time"
+        },
+        "endDate": {
+          "type": "string",
+          "description": "The end date of the subscription.",
+          "format": "date-time"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Subscription amount."
+        },
+        "status": {
+          "type": "string",
+          "description": "Subscription Status."
+        }
+      },
+      "required": [
+        "id",
+        "ownerOperatorId",
+        "startDate",
+        "endDate",
+        "amount",
+        "status"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/owner_operators/{ownerOperatorId}",
+        "definition": {
+          "entityName": "OwnerOperator",
+          "schema": {
+            "$ref": "#/backend/entities/OwnerOperator"
+          },
+          "description": "Stores information about owner-operators. The `ownerOperatorId` is the Firebase Authentication UID.",
+          "params": [
+            {
+              "name": "ownerOperatorId",
+              "description": "The unique ID of the owner-operator, corresponding to the Firebase Auth UID."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/owner_operators/{ownerOperatorId}/drivers/{driverId}",
+        "definition": {
+          "entityName": "Driver",
+          "schema": {
+            "$ref": "#/backend/entities/Driver"
+          },
+          "description": "Stores information about drivers associated with an owner-operator. Includes denormalized `ownerOperatorId` for authorization independence.",
+          "params": [
+            {
+              "name": "ownerOperatorId",
+              "description": "The unique ID of the owner-operator."
+            },
+            {
+              "name": "driverId",
+              "description": "The unique ID of the driver."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/owner_operators/{ownerOperatorId}/loads/{loadId}",
+        "definition": {
+          "entityName": "Load",
+          "schema": {
+            "$ref": "#/backend/entities/Load"
+          },
+          "description": "Stores information about loads available for transportation. Includes denormalized `ownerOperatorId` for authorization independence.",
+          "params": [
+            {
+              "name": "ownerOperatorId",
+              "description": "The unique ID of the owner-operator."
+            },
+            {
+              "name": "loadId",
+              "description": "The unique ID of the load."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/owner_operators/{ownerOperatorId}/matches/{matchId}",
+        "definition": {
+          "entityName": "Match",
+          "schema": {
+            "$ref": "#/backend/entities/Match"
+          },
+          "description": "Stores information about matches between drivers and loads. Includes denormalized `ownerOperatorId` for authorization independence.",
+          "params": [
+            {
+              "name": "ownerOperatorId",
+              "description": "The unique ID of the owner-operator."
+            },
+            {
+              "name": "matchId",
+              "description": "The unique ID of the match."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/owner_operators/{ownerOperatorId}/subscriptions/{subscriptionId}",
+        "definition": {
+          "entityName": "Subscription",
+          "schema": {
+            "$ref": "#/backend/entities/Subscription"
+          },
+          "description": "Stores subscription information for owner-operators. Includes denormalized `ownerOperatorId` for authorization independence.",
+          "params": [
+            {
+              "name": "ownerOperatorId",
+              "description": "The unique ID of the owner-operator."
+            },
+            {
+              "name": "subscriptionId",
+              "description": "The unique ID of the subscription."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to provide a secure, scalable, and easily maintainable database for the FleetConnect application. The structure prioritizes authorization independence by denormalizing the `ownerOperatorId` into the `drivers`, `loads`, `matches`, and `subscriptions` collections. This eliminates the need for complex `get()` calls in security rules, allowing for atomic operations and easier debugging. The use of hierarchical paths (`/owner_operators/{ownerOperatorId}/drivers/{driverId}`) for entities owned by `ownerOperator` also simplifies the security rules and efficiently retrieves data. Data segregation ensures that each collection has a consistent security posture. The `owner_operators` collection stores the basic information. Each `owner_operator` owns `drivers`, `loads`, `matches`, and `subscriptions`, which are stored in subcollections. This structure allows us to secure data based on ownership and simplifies querying and listing data related to a specific `owner_operator`. The absence of custom claims (DBAC) ensures that roles are managed within the database itself, which is more transparent and manageable.  The design supports required QAPs by segregating the data based on ownership, enabling efficient and secure `list` operations for each `owner_operator`."
+  }
+}
