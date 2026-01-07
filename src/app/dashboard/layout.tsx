@@ -28,7 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from "@/components/logo";
-import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox } from "lucide-react";
+import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2 } from "lucide-react";
 
 // Custom link component that closes sidebar on mobile when clicked
 function SidebarNavLink({ 
@@ -144,6 +144,13 @@ export default function DashboardLayout({
   const [roleChecked, setRoleChecked] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!isUserLoading && !user) {
+      router.push('/login?error=You must be logged in to access this page.');
+    }
+  }, [user, isUserLoading, router]);
+
   // Check user role on mount
   useEffect(() => {
     async function checkRole() {
@@ -180,16 +187,31 @@ export default function DashboardLayout({
     }
   };
 
-  if (isUserLoading || !roleChecked) {
+  // Show loading while checking auth
+  if (isUserLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        Loading...
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
   }
 
+  // Don't render anything if not authenticated (will redirect)
   if (!user) {
-    return null;
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  // Show loading while checking role
+  if (!roleChecked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
   }
 
   return (
