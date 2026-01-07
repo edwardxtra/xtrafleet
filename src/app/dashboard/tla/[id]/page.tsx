@@ -113,8 +113,6 @@ export default function TLAPage() {
       if (!firestore || !user || !tla) return;
       
       try {
-        // Check if current user's ID matches the driver ID
-        // Drivers have their user ID stored in the users collection with role='driver'
         const userDoc = await getDoc(doc(firestore, 'users', user.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data();
@@ -133,15 +131,21 @@ export default function TLAPage() {
   // Can start/end trip: Lessor (Driver Owner) or the actual Driver
   const canControlTrip = isLessor || isDriver;
 
-  // Signing role logic
+  // Signing role logic - UPDATED to allow either party to sign first
   const signingRole = (): 'lessor' | 'lessee' | null => {
     if (!tla || !user) return null;
     
-    if (isLessor && tla.status === 'pending_lessor' && !tla.lessorSignature) {
+    // Check if TLA is in a signable state (not yet fully signed, not voided, not in progress/completed)
+    const signableStatuses = ['pending_lessor', 'pending_lessee', 'draft'];
+    if (!signableStatuses.includes(tla.status)) return null;
+    
+    // Lessor can sign if they haven't signed yet
+    if (isLessor && !tla.lessorSignature) {
       return 'lessor';
     }
     
-    if (isLessee && tla.status === 'pending_lessee' && !tla.lesseeSignature) {
+    // Lessee can sign if they haven't signed yet
+    if (isLessee && !tla.lesseeSignature) {
       return 'lessee';
     }
     
@@ -169,7 +173,6 @@ export default function TLAPage() {
     try {
       const now = new Date().toISOString();
       
-      // Get user's name for the record
       let userName = user.email || 'Unknown';
       if (isLessor) {
         userName = tla.lessor.legalName;
@@ -189,14 +192,12 @@ export default function TLAPage() {
       
       await updateDoc(doc(firestore, `tlas/${tlaId}`), updateData);
       
-      // Update match status
       if (tla.matchId) {
         await updateDoc(doc(firestore, `matches/${tla.matchId}`), {
           status: 'in_progress',
         }).catch(err => console.warn("Could not update match:", err));
       }
       
-      // Update driver availability to "On-trip"
       try {
         const driverRef = doc(firestore, `owner_operators/${tla.lessor.ownerOperatorId}/drivers/${tla.driver.id}`);
         await updateDoc(driverRef, { availability: 'On-trip' });
@@ -204,7 +205,6 @@ export default function TLAPage() {
         console.warn("Could not update driver availability:", err);
       }
       
-      // Send notifications to both parties
       notify.tripStarted({
         recipientEmail: tla.lessor.contactEmail,
         recipientName: tla.lessor.legalName,
@@ -229,7 +229,6 @@ export default function TLAPage() {
       
       showSuccess("Trip started! Both parties have been notified.");
       
-      // Refresh TLA
       const updatedDoc = await getDoc(doc(firestore, `tlas/${tlaId}`));
       if (updatedDoc.exists()) {
         setTla({ id: updatedDoc.id, ...updatedDoc.data() } as TLA);
@@ -255,7 +254,6 @@ export default function TLAPage() {
       const endedAt = new Date();
       const durationMinutes = differenceInMinutes(endedAt, startedAt);
       
-      // Get user's name
       let userName = user.email || 'Unknown';
       if (isLessor) {
         userName = tla.lessor.legalName;
@@ -277,15 +275,12 @@ export default function TLAPage() {
       
       await updateDoc(doc(firestore, `tlas/${tlaId}`), updateData);
       
-      // Update match status
       if (tla.matchId) {
         await updateDoc(doc(firestore, `matches/${tla.matchId}`), {
           status: 'completed',
         }).catch(err => console.warn("Could not update match:", err));
       }
       
-      // Update load status to Delivered
-      // Need to get the loadId from the match
       if (tla.matchId) {
         try {
           const matchDoc = await getDoc(doc(firestore, `matches/${tla.matchId}`));
@@ -305,7 +300,6 @@ export default function TLAPage() {
       
       const tripDurationStr = formatDuration(durationMinutes);
       
-      // Send notifications
       notify.tripCompleted({
         recipientEmail: tla.lessor.contactEmail,
         recipientName: tla.lessor.legalName,
@@ -330,13 +324,11 @@ export default function TLAPage() {
         tripDuration: tripDurationStr,
       }).catch(err => console.error('Failed to notify lessee:', err));
       
-      // Refresh TLA
       const updatedDoc = await getDoc(doc(firestore, `tlas/${tlaId}`));
       if (updatedDoc.exists()) {
         setTla({ id: updatedDoc.id, ...updatedDoc.data() } as TLA);
       }
       
-      // Show completion modal
       setShowTripCompletedModal(true);
       
     } catch (err) {
@@ -405,55 +397,107 @@ export default function TLAPage() {
         updatedAt: new Date().toISOString(),
       };
       
+      // Determine the other party's signature status
+      const otherPartyHasSigned = role === 'lessor' ? !!tla.lesseeSignature : !!tla.lessorSignature;
+      
       if (role === 'lessor') {
         updateData.lessorSignature = signature;
-        updateData.status = 'pending_lessee';
         
-        notify.tlaReady({
-          recipientEmail: tla.lessee.contactEmail,
-          recipientName: tla.lessee.legalName,
-          role: 'lessee',
-          driverName: tla.driver.name,
-          loadOrigin: tla.trip.origin,
-          loadDestination: tla.trip.destination,
-          rate: tla.payment.amount,
-          tlaId: tlaId,
-        }).catch(err => console.error('Failed to send TLA ready notification:', err));
+        if (otherPartyHasSigned) {
+          // Both have now signed
+          updateData.status = 'signed';
+          updateData.signedAt = new Date().toISOString();
+          
+          // Notify both parties that TLA is fully signed
+          notify.tlaSigned({
+            recipientEmail: tla.lessor.contactEmail,
+            recipientName: tla.lessor.legalName,
+            driverName: tla.driver.name,
+            loadOrigin: tla.trip.origin,
+            loadDestination: tla.trip.destination,
+            rate: tla.payment.amount,
+            tlaId: tlaId,
+          }).catch(err => console.error('Failed to send TLA signed notification to lessor:', err));
+          
+          notify.tlaSigned({
+            recipientEmail: tla.lessee.contactEmail,
+            recipientName: tla.lessee.legalName,
+            driverName: tla.driver.name,
+            loadOrigin: tla.trip.origin,
+            loadDestination: tla.trip.destination,
+            rate: tla.payment.amount,
+            tlaId: tlaId,
+          }).catch(err => console.error('Failed to send TLA signed notification to lessee:', err));
+        } else {
+          // Waiting for lessee to sign
+          updateData.status = 'pending_lessee';
+          
+          notify.tlaReady({
+            recipientEmail: tla.lessee.contactEmail,
+            recipientName: tla.lessee.legalName,
+            role: 'lessee',
+            driverName: tla.driver.name,
+            loadOrigin: tla.trip.origin,
+            loadDestination: tla.trip.destination,
+            rate: tla.payment.amount,
+            tlaId: tlaId,
+          }).catch(err => console.error('Failed to send TLA ready notification:', err));
+        }
         
       } else if (role === 'lessee') {
         updateData.lesseeSignature = signature;
-        updateData.status = 'signed';
-        updateData.signedAt = new Date().toISOString();
         updateData.insurance = {
           option: insuranceOption,
           confirmedAt: new Date().toISOString(),
           confirmedBy: user.uid,
         };
         
-        notify.tlaSigned({
-          recipientEmail: tla.lessor.contactEmail,
-          recipientName: tla.lessor.legalName,
-          driverName: tla.driver.name,
-          loadOrigin: tla.trip.origin,
-          loadDestination: tla.trip.destination,
-          rate: tla.payment.amount,
-          tlaId: tlaId,
-        }).catch(err => console.error('Failed to send TLA signed notification to lessor:', err));
-        
-        notify.tlaSigned({
-          recipientEmail: tla.lessee.contactEmail,
-          recipientName: tla.lessee.legalName,
-          driverName: tla.driver.name,
-          loadOrigin: tla.trip.origin,
-          loadDestination: tla.trip.destination,
-          rate: tla.payment.amount,
-          tlaId: tlaId,
-        }).catch(err => console.error('Failed to send TLA signed notification to lessee:', err));
+        if (otherPartyHasSigned) {
+          // Both have now signed
+          updateData.status = 'signed';
+          updateData.signedAt = new Date().toISOString();
+          
+          // Notify both parties that TLA is fully signed
+          notify.tlaSigned({
+            recipientEmail: tla.lessor.contactEmail,
+            recipientName: tla.lessor.legalName,
+            driverName: tla.driver.name,
+            loadOrigin: tla.trip.origin,
+            loadDestination: tla.trip.destination,
+            rate: tla.payment.amount,
+            tlaId: tlaId,
+          }).catch(err => console.error('Failed to send TLA signed notification to lessor:', err));
+          
+          notify.tlaSigned({
+            recipientEmail: tla.lessee.contactEmail,
+            recipientName: tla.lessee.legalName,
+            driverName: tla.driver.name,
+            loadOrigin: tla.trip.origin,
+            loadDestination: tla.trip.destination,
+            rate: tla.payment.amount,
+            tlaId: tlaId,
+          }).catch(err => console.error('Failed to send TLA signed notification to lessee:', err));
+        } else {
+          // Waiting for lessor to sign
+          updateData.status = 'pending_lessor';
+          
+          notify.tlaReady({
+            recipientEmail: tla.lessor.contactEmail,
+            recipientName: tla.lessor.legalName,
+            role: 'lessor',
+            driverName: tla.driver.name,
+            loadOrigin: tla.trip.origin,
+            loadDestination: tla.trip.destination,
+            rate: tla.payment.amount,
+            tlaId: tlaId,
+          }).catch(err => console.error('Failed to send TLA ready notification:', err));
+        }
       }
       
       await updateDoc(doc(firestore, `tlas/${tlaId}`), updateData);
       
-      if (role === 'lessee' && tla.matchId) {
+      // Update match status if both signed
+      if (updateData.status === 'signed' && tla.matchId) {
         try {
           await updateDoc(doc(firestore, `matches/${tla.matchId}`), {
             status: 'tla_signed',
@@ -464,9 +508,9 @@ export default function TLAPage() {
       }
       
       showSuccess(
-        role === 'lessor' 
-          ? "Signed! Waiting for lessee to sign." 
-          : "TLA fully signed! Trip can now begin."
+        otherPartyHasSigned 
+          ? "TLA fully signed! Trip can now begin." 
+          : `Signed! Waiting for ${role === 'lessor' ? 'lessee' : 'lessor'} to sign.`
       );
       
       const updatedDoc = await getDoc(doc(firestore, `tlas/${tlaId}`));
@@ -515,6 +559,25 @@ export default function TLAPage() {
     }
   };
 
+  // Helper to get waiting message
+  const getWaitingMessage = () => {
+    if (!tla || !user) return null;
+    
+    if (tla.status === 'pending_lessor') {
+      if (isLessee && tla.lesseeSignature) {
+        return 'You have signed. Waiting for the driver owner (lessor) to sign.';
+      }
+    }
+    
+    if (tla.status === 'pending_lessee') {
+      if (isLessor && tla.lessorSignature) {
+        return 'You have signed. Waiting for the load owner (lessee) to sign.';
+      }
+    }
+    
+    return null;
+  };
+
   if (isLoading) {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
@@ -555,9 +618,9 @@ export default function TLAPage() {
       <div className="flex items-center justify-between">
         <div>
           <Button asChild variant="ghost" size="sm" className="mb-2">
-            <Link href="/dashboard">
+            <Link href="/dashboard/agreements">
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+              Back to Agreements
             </Link>
           </Button>
           <h1 className="text-2xl font-bold font-headline flex items-center gap-2">
@@ -676,7 +739,7 @@ export default function TLAPage() {
                   <div className="space-y-2 text-xs text-muted-foreground">
                     <p>Fleet B assumes liability for all vehicle and driver operations during the trip.</p>
                     <p>Fleet A confirms that the Driver holds a valid CDL, possesses a current medical certificate, and has a compliant driver qualification file.</p>
-                    {tla.insurance.option && (
+                    {tla.insurance?.option && (
                       <div className="mt-3 p-2 bg-muted rounded">
                         <p className="font-medium text-foreground">
                           {tla.insurance.option === 'existing_policy' 
@@ -789,9 +852,7 @@ export default function TLAPage() {
                     <p className="text-muted-foreground">{formatDate(tla.lesseeSignature.signedAt)}</p>
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground">
-                    {tla.lessorSignature ? 'Awaiting signature' : 'Waiting for lessor'}
-                  </p>
+                  <p className="text-xs text-muted-foreground">Awaiting signature</p>
                 )}
               </div>
             </CardContent>
@@ -976,13 +1037,11 @@ export default function TLAPage() {
           )}
 
           {/* Status Messages */}
-          {!canSign() && isInvolved && tla.status !== 'signed' && tla.status !== 'in_progress' && tla.status !== 'completed' && (
+          {getWaitingMessage() && (
             <Alert>
-              <AlertCircle className="h-4 w-4" />
+              <Clock className="h-4 w-4" />
               <AlertDescription>
-                {tla.status === 'pending_lessor' && isLessee && !isLessor
-                  ? 'Waiting for the driver owner (lessor) to sign first.'
-                  : 'You have already signed this agreement.'}
+                {getWaitingMessage()}
               </AlertDescription>
             </Alert>
           )}

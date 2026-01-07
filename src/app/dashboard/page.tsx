@@ -37,13 +37,13 @@ import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebas
 import { collection, query, where } from 'firebase/firestore';
 import type { Driver, Load, Match } from '@/lib/data';
 import { showSuccess, showError } from '@/lib/toast-utils';
+import { ActiveAgreementsWidget } from '@/components/active-agreements-widget';
 
 export default function Dashboard() {
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
   const [isOnline, setIsOnline] = useState(true);
 
-  // Network status detection
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -73,7 +73,6 @@ export default function Dashboard() {
     return query(collection(firestore, `owner_operators/${user.uid}/loads`), where("status", "==", "Pending"));
   }, [firestore, user?.uid]);
 
-  // Query matches where user is load owner
   const matchesQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
     return query(
@@ -82,7 +81,6 @@ export default function Dashboard() {
     );
   }, [firestore, user?.uid]);
 
-  // Also get matches where user is driver owner
   const incomingMatchesQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
     return query(
@@ -96,7 +94,6 @@ export default function Dashboard() {
   const { data: outgoingMatches, isLoading: matchesLoading } = useCollection<Match>(matchesQuery);
   const { data: incomingMatches, isLoading: incomingLoading } = useCollection<Match>(incomingMatchesQuery);
 
-  // Combine and deduplicate matches
   const allMatches = [...(outgoingMatches || []), ...(incomingMatches || [])].reduce((acc, match) => {
     if (!acc.find(m => m.id === match.id)) {
       acc.push(match);
@@ -104,12 +101,10 @@ export default function Dashboard() {
     return acc;
   }, [] as Match[]);
 
-  // Sort by createdAt desc and take recent 5
   const recentMatches = allMatches
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5);
 
-  // Count matches this month
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const matchesThisMonth = allMatches.filter(m => new Date(m.createdAt) >= startOfMonth).length;
@@ -120,7 +115,6 @@ export default function Dashboard() {
   const isLoading = isUserLoading || driversLoading || loadsLoading || matchesLoading || incomingLoading;
   const hasError = driversError || loadsError;
 
-  // Show error toast if there's an error
   useEffect(() => {
     if (driversError) {
       showError('Failed to load drivers data');
@@ -153,10 +147,9 @@ export default function Dashboard() {
     }
   };
 
-  // Loading skeleton
   if (isLoading) {
     return (
-      <>
+      <div className="space-y-6">
         <div className="flex items-center">
           <Skeleton className="h-8 w-48" />
         </div>
@@ -174,35 +167,18 @@ export default function Dashboard() {
             </Card>
           ))}
         </div>
-        <div className="grid gap-4 md:gap-8 lg:grid-cols-2 xl:grid-cols-3">
-          <Card className="xl:col-span-2">
-            <CardHeader>
-              <Skeleton className="h-6 w-32 mb-2" />
-              <Skeleton className="h-4 w-64" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-[400px] w-full" />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <Skeleton className="h-6 w-32 mb-2" />
-              <Skeleton className="h-4 w-48" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-48 w-full" />
-            </CardContent>
-          </Card>
+        <div className="grid gap-4 md:gap-8 lg:grid-cols-2">
+          <Skeleton className="h-[300px]" />
+          <Skeleton className="h-[300px]" />
         </div>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
-      {/* Offline Banner */}
+    <div className="space-y-6">
       {!isOnline && (
-        <Alert variant="destructive" className="mb-4">
+        <Alert variant="destructive">
           <WifiOff className="h-4 w-4" />
           <AlertDescription>
             You are currently offline. Data may not be up to date.
@@ -210,9 +186,8 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      {/* Error Banner */}
       {hasError && (
-        <Alert variant="destructive" className="mb-4">
+        <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             Some data failed to load. 
@@ -232,6 +207,7 @@ export default function Dashboard() {
           Dashboard
         </h1>
       </div>
+      
       <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -296,28 +272,10 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
-      <div className="grid gap-4 md:gap-8 lg:grid-cols-2 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader className="flex flex-row items-center">
-            <div className="grid gap-2">
-              <CardTitle className="font-headline">Live Fleet Map</CardTitle>
-              <CardDescription>
-                Real-time locations of available drivers and pending loads.
-              </CardDescription>
-            </div>
-            <Button asChild size="sm" className="ml-auto gap-1">
-              <Link href="#">
-                View All
-                <ArrowUpRight className="h-4 w-4" />
-              </Link>
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col items-center justify-center h-[400px] bg-muted rounded-lg">
-              <p className="text-muted-foreground">Live map coming soon</p>
-            </div>
-          </CardContent>
-        </Card>
+
+      {/* Active Agreements Widget + Recent Matches */}
+      <div className="grid gap-4 md:gap-8 lg:grid-cols-2">
+        <ActiveAgreementsWidget />
         <Card>
           <CardHeader>
             <CardTitle className="font-headline">Recent Matches</CardTitle>
@@ -358,7 +316,7 @@ export default function Dashboard() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {match.tlaId && (match.status === 'tla_pending' || match.status === 'tla_signed') ? (
+                        {match.tlaId && ['tla_pending', 'tla_signed', 'in_progress', 'completed'].includes(match.status) ? (
                           <Link href={`/dashboard/tla/${match.tlaId}`}>
                             {getStatusBadge(match.status)}
                           </Link>
@@ -377,6 +335,29 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
-    </>
+
+      {/* Map Section */}
+      <Card>
+        <CardHeader className="flex flex-row items-center">
+          <div className="grid gap-2">
+            <CardTitle className="font-headline">Live Fleet Map</CardTitle>
+            <CardDescription>
+              Real-time locations of available drivers and pending loads.
+            </CardDescription>
+          </div>
+          <Button asChild size="sm" className="ml-auto gap-1">
+            <Link href="#">
+              View All
+              <ArrowUpRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col items-center justify-center h-[300px] bg-muted rounded-lg">
+            <p className="text-muted-foreground">Live map coming soon</p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

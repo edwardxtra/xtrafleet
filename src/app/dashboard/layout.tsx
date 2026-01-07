@@ -28,7 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from "@/components/logo";
-import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2 } from "lucide-react";
+import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText } from "lucide-react";
 
 // Custom link component that closes sidebar on mobile when clicked
 function SidebarNavLink({ 
@@ -102,6 +102,12 @@ function SidebarNav({ onSignOutClick }: { onSignOutClick: () => void }) {
             <SidebarNavLink href="/dashboard/incoming-matches" tooltip="Incoming Requests">
               <Inbox />
               <span>Incoming Requests</span>
+            </SidebarNavLink>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarNavLink href="/dashboard/agreements" tooltip="Agreements">
+              <FileText />
+              <span>Agreements</span>
             </SidebarNavLink>
           </SidebarMenuItem>
         </SidebarMenu>
