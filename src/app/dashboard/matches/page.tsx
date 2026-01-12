@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -19,10 +19,11 @@ import {
   Trophy,
   MapPin,
   AlertCircle,
-  Info
+  Info,
+  Building2
 } from "lucide-react";
 import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, query, where, collectionGroup } from 'firebase/firestore';
+import { collection, query, where, collectionGroup, doc, getDoc } from 'firebase/firestore';
 import { getComplianceStatus, ComplianceStatus } from "@/lib/compliance";
 import { 
   findMatchingDrivers, 
@@ -44,6 +45,7 @@ export default function MatchesPage() {
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [matchModalOpen, setMatchModalOpen] = useState(false);
   const [selectedMatchScore, setSelectedMatchScore] = useState<MatchScore | null>(null);
+  const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
   
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
@@ -65,6 +67,36 @@ export default function MatchesPage() {
 
   const { data: pendingLoads, isLoading: loadsLoading } = useCollection<Load>(loadsQuery);
   const { data: allDrivers, isLoading: driversLoading } = useCollection<Driver>(driversQuery);
+
+  // Fetch owner company names for drivers
+  useEffect(() => {
+    async function fetchOwnerNames() {
+      if (!firestore || !allDrivers) return;
+      
+      const ownerIds = [...new Set(allDrivers.map(d => d.ownerId).filter(Boolean))];
+      const names: Record<string, string> = {};
+      
+      for (const ownerId of ownerIds) {
+        if (ownerId && !ownerNames[ownerId]) {
+          try {
+            const ownerDoc = await getDoc(doc(firestore, 'owner_operators', ownerId));
+            if (ownerDoc.exists()) {
+              const data = ownerDoc.data();
+              names[ownerId] = data.companyName || data.legalName || 'Unknown Fleet';
+            }
+          } catch (e) {
+            console.error('Error fetching owner:', e);
+          }
+        }
+      }
+      
+      if (Object.keys(names).length > 0) {
+        setOwnerNames(prev => ({ ...prev, ...names }));
+      }
+    }
+    
+    fetchOwnerNames();
+  }, [firestore, allDrivers]);
 
   // Filter to only show:
   // 1. Available drivers
@@ -111,12 +143,16 @@ export default function MatchesPage() {
     ? findMatchingLoads(selectedDriver, pendingLoads, { maxResults: 10 })
     : [];
   
-  const getComplianceBadgeVariant = (status: ComplianceStatus) => {
+  const getComplianceBadgeStyle = (status: ComplianceStatus) => {
     switch (status) {
-      case 'Green': return 'default';
-      case 'Yellow': return 'secondary';
-      case 'Red': return 'destructive';
-      default: return 'outline';
+      case 'Green': 
+        return 'bg-green-100 text-green-800 border-green-300 hover:bg-green-100';
+      case 'Yellow': 
+        return 'bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-100';
+      case 'Red': 
+        return 'bg-red-100 text-red-800 border-red-300 hover:bg-red-100';
+      default: 
+        return '';
     }
   };
 
@@ -194,6 +230,7 @@ export default function MatchesPage() {
                   ) : availableGreenDrivers.length > 0 ? (
                     availableGreenDrivers.map((driver) => {
                       const complianceStatus = getComplianceStatus(driver);
+                      const companyName = driver.ownerId ? ownerNames[driver.ownerId] : null;
                       return (
                         <div key={driver.id}>
                           <button
@@ -206,7 +243,7 @@ export default function MatchesPage() {
                               <div>
                                 <div className="flex items-center gap-2">
                                   <p className="font-semibold">{driver.name}</p>
-                                  <Badge variant={getComplianceBadgeVariant(complianceStatus)} className="text-xs">
+                                  <Badge className={getComplianceBadgeStyle(complianceStatus)}>
                                     <ShieldCheck className="h-3 w-3 mr-1" />
                                     {complianceStatus}
                                   </Badge>
@@ -214,6 +251,12 @@ export default function MatchesPage() {
                                 <p className="text-sm text-muted-foreground">
                                   {driver.location} • {driver.vehicleType}
                                 </p>
+                                {companyName && (
+                                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                                    <Building2 className="h-3 w-3" />
+                                    {companyName}
+                                  </p>
+                                )}
                                 {driver.rating && (
                                   <div className="flex items-center gap-1 mt-1">
                                     <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
@@ -246,12 +289,12 @@ export default function MatchesPage() {
         </div>
         
         {/* Matches Panel */}
-        <Card className="lg:col-span-1 flex flex-col">
-          <CardHeader>
+        <Card className="lg:col-span-1 flex flex-col min-w-0 overflow-hidden">
+          <CardHeader className="flex-shrink-0">
             <CardTitle className="font-headline flex items-center gap-2">
               <Link2 /> Ranked Matches
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="truncate">
               {selectedLoad 
                 ? `Top driver matches for load to ${selectedLoad.destination}` 
                 : selectedDriver 
@@ -259,13 +302,14 @@ export default function MatchesPage() {
                   : "Select a load or driver to see matches"}
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex-grow overflow-hidden">
+          <CardContent className="flex-grow overflow-hidden min-w-0">
             {selectedLoad ? (
               driverMatches.length > 0 ? (
                 <ScrollArea className="h-full">
                   <div className="space-y-4 p-1">
                     {driverMatches.map((match) => {
                       const complianceStatus = getComplianceStatus(match.driver);
+                      const companyName = match.driver.ownerId ? ownerNames[match.driver.ownerId] : null;
                       return (
                         <Card 
                           key={match.driver.id} 
@@ -282,23 +326,29 @@ export default function MatchesPage() {
                           )}
                           
                           <CardHeader className="pb-2">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <div className="flex items-center gap-2">
+                            <div className="flex justify-between items-start gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-lg font-bold text-muted-foreground">
                                     #{match.rank}
                                   </span>
                                   <CardTitle className="text-lg flex items-center gap-2">
-                                    <User className="h-4 w-4" />
-                                    {match.driver.name}
+                                    <User className="h-4 w-4 flex-shrink-0" />
+                                    <span className="truncate">{match.driver.name}</span>
                                   </CardTitle>
                                 </div>
                                 <CardDescription className="flex items-center gap-1">
-                                  <MapPin className="h-3 w-3" />
-                                  {match.driver.location}
+                                  <MapPin className="h-3 w-3 flex-shrink-0" />
+                                  <span className="truncate">{match.driver.location}</span>
                                 </CardDescription>
+                                {companyName && (
+                                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                                    <Building2 className="h-3 w-3 flex-shrink-0" />
+                                    <span className="truncate">{companyName}</span>
+                                  </p>
+                                )}
                               </div>
-                              <Badge variant={getComplianceBadgeVariant(complianceStatus)}>
+                              <Badge className={`flex-shrink-0 ${getComplianceBadgeStyle(complianceStatus)}`}>
                                 <ShieldCheck className="h-3 w-3 mr-1" />
                                 {complianceStatus}
                               </Badge>
@@ -425,22 +475,22 @@ export default function MatchesPage() {
                         
                         <CardHeader className="pb-2">
                           <div className="flex justify-between items-start">
-                            <div>
+                            <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
                                 <span className="text-lg font-bold text-muted-foreground">
                                   #{match.rank}
                                 </span>
                                 <CardTitle className="text-lg flex items-center gap-2">
-                                  <Truck className="h-4 w-4" />
-                                  {match.load.origin} → {match.load.destination}
+                                  <Truck className="h-4 w-4 flex-shrink-0" />
+                                  <span className="truncate">{match.load.origin} → {match.load.destination}</span>
                                 </CardTitle>
                               </div>
-                              <CardDescription>
+                              <CardDescription className="truncate">
                                 {match.load.cargo} • {match.load.weight.toLocaleString()} lbs
                               </CardDescription>
                             </div>
                             {match.load.price && (
-                              <Badge variant="secondary" className="text-green-600">
+                              <Badge variant="secondary" className="text-green-600 flex-shrink-0">
                                 ${match.load.price.toLocaleString()}
                               </Badge>
                             )}

@@ -127,7 +127,7 @@ function SidebarNav({ onSignOutClick }: { onSignOutClick: () => void }) {
             </SidebarNavLink>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarNavLink href="/contact" tooltip="Contact Us">
+            <SidebarNavLink href="/dashboard/contact" tooltip="Contact Us">
               <HelpCircle />
               <span>Contact Us</span>
             </SidebarNavLink>
