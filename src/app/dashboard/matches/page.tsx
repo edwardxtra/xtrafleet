@@ -23,8 +23,8 @@ import {
   Building2,
   Lock
 } from "lucide-react";
-import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, query, where, collectionGroup, doc, getDoc } from 'firebase/firestore';
+import { useUser, useFirestore, useMemoFirebase } from "@/firebase";
+import { collection, query, where, collectionGroup, doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { getComplianceStatus, ComplianceStatus } from "@/lib/compliance";
 import { 
   findMatchingDrivers, 
@@ -41,35 +41,73 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { MatchRequestModal } from "@/components/match-request-modal";
 
+type DriverWithOwner = Driver & { ownerId: string };
+
 export default function MatchesPage() {
   const [selectedLoad, setSelectedLoad] = useState<Load | null>(null);
-  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+  const [selectedDriver, setSelectedDriver] = useState<DriverWithOwner | null>(null);
   const [matchModalOpen, setMatchModalOpen] = useState(false);
   const [selectedMatchScore, setSelectedMatchScore] = useState<MatchScore | null>(null);
   const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
+  const [allDrivers, setAllDrivers] = useState<DriverWithOwner[]>([]);
+  const [driversLoading, setDriversLoading] = useState(true);
+  const [pendingLoads, setPendingLoads] = useState<Load[]>([]);
+  const [loadsLoading, setLoadsLoading] = useState(true);
   
-  const { user, isUserLoading } = useUser();
+  const { user } = useUser();
   const firestore = useFirestore();
 
-  const loadsQuery = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return query(
+  // Subscribe to pending loads
+  useEffect(() => {
+    if (!firestore || !user?.uid) return;
+    
+    const loadsRef = query(
       collection(firestore, `owner_operators/${user.uid}/loads`), 
       where("status", "==", "Pending")
     );
+    
+    const unsubscribe = onSnapshot(loadsRef, (snapshot) => {
+      const loads = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Load));
+      setPendingLoads(loads);
+      setLoadsLoading(false);
+    });
+    
+    return () => unsubscribe();
   }, [firestore, user?.uid]);
 
-  const driversQuery = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return collectionGroup(firestore, 'drivers');
+  // Subscribe to ALL drivers using collection group query
+  // Extract ownerId from document path
+  useEffect(() => {
+    if (!firestore || !user?.uid) return;
+    
+    const driversRef = collectionGroup(firestore, 'drivers');
+    
+    const unsubscribe = onSnapshot(driversRef, (snapshot) => {
+      const drivers: DriverWithOwner[] = [];
+      
+      snapshot.docs.forEach(docSnap => {
+        // Path is: owner_operators/{ownerId}/drivers/{driverId}
+        const pathParts = docSnap.ref.path.split('/');
+        const ownerId = pathParts[1]; // Extract ownerId from path
+        
+        drivers.push({
+          ...docSnap.data() as Driver,
+          id: docSnap.id,
+          ownerId: ownerId,
+        });
+      });
+      
+      setAllDrivers(drivers);
+      setDriversLoading(false);
+    });
+    
+    return () => unsubscribe();
   }, [firestore, user?.uid]);
 
-  const { data: pendingLoads, isLoading: loadsLoading } = useCollection<Load>(loadsQuery);
-  const { data: allDrivers, isLoading: driversLoading } = useCollection<Driver>(driversQuery);
-
+  // Fetch owner company names
   useEffect(() => {
     async function fetchOwnerNames() {
-      if (!firestore || !allDrivers) return;
+      if (!firestore || !allDrivers.length) return;
       const ownerIds = [...new Set(allDrivers.map(d => d.ownerId).filter(Boolean))];
       const names: Record<string, string> = {};
       for (const ownerId of ownerIds) {
@@ -92,18 +130,19 @@ export default function MatchesPage() {
     fetchOwnerNames();
   }, [firestore, allDrivers]);
 
-  const displayDrivers = allDrivers?.filter(driver => {
+  // Filter drivers for display: Available, Green compliance, Active
+  const displayDrivers = allDrivers.filter(driver => {
     const status = getComplianceStatus(driver);
     const isActive = driver.isActive !== false;
     return isActive && driver.availability === 'Available' && status === 'Green';
-  }) || [];
+  });
 
   const handleLoadSelect = (load: Load) => {
     setSelectedLoad(load);
     setSelectedDriver(null);
   };
 
-  const handleDriverSelect = (driver: Driver) => {
+  const handleDriverSelect = (driver: DriverWithOwner) => {
     if (driver.ownerId === user?.uid) return;
     setSelectedDriver(driver);
     setSelectedLoad(null);
@@ -119,15 +158,16 @@ export default function MatchesPage() {
     setSelectedMatchScore(null);
   };
 
-  const driverMatches = selectedLoad && allDrivers 
-    ? findMatchingDrivers(selectedLoad, allDrivers.filter(d => d.ownerId !== user?.uid && d.isActive !== false), { 
-        onlyGreenCompliance: true, 
-        onlyAvailable: true,
-        maxResults: 10 
-      })
+  // Get ranked matches - exclude own drivers
+  const driverMatches = selectedLoad && allDrivers.length > 0
+    ? findMatchingDrivers(
+        selectedLoad, 
+        allDrivers.filter(d => d.ownerId !== user?.uid && d.isActive !== false), 
+        { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10 }
+      )
     : [];
 
-  const loadMatches = selectedDriver && pendingLoads
+  const loadMatches = selectedDriver && pendingLoads.length > 0
     ? findMatchingLoads(selectedDriver, pendingLoads, { maxResults: 10 })
     : [];
   
@@ -144,6 +184,7 @@ export default function MatchesPage() {
     <TooltipProvider>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-8rem)]">
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 h-full">
+          {/* Pending Loads */}
           <Card className="flex flex-col h-full overflow-hidden">
             <CardHeader className="flex-shrink-0">
               <CardTitle className="font-headline flex items-center gap-2">
@@ -156,14 +197,14 @@ export default function MatchesPage() {
                 <div className="p-6 pt-0">
                   {loadsLoading ? (
                     <div className="p-6 text-center text-muted-foreground">Loading loads...</div>
-                  ) : pendingLoads && pendingLoads.length > 0 ? (
+                  ) : pendingLoads.length > 0 ? (
                     pendingLoads.map((load) => (
                       <div key={load.id}>
                         <button onClick={() => handleLoadSelect(load)} className={`w-full text-left p-3 rounded-lg transition-colors ${selectedLoad?.id === load.id ? 'bg-muted' : 'hover:bg-muted/50'}`}>
                           <div className="flex justify-between items-start">
                             <div>
                               <p className="font-semibold">{load.origin} → {load.destination}</p>
-                              <p className="text-sm text-muted-foreground">{load.cargo} • {load.weight.toLocaleString()} lbs</p>
+                              <p className="text-sm text-muted-foreground">{load.cargo} • {load.weight?.toLocaleString()} lbs</p>
                               {load.price && <p className="text-sm font-medium text-green-600">${load.price.toLocaleString()}</p>}
                             </div>
                             {selectedLoad?.id === load.id && <CheckCircle className="h-5 w-5 text-primary" />}
@@ -180,6 +221,7 @@ export default function MatchesPage() {
             </CardContent>
           </Card>
           
+          {/* Available Drivers */}
           <Card className="flex flex-col h-full overflow-hidden">
             <CardHeader className="flex-shrink-0">
               <CardTitle className="font-headline flex items-center gap-2">
@@ -199,19 +241,48 @@ export default function MatchesPage() {
                       const isOwnDriver = driver.ownerId === user?.uid;
                       return (
                         <div key={driver.id}>
-                          <button onClick={() => handleDriverSelect(driver)} disabled={isOwnDriver} className={`w-full text-left p-3 rounded-lg transition-colors ${isOwnDriver ? 'opacity-50 cursor-not-allowed bg-muted/30' : selectedDriver?.id === driver.id ? 'bg-muted' : 'hover:bg-muted/50'}`}>
+                          <button 
+                            onClick={() => handleDriverSelect(driver)} 
+                            disabled={isOwnDriver} 
+                            className={`w-full text-left p-3 rounded-lg transition-colors ${
+                              isOwnDriver 
+                                ? 'opacity-50 cursor-not-allowed bg-muted/30' 
+                                : selectedDriver?.id === driver.id 
+                                  ? 'bg-muted' 
+                                  : 'hover:bg-muted/50'
+                            }`}
+                          >
                             <div className="flex justify-between items-start">
                               <div>
                                 <div className="flex items-center gap-2">
                                   <p className="font-semibold">{driver.name}</p>
-                                  {isOwnDriver && <Badge variant="outline" className="text-xs"><Lock className="h-3 w-3 mr-1" />Your Driver</Badge>}
-                                  {!isOwnDriver && <Badge className={getComplianceBadgeStyle(complianceStatus)}><ShieldCheck className="h-3 w-3 mr-1" />{complianceStatus}</Badge>}
+                                  {isOwnDriver && (
+                                    <Badge variant="outline" className="text-xs">
+                                      <Lock className="h-3 w-3 mr-1" />Your Driver
+                                    </Badge>
+                                  )}
+                                  {!isOwnDriver && (
+                                    <Badge className={getComplianceBadgeStyle(complianceStatus)}>
+                                      <ShieldCheck className="h-3 w-3 mr-1" />{complianceStatus}
+                                    </Badge>
+                                  )}
                                 </div>
                                 <p className="text-sm text-muted-foreground">{driver.location} • {driver.vehicleType}</p>
-                                {companyName && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Building2 className="h-3 w-3" />{companyName}</p>}
-                                {driver.rating && !isOwnDriver && <div className="flex items-center gap-1 mt-1"><Star className="h-3 w-3 fill-yellow-400 text-yellow-400" /><span className="text-xs">{driver.rating.toFixed(1)}</span></div>}
+                                {companyName && (
+                                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                                    <Building2 className="h-3 w-3" />{companyName}
+                                  </p>
+                                )}
+                                {driver.rating && !isOwnDriver && (
+                                  <div className="flex items-center gap-1 mt-1">
+                                    <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                    <span className="text-xs">{driver.rating.toFixed(1)}</span>
+                                  </div>
+                                )}
                               </div>
-                              {selectedDriver?.id === driver.id && !isOwnDriver && <CheckCircle className="h-5 w-5 text-primary" />}
+                              {selectedDriver?.id === driver.id && !isOwnDriver && (
+                                <CheckCircle className="h-5 w-5 text-primary" />
+                              )}
                             </div>
                           </button>
                           <Separator className="my-1" />
@@ -231,10 +302,19 @@ export default function MatchesPage() {
           </Card>
         </div>
         
+        {/* Ranked Matches Panel */}
         <Card className="lg:col-span-1 flex flex-col h-full overflow-hidden">
           <CardHeader className="flex-shrink-0">
-            <CardTitle className="font-headline flex items-center gap-2"><Link2 className="h-5 w-5" /> Ranked Matches</CardTitle>
-            <CardDescription className="truncate">{selectedLoad ? `Top driver matches for load to ${selectedLoad.destination}` : selectedDriver ? `Top load matches for ${selectedDriver.name}` : "Select a load or driver to see matches"}</CardDescription>
+            <CardTitle className="font-headline flex items-center gap-2">
+              <Link2 className="h-5 w-5" /> Ranked Matches
+            </CardTitle>
+            <CardDescription className="truncate">
+              {selectedLoad 
+                ? `Top driver matches for load to ${selectedLoad.destination}` 
+                : selectedDriver 
+                  ? `Top load matches for ${selectedDriver.name}` 
+                  : "Select a load or driver to see matches"}
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex-1 overflow-hidden p-0">
             <ScrollArea className="h-full">
@@ -247,32 +327,61 @@ export default function MatchesPage() {
                         const companyName = match.driver.ownerId ? ownerNames[match.driver.ownerId] : null;
                         return (
                           <Card key={match.driver.id} className={`shadow-none overflow-hidden ${match.isBestMatch ? 'ring-2 ring-primary' : ''}`}>
-                            {match.isBestMatch && <div className="bg-primary text-primary-foreground px-3 py-1.5 flex items-center gap-2 text-sm font-medium"><Trophy className="h-4 w-4" />Best Match</div>}
+                            {match.isBestMatch && (
+                              <div className="bg-primary text-primary-foreground px-3 py-1.5 flex items-center gap-2 text-sm font-medium">
+                                <Trophy className="h-4 w-4" />Best Match
+                              </div>
+                            )}
                             <CardHeader className="pb-2">
                               <div className="flex justify-between items-start gap-2">
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-lg font-bold text-muted-foreground">#{match.rank}</span>
-                                    <CardTitle className="text-base flex items-center gap-1"><User className="h-4 w-4 flex-shrink-0" /><span className="truncate">{match.driver.name}</span></CardTitle>
+                                    <CardTitle className="text-base flex items-center gap-1">
+                                      <User className="h-4 w-4 flex-shrink-0" />
+                                      <span className="truncate">{match.driver.name}</span>
+                                    </CardTitle>
                                   </div>
-                                  <CardDescription className="flex items-center gap-1 text-xs"><MapPin className="h-3 w-3 flex-shrink-0" /><span className="truncate">{match.driver.location}</span></CardDescription>
-                                  {companyName && <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Building2 className="h-3 w-3 flex-shrink-0" /><span className="truncate">{companyName}</span></p>}
+                                  <CardDescription className="flex items-center gap-1 text-xs">
+                                    <MapPin className="h-3 w-3 flex-shrink-0" />
+                                    <span className="truncate">{match.driver.location}</span>
+                                  </CardDescription>
+                                  {companyName && (
+                                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                                      <Building2 className="h-3 w-3 flex-shrink-0" />
+                                      <span className="truncate">{companyName}</span>
+                                    </p>
+                                  )}
                                 </div>
-                                <Badge className={`flex-shrink-0 text-xs ${getComplianceBadgeStyle(complianceStatus)}`}><ShieldCheck className="h-3 w-3 mr-1" />{complianceStatus}</Badge>
+                                <Badge className={`flex-shrink-0 text-xs ${getComplianceBadgeStyle(complianceStatus)}`}>
+                                  <ShieldCheck className="h-3 w-3 mr-1" />{complianceStatus}
+                                </Badge>
                               </div>
                             </CardHeader>
                             <CardContent className="pb-2">
                               <div className="mb-3">
-                                <div className="flex justify-between text-sm mb-1"><span className="text-muted-foreground">Match Score</span><span className="font-semibold">{match.score}/100</span></div>
+                                <div className="flex justify-between text-sm mb-1">
+                                  <span className="text-muted-foreground">Match Score</span>
+                                  <span className="font-semibold">{match.score}/100</span>
+                                </div>
                                 <Progress value={match.score} className="h-2" />
                                 <p className="text-xs text-muted-foreground mt-1">{getMatchQualityLabel(match.score)}</p>
                               </div>
                               <div className="flex gap-1 flex-wrap mb-2">
                                 <Badge variant="secondary" className="text-xs">{match.driver.vehicleType}</Badge>
-                                {match.driver.rating && <Badge variant="outline" className="flex items-center gap-1 text-xs"><Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />{match.driver.rating.toFixed(1)}</Badge>}
+                                {match.driver.rating && (
+                                  <Badge variant="outline" className="flex items-center gap-1 text-xs">
+                                    <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                    {match.driver.rating.toFixed(1)}
+                                  </Badge>
+                                )}
                               </div>
                               <Tooltip>
-                                <TooltipTrigger asChild><button className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"><Info className="h-3 w-3" />View score breakdown</button></TooltipTrigger>
+                                <TooltipTrigger asChild>
+                                  <button className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                                    <Info className="h-3 w-3" />View score breakdown
+                                  </button>
+                                </TooltipTrigger>
                                 <TooltipContent side="left" className="w-64">
                                   <p className="font-semibold mb-2">Score Breakdown</p>
                                   <div className="space-y-1 text-xs">
@@ -287,7 +396,11 @@ export default function MatchesPage() {
                                 </TooltipContent>
                               </Tooltip>
                             </CardContent>
-                            <CardFooter className="pt-0"><Button variant="default" size="sm" className="ml-auto" onClick={() => handleSelectDriver(match)}>Select Driver<ArrowRight className="h-4 w-4 ml-1" /></Button></CardFooter>
+                            <CardFooter className="pt-0">
+                              <Button variant="default" size="sm" className="ml-auto" onClick={() => handleSelectDriver(match)}>
+                                Select Driver<ArrowRight className="h-4 w-4 ml-1" />
+                              </Button>
+                            </CardFooter>
                           </Card>
                         );
                       })}
@@ -304,26 +417,46 @@ export default function MatchesPage() {
                     <div className="space-y-4">
                       {loadMatches.map((match) => (
                         <Card key={match.load.id} className={`shadow-none overflow-hidden ${match.isBestMatch ? 'ring-2 ring-primary' : ''}`}>
-                          {match.isBestMatch && <div className="bg-primary text-primary-foreground px-3 py-1.5 flex items-center gap-2 text-sm font-medium"><Trophy className="h-4 w-4" />Best Match</div>}
+                          {match.isBestMatch && (
+                            <div className="bg-primary text-primary-foreground px-3 py-1.5 flex items-center gap-2 text-sm font-medium">
+                              <Trophy className="h-4 w-4" />Best Match
+                            </div>
+                          )}
                           <CardHeader className="pb-2">
                             <div className="flex justify-between items-start">
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
                                   <span className="text-lg font-bold text-muted-foreground">#{match.rank}</span>
-                                  <CardTitle className="text-base flex items-center gap-1"><Truck className="h-4 w-4 flex-shrink-0" /><span className="truncate">{match.load.origin} → {match.load.destination}</span></CardTitle>
+                                  <CardTitle className="text-base flex items-center gap-1">
+                                    <Truck className="h-4 w-4 flex-shrink-0" />
+                                    <span className="truncate">{match.load.origin} → {match.load.destination}</span>
+                                  </CardTitle>
                                 </div>
-                                <CardDescription className="truncate text-xs">{match.load.cargo} • {match.load.weight.toLocaleString()} lbs</CardDescription>
+                                <CardDescription className="truncate text-xs">
+                                  {match.load.cargo} • {match.load.weight?.toLocaleString()} lbs
+                                </CardDescription>
                               </div>
-                              {match.load.price && <Badge variant="secondary" className="text-green-600 flex-shrink-0 text-xs">${match.load.price.toLocaleString()}</Badge>}
+                              {match.load.price && (
+                                <Badge variant="secondary" className="text-green-600 flex-shrink-0 text-xs">
+                                  ${match.load.price.toLocaleString()}
+                                </Badge>
+                              )}
                             </div>
                           </CardHeader>
                           <CardContent className="pb-2">
                             <div className="mb-3">
-                              <div className="flex justify-between text-sm mb-1"><span className="text-muted-foreground">Match Score</span><span className="font-semibold">{match.score}/100</span></div>
+                              <div className="flex justify-between text-sm mb-1">
+                                <span className="text-muted-foreground">Match Score</span>
+                                <span className="font-semibold">{match.score}/100</span>
+                              </div>
                               <Progress value={match.score} className="h-2" />
                             </div>
                           </CardContent>
-                          <CardFooter className="pt-0"><Button variant="default" size="sm" className="ml-auto">Select Load<ArrowRight className="h-4 w-4 ml-1" /></Button></CardFooter>
+                          <CardFooter className="pt-0">
+                            <Button variant="default" size="sm" className="ml-auto">
+                              Select Load<ArrowRight className="h-4 w-4 ml-1" />
+                            </Button>
+                          </CardFooter>
                         </Card>
                       ))}
                     </div>
@@ -356,7 +489,13 @@ export default function MatchesPage() {
       </div>
 
       {selectedLoad && selectedMatchScore && (
-        <MatchRequestModal open={matchModalOpen} onOpenChange={setMatchModalOpen} load={selectedLoad} matchScore={selectedMatchScore} onSuccess={handleMatchSuccess} />
+        <MatchRequestModal 
+          open={matchModalOpen} 
+          onOpenChange={setMatchModalOpen} 
+          load={selectedLoad} 
+          matchScore={selectedMatchScore} 
+          onSuccess={handleMatchSuccess} 
+        />
       )}
     </TooltipProvider>
   );
