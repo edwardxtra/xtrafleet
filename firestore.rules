@@ -9,6 +9,12 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/owner_operators/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/owner_operators/$(request.auth.uid)).data.isAdmin == true;
+    }
+
     match /users/{userId} {
       allow get: if isSignedIn() && isOwner(userId);
       allow list: if false;
@@ -24,20 +30,22 @@ service cloud.firestore {
 
     match /owner_operators/{ownerOperatorId} {
       allow get: if isSignedIn();
-      allow list: if false;
+      allow list: if isAdmin();
       allow create: if isSignedIn() && isOwner(ownerOperatorId);
-      allow update: if isSignedIn() && isOwner(ownerOperatorId);
+      allow update: if isSignedIn() && (isOwner(ownerOperatorId) || isAdmin());
       allow delete: if isSignedIn() && isOwner(ownerOperatorId);
 
       match /drivers/{driverId} {
         allow read: if isSignedIn();
+        allow list: if isSignedIn();
         allow create: if isSignedIn() && isOwner(ownerOperatorId);
         allow update: if isSignedIn() && (isOwner(ownerOperatorId) || request.auth.uid == driverId);
         allow delete: if isSignedIn() && isOwner(ownerOperatorId);
       }
 
       match /loads/{loadId} {
-        allow read: if isSignedIn() && isOwner(ownerOperatorId);
+        allow read: if isSignedIn() && (isOwner(ownerOperatorId) || isAdmin());
+        allow list: if isSignedIn() && (isOwner(ownerOperatorId) || isAdmin());
         allow write: if isSignedIn() && isOwner(ownerOperatorId);
       }
 
@@ -50,6 +58,11 @@ service cloud.firestore {
     // Collection Group Query for drivers - allows querying ALL drivers across all owner_operators
     match /{path=**}/drivers/{driverId} {
       allow read: if isSignedIn();
+    }
+
+    // Collection Group Query for loads - allows admins to query ALL loads
+    match /{path=**}/loads/{loadId} {
+      allow read: if isAdmin();
     }
 
     // Matches collection
@@ -65,6 +78,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
+      allow delete: if false;
+    }
+
+    // Audit logs collection - admin only
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if false;
       allow delete: if false;
     }
   }
