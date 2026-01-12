@@ -1,0 +1,10 @@
+Add these to your package.json scripts:
+
+"scripts": {
+  ...existing scripts...
+  "typecheck": "tsc --noEmit",
+  "predeploy": "./scripts/pre-deploy.sh",
+  "deploy": "./scripts/deploy.sh",
+  "deploy:hosting": "npm run build && firebase deploy --only hosting",
+  "deploy:all": "npm run build && firebase deploy"
+}

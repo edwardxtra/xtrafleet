@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from 'next/link';
-import { File, PlusCircle, Search, Upload, ArrowLeft, WifiOff, AlertCircle, RefreshCw, ExternalLink } from "lucide-react";
+import { File, PlusCircle, Search, Upload, ArrowLeft, WifiOff, AlertCircle, RefreshCw, ExternalLink, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -199,9 +199,163 @@ const ProfileSkeleton = () => (
   </div>
 );
 
+// Reusable drivers table component
+const DriversTable = ({
+  drivers,
+  isLoading,
+  isUserLoading,
+  driversError,
+  isOnline,
+  emptyMessage = "No drivers found",
+  onSelectDriver,
+}: {
+  drivers: Driver[] | null;
+  isLoading: boolean;
+  isUserLoading: boolean;
+  driversError: Error | null;
+  isOnline: boolean;
+  emptyMessage?: string;
+  onSelectDriver: (id: string) => void;
+}) => {
+  const getBadgeVariant = (status: string) => {
+    switch (status) {
+      case "Available":
+        return "default";
+      case "On-trip":
+        return "secondary";
+      case "Off-duty":
+      default:
+        return "outline";
+    }
+  };
+
+  const getComplianceBadgeVariant = (status: ComplianceStatus) => {
+    switch (status) {
+      case 'Green':
+        return 'default';
+      case 'Yellow':
+        return 'secondary';
+      case 'Red':
+        return 'destructive';
+      default:
+        return 'outline';
+    }
+  };
+
+  const getInitials = (name: string) => {
+    return name?.split(' ').map(n => n[0]).join('') || '';
+  };
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Name</TableHead>
+          <TableHead>Vehicle Type</TableHead>
+          <TableHead>Location</TableHead>
+          <TableHead>Availability</TableHead>
+          <TableHead>Compliance</TableHead>
+          <TableHead>
+            <span className="sr-only">Actions</span>
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {isLoading || isUserLoading ? (
+          <TableSkeleton />
+        ) : driversError ? (
+          <TableRow>
+            <TableCell colSpan={6} className="h-24 text-center">
+              <div className="flex flex-col items-center gap-2">
+                <AlertCircle className="h-8 w-8 text-destructive" />
+                <p className="text-muted-foreground">Failed to load drivers</p>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => window.location.reload()}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Retry
+                </Button>
+              </div>
+            </TableCell>
+          </TableRow>
+        ) : drivers && drivers.length > 0 ? (
+          drivers.map((driver) => {
+            const complianceStatus = getComplianceStatus(driver);
+            return (
+              <TableRow key={driver.id}>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-8 w-8">
+                      <AvatarFallback>{getInitials(driver.name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="grid">
+                      <span>{driver.name || 'Unnamed Driver'}</span>
+                      <span className="text-xs text-muted-foreground">{driver.certifications?.join(', ') || driver.email}</span>
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell>{driver.vehicleType || '-'}</TableCell>
+                <TableCell>{driver.location || '-'}</TableCell>
+                <TableCell>
+                  <Badge variant={getBadgeVariant(driver.availability || 'Off-duty')}>
+                    {driver.availability || 'Off-duty'}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={getComplianceBadgeVariant(complianceStatus)} className="flex items-center gap-1.5 w-fit">
+                    <span className={`h-2 w-2 rounded-full ${
+                      complianceStatus === 'Green' ? 'bg-green-500' : 
+                      complianceStatus === 'Yellow' ? 'bg-yellow-500' : 
+                      'bg-red-500'
+                    }`} />
+                    {complianceStatus}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button aria-haspopup="true" size="icon" variant="ghost">
+                        <MoreHorizontal className="h-4 w-4" />
+                        <span className="sr-only">Toggle menu</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                      <DropdownMenuItem onClick={() => onSelectDriver(driver.id)}>
+                        View Profile
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled={!isOnline}>Edit Profile</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem className="text-destructive" disabled={!isOnline}>
+                        Deactivate
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            );
+          })
+        ) : (
+          <TableRow>
+            <TableCell colSpan={6} className="h-24 text-center">
+              <div className="flex flex-col items-center gap-2">
+                <User className="h-8 w-8 text-muted-foreground" />
+                <p className="text-muted-foreground">{emptyMessage}</p>
+              </div>
+            </TableCell>
+          </TableRow>
+        )}
+      </TableBody>
+    </Table>
+  );
+};
+
 export default function DriversPage() {
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(true);
+  const [activeTab, setActiveTab] = useState("all");
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
 
@@ -232,6 +386,33 @@ export default function DriversPage() {
 
   const { data: drivers, isLoading, error: driversError } = useCollection<Driver>(driversQuery);
 
+  // Filter drivers by availability
+  const filteredDrivers = useMemo(() => {
+    if (!drivers) return null;
+    
+    switch (activeTab) {
+      case "available":
+        return drivers.filter(driver => driver.availability === "Available");
+      case "on-trip":
+        return drivers.filter(driver => driver.availability === "On-trip");
+      case "off-duty":
+        return drivers.filter(driver => driver.availability === "Off-duty" || !driver.availability);
+      default:
+        return drivers;
+    }
+  }, [drivers, activeTab]);
+
+  // Get counts for each tab
+  const counts = useMemo(() => {
+    if (!drivers) return { all: 0, available: 0, onTrip: 0, offDuty: 0 };
+    return {
+      all: drivers.length,
+      available: drivers.filter(d => d.availability === "Available").length,
+      onTrip: drivers.filter(d => d.availability === "On-trip").length,
+      offDuty: drivers.filter(d => d.availability === "Off-duty" || !d.availability).length,
+    };
+  }, [drivers]);
+
   // Fetch selected driver details
   const selectedDriverQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid || !selectedDriverId) return null;
@@ -249,17 +430,35 @@ export default function DriversPage() {
       showError('Failed to load driver details. Please try again.');
     }
   }, [driversError, driverError]);
-  
-  const getBadgeVariant = (status: string) => {
-    switch (status) {
-      case "Available":
-        return "default";
-      case "On-trip":
-        return "secondary";
-      case "Off-duty":
-      default:
-        return "outline";
+
+  // Export drivers to CSV
+  const handleExport = () => {
+    if (!filteredDrivers || filteredDrivers.length === 0) {
+      showError('No drivers to export');
+      return;
     }
+
+    const headers = ['Name', 'Email', 'Vehicle Type', 'Location', 'Availability', 'CDL Number', 'CDL Expiry'];
+    const csvContent = [
+      headers.join(','),
+      ...filteredDrivers.map(driver => [
+        `"${driver.name || ''}"`,
+        `"${driver.email || ''}"`,
+        `"${driver.vehicleType || ''}"`,
+        `"${driver.location || ''}"`,
+        `"${driver.availability || ''}"`,
+        `"${driver.cdlLicense || ''}"`,
+        `"${driver.cdlExpiry || ''}"`,
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `drivers-${activeTab}-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    
+    showSuccess('Drivers exported successfully!');
   };
   
   const getComplianceBadgeVariant = (status: ComplianceStatus) => {
@@ -345,8 +544,8 @@ export default function DriversPage() {
         <Separator />
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <StatCard title="Availability" value={selectedDriver.availability} icon={User} />
-          <StatCard title="Vehicle Type" value={selectedDriver.vehicleType} icon={Truck} />
+          <StatCard title="Availability" value={selectedDriver.availability || 'Off-duty'} icon={User} />
+          <StatCard title="Vehicle Type" value={selectedDriver.vehicleType || 'N/A'} icon={Truck} />
           <StatCard title="Avg. Rating" value={selectedDriver.rating ? `${selectedDriver.rating.toFixed(1)} / 5.0` : 'N/A'} icon={Star} />
           <StatCard title="Compliance Status" value={complianceStatus} icon={FileTextIcon} />
         </div>
@@ -492,28 +691,35 @@ export default function DriversPage() {
           </Alert>
         )}
 
-        <Tabs defaultValue="all">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center">
             <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="available">Available</TabsTrigger>
-              <TabsTrigger value="on-trip">On-trip</TabsTrigger>
+              <TabsTrigger value="all">
+                All {counts.all > 0 && `(${counts.all})`}
+              </TabsTrigger>
+              <TabsTrigger value="available">
+                Available {counts.available > 0 && `(${counts.available})`}
+              </TabsTrigger>
+              <TabsTrigger value="on-trip">
+                On-trip {counts.onTrip > 0 && `(${counts.onTrip})`}
+              </TabsTrigger>
+              <TabsTrigger value="off-duty">
+                Off-duty {counts.offDuty > 0 && `(${counts.offDuty})`}
+              </TabsTrigger>
             </TabsList>
             <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" variant="outline" className="h-8 gap-1" disabled={!isOnline}>
-                <File className="h-3.5 w-3.5" />
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="h-8 gap-1" 
+                disabled={!isOnline || !filteredDrivers?.length}
+                onClick={handleExport}
+              >
+                <Download className="h-3.5 w-3.5" />
                 <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
                   Export
                 </span>
               </Button>
-              <UploadDriversCSV>
-                <Button size="sm" variant="outline" className="h-8 gap-1" disabled={!isOnline}>
-                  <Upload className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                    Upload CSV
-                  </span>
-                </Button>
-              </UploadDriversCSV>
               <SheetTrigger asChild>
                 <Button size="sm" className="h-8 gap-1" disabled={!isOnline}>
                   <PlusCircle className="h-3.5 w-3.5" />
@@ -524,126 +730,30 @@ export default function DriversPage() {
               </SheetTrigger>
             </div>
           </div>
-          <TabsContent value="all">
-            <Card>
-              <CardHeader>
-                <CardTitle className="font-headline">Drivers</CardTitle>
-                <CardDescription>
-                  Manage your drivers and view their status.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Vehicle Type</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Availability</TableHead>
-                      <TableHead>Compliance</TableHead>
-                      <TableHead>
-                        <span className="sr-only">Actions</span>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isLoading || isUserLoading ? (
-                      <TableSkeleton />
-                    ) : driversError ? (
-                      <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center">
-                          <div className="flex flex-col items-center gap-2">
-                            <AlertCircle className="h-8 w-8 text-destructive" />
-                            <p className="text-muted-foreground">Failed to load drivers</p>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => window.location.reload()}
-                            >
-                              <RefreshCw className="h-3 w-3 mr-1" />
-                              Retry
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : drivers && drivers.length > 0 ? (
-                      drivers.map((driver) => {
-                        const complianceStatus = getComplianceStatus(driver);
-                        return (
-                          <TableRow key={driver.id}>
-                            <TableCell className="font-medium">
-                              <div className="flex items-center gap-3">
-                                <Avatar className="h-8 w-8">
-                                  <AvatarFallback>{getInitials(driver.name)}</AvatarFallback>
-                                </Avatar>
-                                <div className="grid">
-                                  <span>{driver.name}</span>
-                                  <span className="text-xs text-muted-foreground">{driver.certifications?.join(', ')}</span>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell>{driver.vehicleType}</TableCell>
-                            <TableCell>{driver.location}</TableCell>
-                            <TableCell>
-                              <Badge variant={getBadgeVariant(driver.availability)}>
-                                {driver.availability}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                             <Badge variant={getComplianceBadgeVariant(complianceStatus)} className="flex items-center gap-1.5">
-                              <span className={`h-2 w-2 rounded-full ${
-                                complianceStatus === 'Green' ? 'bg-green-500' : 
-                                complianceStatus === 'Yellow' ? 'bg-yellow-500' : 
-                                'bg-red-500'
-                              }`} />
-                              {complianceStatus}
-                            </Badge>
-                          </TableCell>
-                            <TableCell>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button aria-haspopup="true" size="icon" variant="ghost">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                    <span className="sr-only">Toggle menu</span>
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                  <DropdownMenuItem onClick={() => setSelectedDriverId(driver.id)}>
-                                    View Profile
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem disabled={!isOnline}>Edit Profile</DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem className="text-destructive" disabled={!isOnline}>
-                                    Deactivate
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center">
-                          <div className="flex flex-col items-center gap-2">
-                            <User className="h-8 w-8 text-muted-foreground" />
-                            <p className="text-muted-foreground">No drivers found</p>
-                            <SheetTrigger asChild>
-                              <Button size="sm" disabled={!isOnline}>
-                                <PlusCircle className="h-3.5 w-3.5 mr-1" />
-                                Add your first driver
-                              </Button>
-                            </SheetTrigger>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
+
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="font-headline">Drivers</CardTitle>
+              <CardDescription>
+                Manage your drivers and view their status.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DriversTable
+                drivers={filteredDrivers}
+                isLoading={isLoading}
+                isUserLoading={isUserLoading}
+                driversError={driversError}
+                isOnline={isOnline}
+                emptyMessage={
+                  activeTab === "all"
+                    ? "No drivers found. Invite your first driver!"
+                    : `No ${activeTab} drivers found.`
+                }
+                onSelectDriver={setSelectedDriverId}
+              />
+            </CardContent>
+          </Card>
         </Tabs>
       </main>
       <AddDriverForm />

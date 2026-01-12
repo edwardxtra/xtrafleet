@@ -9,7 +9,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "predeploy": "./scripts/pre-deploy.sh",
+    "deploy": "./scripts/deploy.sh",
+    "deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "deploy:all": "npm run build && firebase deploy",
+    "dev:clean": "lsof -ti:9002 | xargs kill -9 2>/dev/null; pkill -f \"next dev\" 2>/dev/null; sleep 2; next dev --port 9002",
+    "dev:kill": "lsof -ti:9002 | xargs kill -9 2>/dev/null || true",
+    "dev:fresh": "npm run dev:kill && sleep 2 && npm run dev"
   },
   "dependencies": {
     "@genkit-ai/googleai": "^1.14.1",
@@ -46,6 +53,7 @@
     "firebase": "^11.9.1",
     "firebase-admin": "^12.2.0",
     "genkit": "^1.14.1",
+    "jspdf": "^4.0.0",
     "lucide-react": "^0.475.0",
     "next": "14.2.35",
     "next-client-cookies": "^1.1.1",

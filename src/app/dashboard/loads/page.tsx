@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { File, PlusCircle, Upload, WifiOff, AlertCircle, RefreshCw, Package } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { File, PlusCircle, Upload, WifiOff, AlertCircle, RefreshCw, Package, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,10 +55,127 @@ const TableSkeleton = () => (
   </>
 );
 
+// Reusable table component
+const LoadsTable = ({ 
+  loads, 
+  isLoading, 
+  isUserLoading, 
+  loadsError, 
+  isOnline,
+  emptyMessage = "No loads found"
+}: { 
+  loads: Load[] | null;
+  isLoading: boolean;
+  isUserLoading: boolean;
+  loadsError: Error | null;
+  isOnline: boolean;
+  emptyMessage?: string;
+}) => {
+  const getBadgeVariant = (status: string) => {
+    switch (status) {
+      case "Delivered":
+        return "secondary";
+      case "In-transit":
+        return "default";
+      case "Pending":
+      default:
+        return "outline";
+    }
+  };
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Origin</TableHead>
+          <TableHead>Destination</TableHead>
+          <TableHead>Cargo</TableHead>
+          <TableHead>Weight</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>
+            <span className="sr-only">Actions</span>
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {isLoading || isUserLoading ? (
+          <TableSkeleton />
+        ) : loadsError ? (
+          <TableRow>
+            <TableCell colSpan={6} className="h-24 text-center">
+              <div className="flex flex-col items-center gap-2">
+                <AlertCircle className="h-8 w-8 text-destructive" />
+                <p className="text-muted-foreground">Failed to load loads</p>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => window.location.reload()}
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Retry
+                </Button>
+              </div>
+            </TableCell>
+          </TableRow>
+        ) : loads && loads.length > 0 ? (
+          loads.map((load) => (
+            <TableRow key={load.id}>
+              <TableCell className="font-medium">
+                {load.origin}
+              </TableCell>
+              <TableCell>{load.destination}</TableCell>
+              <TableCell>{load.cargo}</TableCell>
+              <TableCell>{load.weight?.toLocaleString() || 0} lbs</TableCell>
+              <TableCell>
+                <Badge variant={getBadgeVariant(load.status)}>
+                  {load.status}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      aria-haspopup="true"
+                      size="icon"
+                      variant="ghost"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                      <span className="sr-only">Toggle menu</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                    <DropdownMenuItem disabled={!isOnline}>Edit</DropdownMenuItem>
+                    <DropdownMenuItem disabled={!isOnline}>Find Match</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="text-destructive" disabled={!isOnline}>
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </TableCell>
+            </TableRow>
+          ))
+        ) : (
+          <TableRow>
+            <TableCell colSpan={6} className="h-24 text-center">
+              <div className="flex flex-col items-center gap-2">
+                <Package className="h-8 w-8 text-muted-foreground" />
+                <p className="text-muted-foreground">{emptyMessage}</p>
+              </div>
+            </TableCell>
+          </TableRow>
+        )}
+      </TableBody>
+    </Table>
+  );
+};
+
 export default function LoadsPage() {
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
   const [isOnline, setIsOnline] = useState(true);
+  const [activeTab, setActiveTab] = useState("all");
 
   // Network status detection
   useEffect(() => {
@@ -87,6 +204,33 @@ export default function LoadsPage() {
 
   const { data: loads, isLoading, error: loadsError } = useCollection<Load>(loadsQuery);
 
+  // Filter loads by status
+  const filteredLoads = useMemo(() => {
+    if (!loads) return null;
+    
+    switch (activeTab) {
+      case "pending":
+        return loads.filter(load => load.status === "Pending");
+      case "in-transit":
+        return loads.filter(load => load.status === "In-transit");
+      case "delivered":
+        return loads.filter(load => load.status === "Delivered");
+      default:
+        return loads;
+    }
+  }, [loads, activeTab]);
+
+  // Get counts for each tab
+  const counts = useMemo(() => {
+    if (!loads) return { all: 0, pending: 0, inTransit: 0, delivered: 0 };
+    return {
+      all: loads.length,
+      pending: loads.filter(l => l.status === "Pending").length,
+      inTransit: loads.filter(l => l.status === "In-transit").length,
+      delivered: loads.filter(l => l.status === "Delivered").length,
+    };
+  }, [loads]);
+
   // Show error toast
   useEffect(() => {
     if (loadsError) {
@@ -94,16 +238,34 @@ export default function LoadsPage() {
     }
   }, [loadsError]);
 
-  const getBadgeVariant = (status: string) => {
-    switch (status) {
-      case "Delivered":
-        return "secondary";
-      case "In-transit":
-        return "default";
-      case "Pending":
-      default:
-        return "outline";
+  // Export loads to CSV
+  const handleExport = () => {
+    if (!filteredLoads || filteredLoads.length === 0) {
+      showError('No loads to export');
+      return;
     }
+
+    const headers = ['Origin', 'Destination', 'Cargo', 'Weight (lbs)', 'Status', 'Price', 'Pickup Date'];
+    const csvContent = [
+      headers.join(','),
+      ...filteredLoads.map(load => [
+        `"${load.origin || ''}"`,
+        `"${load.destination || ''}"`,
+        `"${load.cargo || ''}"`,
+        load.weight || 0,
+        `"${load.status || ''}"`,
+        load.price || 0,
+        `"${load.pickupDate || ''}"`,
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `loads-${activeTab}-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    
+    showSuccess('Loads exported successfully!');
   };
   
   return (
@@ -137,17 +299,31 @@ export default function LoadsPage() {
           </Alert>
         )}
 
-        <Tabs defaultValue="all">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center">
             <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="pending">Pending</TabsTrigger>
-              <TabsTrigger value="in-transit">In-transit</TabsTrigger>
-              <TabsTrigger value="delivered">Delivered</TabsTrigger>
+              <TabsTrigger value="all">
+                All {counts.all > 0 && `(${counts.all})`}
+              </TabsTrigger>
+              <TabsTrigger value="pending">
+                Pending {counts.pending > 0 && `(${counts.pending})`}
+              </TabsTrigger>
+              <TabsTrigger value="in-transit">
+                In-transit {counts.inTransit > 0 && `(${counts.inTransit})`}
+              </TabsTrigger>
+              <TabsTrigger value="delivered">
+                Delivered {counts.delivered > 0 && `(${counts.delivered})`}
+              </TabsTrigger>
             </TabsList>
             <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" variant="outline" className="h-8 gap-1" disabled={!isOnline}>
-                <File className="h-3.5 w-3.5" />
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="h-8 gap-1" 
+                disabled={!isOnline || !filteredLoads?.length}
+                onClick={handleExport}
+              >
+                <Download className="h-3.5 w-3.5" />
                 <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
                   Export
                 </span>
@@ -170,108 +346,29 @@ export default function LoadsPage() {
               </SheetTrigger>
             </div>
           </div>
-          <TabsContent value="all">
-            <Card>
-              <CardHeader>
-                <CardTitle className="font-headline">Loads</CardTitle>
-                <CardDescription>
-                  Manage your loads and view their details.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Origin</TableHead>
-                      <TableHead>Destination</TableHead>
-                      <TableHead>Cargo</TableHead>
-                      <TableHead>Weight</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>
-                        <span className="sr-only">Actions</span>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isLoading || isUserLoading ? (
-                      <TableSkeleton />
-                    ) : loadsError ? (
-                      <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center">
-                          <div className="flex flex-col items-center gap-2">
-                            <AlertCircle className="h-8 w-8 text-destructive" />
-                            <p className="text-muted-foreground">Failed to load loads</p>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => window.location.reload()}
-                            >
-                              <RefreshCw className="h-3 w-3 mr-1" />
-                              Retry
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : loads && loads.length > 0 ? (
-                      loads.map((load) => (
-                        <TableRow key={load.id}>
-                          <TableCell className="font-medium">
-                            {load.origin}
-                          </TableCell>
-                          <TableCell>{load.destination}</TableCell>
-                          <TableCell>{load.cargo}</TableCell>
-                          <TableCell>{load.weight.toLocaleString()} lbs</TableCell>
-                          <TableCell>
-                            <Badge variant={getBadgeVariant(load.status)}>
-                              {load.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  aria-haspopup="true"
-                                  size="icon"
-                                  variant="ghost"
-                                >
-                                  <MoreHorizontal className="h-4 w-4" />
-                                  <span className="sr-only">Toggle menu</span>
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                <DropdownMenuItem disabled={!isOnline}>Edit</DropdownMenuItem>
-                                <DropdownMenuItem disabled={!isOnline}>Find Match</DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem className="text-destructive" disabled={!isOnline}>
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center">
-                          <div className="flex flex-col items-center gap-2">
-                            <Package className="h-8 w-8 text-muted-foreground" />
-                            <p className="text-muted-foreground">No loads found</p>
-                            <SheetTrigger asChild>
-                              <Button size="sm" disabled={!isOnline}>
-                                <PlusCircle className="h-3.5 w-3.5 mr-1" />
-                                Add your first load
-                              </Button>
-                            </SheetTrigger>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
+
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="font-headline">Loads</CardTitle>
+              <CardDescription>
+                Manage your loads and view their details.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <LoadsTable 
+                loads={filteredLoads}
+                isLoading={isLoading}
+                isUserLoading={isUserLoading}
+                loadsError={loadsError}
+                isOnline={isOnline}
+                emptyMessage={
+                  activeTab === "all" 
+                    ? "No loads found. Add your first load!" 
+                    : `No ${activeTab} loads found.`
+                }
+              />
+            </CardContent>
+          </Card>
         </Tabs>
       </main>
       <AddLoadForm />

@@ -46,6 +46,7 @@ import {
   Square,
   Timer,
   PartyPopper,
+  Download,
 } from "lucide-react";
 import { useUser, useFirestore } from "@/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
@@ -54,6 +55,7 @@ import { showSuccess, showError } from "@/lib/toast-utils";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import Link from "next/link";
 import { notify } from "@/lib/notifications";
+import { downloadTLAPDF } from "@/lib/generate-tla-pdf";
 
 export default function TLAPage() {
   const params = useParams();
@@ -631,7 +633,17 @@ export default function TLAPage() {
             {tla.trip.origin} → {tla.trip.destination}
           </p>
         </div>
-        {getStatusBadge(tla.status)}
+        <div className="flex items-center gap-3">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => downloadTLAPDF(tla)}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Download PDF
+          </Button>
+          {getStatusBadge(tla.status)}
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -1064,102 +1076,41 @@ export default function TLAPage() {
             </Alert>
           )}
 
-          {/* Contact Information - Show after TLA is signed/in_progress/completed */}
+          {/* Parties - Show after TLA is signed/in_progress/completed */}
           {(tla.status === 'signed' || tla.status === 'in_progress' || tla.status === 'completed') && isInvolved && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Phone className="h-5 w-5" />
-                  Contact Information
+                  <User className="h-5 w-5" />
+                  Parties
                 </CardTitle>
                 <CardDescription>
-                  Coordinate trip details with the other party
+                  Companies involved in this agreement
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Lessor sees Lessee contact info */}
                 {isLessor && (
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Load Owner (Lessee)</p>
-                      <p className="font-semibold">{tla.lessee.legalName}</p>
-                    </div>
-                    {tla.lessee.contactEmail && (
-                      <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-muted-foreground" />
-                        <a 
-                          href={`mailto:${tla.lessee.contactEmail}`} 
-                          className="text-primary hover:underline text-sm"
-                        >
-                          {tla.lessee.contactEmail}
-                        </a>
-                      </div>
-                    )}
-                    {tla.lessee.phone && (
-                      <div className="flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-muted-foreground" />
-                        <a 
-                          href={`tel:${tla.lessee.phone}`} 
-                          className="text-primary hover:underline text-sm"
-                        >
-                          {tla.lessee.phone}
-                        </a>
-                      </div>
-                    )}
-                    {!tla.lessee.contactEmail && !tla.lessee.phone && (
-                      <p className="text-sm text-muted-foreground">No contact information available.</p>
-                    )}
+                  <div className="p-3 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground">Load Owner (Lessee)</p>
+                    <p className="font-semibold">{tla.lessee.legalName}</p>
                   </div>
                 )}
                 
-                {/* Lessee sees Lessor and Driver contact info */}
                 {isLessee && (
-                  <div className="space-y-4">
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Driver Owner (Lessor)</p>
-                        <p className="font-semibold">{tla.lessor.legalName}</p>
-                      </div>
-                      {tla.lessor.contactEmail && (
-                        <div className="flex items-center gap-2">
-                          <Mail className="h-4 w-4 text-muted-foreground" />
-                          <a 
-                            href={`mailto:${tla.lessor.contactEmail}`} 
-                            className="text-primary hover:underline text-sm"
-                          >
-                            {tla.lessor.contactEmail}
-                          </a>
-                        </div>
-                      )}
-                      {tla.lessor.phone && (
-                        <div className="flex items-center gap-2">
-                          <Phone className="h-4 w-4 text-muted-foreground" />
-                          <a 
-                            href={`tel:${tla.lessor.phone}`} 
-                            className="text-primary hover:underline text-sm"
-                          >
-                            {tla.lessor.phone}
-                          </a>
-                        </div>
-                      )}
+                  <div className="space-y-3">
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xs text-muted-foreground">Driver Owner (Lessor)</p>
+                      <p className="font-semibold">{tla.lessor.legalName}</p>
                     </div>
-                    
-                    <Separator />
-                    
-                    <div className="space-y-2">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Driver</p>
-                        <p className="font-semibold">{tla.driver.name}</p>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Contact the Driver Owner to coordinate directly with the driver.
-                      </p>
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <p className="text-xs text-muted-foreground">Driver</p>
+                      <p className="font-semibold">{tla.driver.name}</p>
                     </div>
                   </div>
                 )}
 
                 {isLessor && isLessee && (
-                  <div className="mt-2 p-2 bg-muted/50 rounded text-xs text-muted-foreground">
+                  <div className="p-2 bg-muted/50 rounded text-xs text-muted-foreground">
                     <p>You are both the lessor and lessee in this agreement (testing mode).</p>
                   </div>
                 )}

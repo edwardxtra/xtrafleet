@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,40 +13,80 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
-import { useRef, useEffect } from "react";
-import { useFormState } from "react-dom";
-import { inviteDriver } from "@/lib/actions";
-
-const initialState = {
-  message: '',
-  error: '',
-};
+import { useRef } from "react";
+import { useAuth } from "@/firebase";
+import { Loader2 } from "lucide-react";
 
 export function AddDriverForm() {
   const { toast } = useToast();
+  const auth = useAuth();
   const formRef = useRef<HTMLFormElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  
-  const [state, formAction] = useFormState(inviteDriver, initialState);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (state.message) {
-      toast({
-        title: "Success",
-        description: state.message,
-      });
-      formRef.current?.reset();
-      closeRef.current?.click();
-    }
-
-    if (state.error) {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    
+    const user = auth.currentUser;
+    if (!user) {
       toast({
         title: "Error",
-        description: state.error,
+        description: "You must be logged in to invite a driver.",
         variant: "destructive",
       });
+      return;
     }
-  }, [state, toast]);
+
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+
+    if (!email) {
+      toast({
+        title: "Error",
+        description: "Email is required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const idToken = await user.getIdToken();
+      
+      const response = await fetch('/api/add-new-driver', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to send invitation');
+      }
+
+      toast({
+        title: "Success",
+        description: result.message || "Invitation sent successfully!",
+      });
+      
+      formRef.current?.reset();
+      closeRef.current?.click();
+
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <SheetContent className="sm:max-w-lg">
@@ -56,7 +97,7 @@ export function AddDriverForm() {
         </SheetDescription>
       </SheetHeader>
       
-      <form ref={formRef} action={formAction} className="space-y-4 py-6">
+      <form ref={formRef} onSubmit={handleSubmit} className="space-y-4 py-6">
         <div className="space-y-2">
           <Label htmlFor="email">Driver's Email</Label>
           <Input
@@ -65,17 +106,25 @@ export function AddDriverForm() {
             type="email"
             placeholder="e.g., driver@example.com"
             required
+            disabled={isSubmitting}
           />
         </div>
 
         <SheetFooter className="pt-6">
           <SheetClose asChild>
-            <Button ref={closeRef} type="button" variant="secondary">
+            <Button ref={closeRef} type="button" variant="secondary" disabled={isSubmitting}>
               Cancel
             </Button>
           </SheetClose>
-          <Button type="submit" variant="accent">
-            Send Invitation
+          <Button type="submit" variant="accent" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              'Send Invitation'
+            )}
           </Button>
         </SheetFooter>
       </form>
