@@ -1,48 +1,36 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthenticatedUser, initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
 import admin from 'firebase-admin';
 import { handleError } from '@/lib/api-utils';
+import { Resend } from 'resend';
 
-// This is a placeholder for a real email sending service.
-async function sendInvitationEmail(email: string, ownerOperatorName: string, inviteLink: string) {
-  console.log("--- SIMULATING DRIVER INVITATION EMAIL ---");
-  console.log(`To: ${email}`);
-  console.log(`From: noreply@fleetconnect.app`);
-  console.log(`Subject: You're invited to join ${ownerOperatorName} on FleetConnect`);
-  console.log(`Body:`);
-  console.log(`Hello,`);
-  console.log(`You have been invited to join ${ownerOperatorName}'s fleet on FleetConnect.`);
-  console.log(`Please click the link below to create your account and set up your driver profile:`);
-  console.log(inviteLink);
-  console.log(`--- END OF SIMULATION ---`);
-  return Promise.resolve();
-}
+const resend = process.env.RESEND_API_KEY 
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
 
 const inviteSchema = z.object({
   email: z.string().email('Invalid email address'),
 });
 
 export async function POST(req: NextRequest) {
-  const adminApp = initializeFirebaseAdmin();
+  const adminApp = await initializeFirebaseAdmin();
   if (!adminApp) {
     return handleError(new Error('Server misconfigured'), 'Server configuration error. Cannot connect to backend services.', 500);
   }
 
   try {
-    const auth = adminApp.auth();
     const firestore = adminApp.firestore();
     
-    const ownerUser = await getAuthenticatedUser();
+    const ownerUser = await getAuthenticatedUser(req as any);
     
     if (!ownerUser) {
       return handleError(new Error('Unauthorized'), 'You must be logged in to invite a driver.', 401);
     }
 
     const body = await req.json();
-
     const validation = inviteSchema.safeParse(body);
+
     if (!validation.success) {
       const fieldErrors = validation.error.flatten().fieldErrors;
       const errorMessage = Object.values(fieldErrors).flat().join(', ');
@@ -52,45 +40,82 @@ export async function POST(req: NextRequest) {
     const { email } = validation.data;
     const ownerOperatorId = ownerUser.uid;
 
-    // Check if a user with this email already exists
-    try {
-        const existingUser = await auth.getUserByEmail(email);
-        if(existingUser) {
-            // Check if they are already part of another fleet or this one
-            const driverQuery = await firestore.collectionGroup('drivers').where('email', '==', email).limit(1).get();
-            if(!driverQuery.empty) {
-                 return handleError(new Error('Driver exists'), `A driver with the email ${email} is already associated with a fleet.`, 409);
-            }
-        }
-    } catch (error: any) {
-        if (error.code !== 'auth/user-not-found') {
-            throw error; // Re-throw unexpected errors
-        }
-        // This is the expected case for a new invitation: the user does not exist.
+    // Check if invitation already exists for this email
+    const existingInvite = await firestore.collection('driver_invitations')
+      .where('email', '==', email)
+      .where('status', '==', 'pending')
+      .limit(1)
+      .get();
+    
+    if (!existingInvite.empty) {
+      return handleError(new Error('Already invited'), 'An invitation has already been sent to this email.', 409);
     }
 
-    const newDriverData = { 
-        email: email,
-        ownerOperatorId: ownerOperatorId, 
-        status: 'invited',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    
-    const docRef = await firestore.collection(`owner_operators/${ownerOperatorId}/drivers`).add(newDriverData);
+    // Get owner info
+    const ownerDoc = await firestore.doc('owner_operators/' + ownerOperatorId).get();
+    const ownerData = ownerDoc.data();
+    const companyName = ownerData?.legalName || ownerData?.companyName || 'A fleet';
 
-    // The continueUrl now points to our new driver registration page
-    const inviteLink = await auth.generatePasswordResetLink(email, {
-        url: `${req.nextUrl.origin}/driver-register?driverId=${docRef.id}&ownerId=${ownerOperatorId}`
+    // Create invitation token
+    const invitationToken = crypto.randomUUID();
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    // Save invitation to Firestore
+    await firestore.collection('driver_invitations').doc(invitationToken).set({
+      email: email,
+      ownerId: ownerOperatorId,
+      ownerCompanyName: companyName,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+      status: 'pending',
     });
 
-    const ownerDoc = await firestore.doc(`owner_operators/${ownerOperatorId}`).get();
-    const ownerOperatorName = ownerDoc.data()?.companyName || 'your organization';
+    // Build invitation link
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://xtrafleet.com';
+    const inviteLink = baseUrl + '/driver-register?token=' + invitationToken;
+
+    // Send invitation email
+    if (!resend) {
+      console.warn('Resend not configured. Invitation link:', inviteLink);
+      return NextResponse.json({ 
+        id: invitationToken, 
+        message: 'Invitation created (email service not configured).',
+        inviteLink: inviteLink 
+      }, { status: 201 });
+    }
+
+    const { error: emailError } = await resend.emails.send({
+      from: 'XtraFleet <noreply@xtrafleet.com>',
+      to: [email],
+      subject: 'Invitation to Join ' + companyName + ' on XtraFleet',
+      html: '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">' +
+        '<h1 style="color: #4F46E5;">You\'re Invited to XtraFleet!</h1>' +
+        '<p><strong>' + companyName + '</strong> has invited you to join their fleet on XtraFleet.</p>' +
+        '<p>Click the button below to create your driver profile:</p>' +
+        '<div style="text-align: center; margin: 30px 0;">' +
+        '<a href="' + inviteLink + '" style="display: inline-block; padding: 14px 28px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">Create Your Profile</a>' +
+        '</div>' +
+        '<p style="color: #666; font-size: 14px;">This invitation expires in 7 days.</p>' +
+        '<p style="color: #666; font-size: 12px;">Or copy this link: ' + inviteLink + '</p>' +
+        '</body></html>',
+    });
+
+    if (emailError) {
+      console.error('Failed to send invitation email:', emailError);
+      await firestore.collection('driver_invitations').doc(invitationToken).delete();
+      return handleError(new Error('Email failed'), 'Failed to send invitation email. Please try again.', 500);
+    }
+
+    console.log('Invitation sent successfully to:', email);
     
-    await sendInvitationEmail(email, ownerOperatorName, inviteLink);
-    
-    return NextResponse.json({ id: docRef.id, message: 'Invitation sent successfully.' }, { status: 201 });
+    return NextResponse.json({ 
+      id: invitationToken, 
+      message: 'Invitation sent successfully!' 
+    }, { status: 201 });
 
   } catch (error: any) {
+    console.error('Add driver error:', error);
     return handleError(error, 'Failed to send invitation');
   }
 }
