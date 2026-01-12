@@ -1,11 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -25,8 +23,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Autocomplete, type AutocompleteOption } from '@/components/ui/autocomplete';
 import { useFirestore, useUser } from '@/firebase';
-import { collection, getDocs, doc, updateDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { Shield, ShieldOff, RefreshCw, UserPlus, AlertTriangle, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { OwnerOperator } from '@/lib/data';
@@ -43,9 +42,7 @@ export default function AdminSettingsPage() {
   const [admins, setAdmins] = useState<AdminUser[]>([]);
   const [allUsers, setAllUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchEmail, setSearchEmail] = useState('');
-  const [searchResult, setSearchResult] = useState<AdminUser | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState('');
   const [grantingUser, setGrantingUser] = useState<AdminUser | null>(null);
   const [revokingUser, setRevokingUser] = useState<AdminUser | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -67,27 +64,22 @@ export default function AdminSettingsPage() {
 
   useEffect(() => { fetchAdmins(); }, [firestore]);
 
-  const handleSearch = async () => {
-    if (!firestore || !searchEmail.trim()) return;
-    setIsSearching(true);
-    setSearchResult(null);
-    
-    try {
-      // Search in already fetched users
-      const found = allUsers.find(u => 
-        u.contactEmail?.toLowerCase() === searchEmail.toLowerCase().trim()
-      );
-      
-      if (found) {
-        setSearchResult(found);
-      } else {
-        showError('No user found with that email');
-      }
-    } catch (error) {
-      console.error('Error searching:', error);
-      showError('Search failed');
-    } finally {
-      setIsSearching(false);
+  // Convert users to autocomplete options (excluding existing admins)
+  const userOptions: AutocompleteOption[] = useMemo(() => {
+    return allUsers
+      .filter(u => !u.isAdmin) // Exclude existing admins
+      .map(user => ({
+        value: user.id,
+        label: user.contactEmail || 'No email',
+        description: user.companyName || user.legalName || undefined,
+      }));
+  }, [allUsers]);
+
+  const handleUserSelect = (userId: string) => {
+    setSelectedUserId(userId);
+    const user = allUsers.find(u => u.id === userId);
+    if (user) {
+      setGrantingUser(user);
     }
   };
 
@@ -115,8 +107,7 @@ export default function AdminSettingsPage() {
 
       showSuccess('Admin access granted');
       setGrantingUser(null);
-      setSearchResult(null);
-      setSearchEmail('');
+      setSelectedUserId('');
       fetchAdmins();
     } catch (error: any) {
       showError(error.message || 'Failed to grant admin access');
@@ -128,7 +119,6 @@ export default function AdminSettingsPage() {
   const handleRevokeAdmin = async () => {
     if (!firestore || !revokingUser || !currentAdmin) return;
     
-    // Prevent revoking own access
     if (revokingUser.id === currentAdmin.uid) {
       showError('You cannot revoke your own admin access');
       setRevokingUser(null);
@@ -205,42 +195,20 @@ export default function AdminSettingsPage() {
           <CardTitle className="font-headline flex items-center gap-2">
             <UserPlus className="h-5 w-5" />Grant Admin Access
           </CardTitle>
-          <CardDescription>Search for a user by email to grant admin console access</CardDescription>
+          <CardDescription>Search for a user to grant admin console access</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <Input
-                placeholder="Enter user email..."
-                value={searchEmail}
-                onChange={(e) => setSearchEmail(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              />
-            </div>
-            <Button onClick={handleSearch} disabled={isSearching || !searchEmail.trim()}>
-              {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
-            </Button>
+          <div className="max-w-md">
+            <Autocomplete
+              options={userOptions}
+              value={selectedUserId}
+              onValueChange={handleUserSelect}
+              placeholder="Search by email or company name..."
+              searchPlaceholder="Type to search users..."
+              emptyMessage="No users found"
+              isLoading={isLoading}
+            />
           </div>
-          
-          {searchResult && (
-            <div className="mt-4 p-4 border rounded-lg">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{searchResult.companyName || searchResult.legalName || 'Unnamed'}</p>
-                  <p className="text-sm text-muted-foreground">{searchResult.contactEmail}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {searchResult.isAdmin ? (
-                    <Badge variant="destructive"><Shield className="h-3 w-3 mr-1" />Already Admin</Badge>
-                  ) : (
-                    <Button onClick={() => setGrantingUser(searchResult)}>
-                      <Shield className="h-4 w-4 mr-2" />Grant Admin
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -307,7 +275,7 @@ export default function AdminSettingsPage() {
       </Card>
 
       {/* Grant Admin Dialog */}
-      <AlertDialog open={!!grantingUser} onOpenChange={(open) => !open && setGrantingUser(null)}>
+      <AlertDialog open={!!grantingUser} onOpenChange={(open) => { if (!open) { setGrantingUser(null); setSelectedUserId(''); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Grant Admin Console Access</AlertDialogTitle>
