@@ -28,7 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from "@/components/logo";
-import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield } from "lucide-react";
+import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 
 function SidebarNavLink({ href, children, tooltip }: { href: string; children: React.ReactNode; tooltip: string; }) {
@@ -64,6 +64,9 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarNavLink href="/dashboard/incoming-matches" tooltip="Incoming Requests"><Inbox /><span>Incoming Requests</span></SidebarNavLink>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarNavLink href="/dashboard/messages" tooltip="Messages"><MessageSquare /><span>Messages</span></SidebarNavLink>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarNavLink href="/dashboard/agreements" tooltip="Agreements"><FileText /><span>Agreements</span></SidebarNavLink>
