@@ -292,7 +292,7 @@ export default function AdminDriversPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div><p className="text-sm text-muted-foreground">Fleet</p><p className="font-medium">{selectedDriver.ownerCompanyName || '-'}</p></div>
-                <div><p className="text-sm text-muted-foreground">Email</p><p className="font-medium">{selectedDriver.email || '-'}</p></div>
+                <div className="min-w-0"><p className="text-sm text-muted-foreground">Email</p><p className="font-medium truncate" title={selectedDriver.email || '-'}>{selectedDriver.email || '-'}</p></div>
                 <div><p className="text-sm text-muted-foreground">Location</p><p className="font-medium">{selectedDriver.location || '-'}</p></div>
                 <div><p className="text-sm text-muted-foreground">Vehicle Type</p><p className="font-medium">{selectedDriver.vehicleType || '-'}</p></div>
                 <div><p className="text-sm text-muted-foreground">CDL License</p><p className="font-medium">{selectedDriver.cdlLicense || '-'}</p></div>
