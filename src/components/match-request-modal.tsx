@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +22,8 @@ import {
   DollarSign,
   Calendar,
   Star,
-  CheckCircle
+  CheckCircle,
+  Mail
 } from "lucide-react";
 import type { Load, Driver, Match } from "@/lib/data";
 import type { MatchScore } from "@/lib/matching";
@@ -52,8 +53,30 @@ export function MatchRequestModal({
   const [rate, setRate] = useState<string>(load.price?.toString() || "");
   const [pickupDate, setPickupDate] = useState<string>(load.pickupDate || "");
   const [notes, setNotes] = useState<string>("");
+  const [driverOwnerEmail, setDriverOwnerEmail] = useState<string>("");
 
   const driver = matchScore.driver;
+
+  // Fetch driver owner email when modal opens
+  useEffect(() => {
+    async function fetchDriverOwnerEmail() {
+      if (!firestore || !driver.ownerId) return;
+      
+      try {
+        const driverOwnerDoc = await getDoc(doc(firestore, `owner_operators/${driver.ownerId}`));
+        if (driverOwnerDoc.exists()) {
+          const driverOwnerData = driverOwnerDoc.data();
+          setDriverOwnerEmail(driverOwnerData?.contactEmail || driverOwnerData?.email || "");
+        }
+      } catch (error) {
+        console.error("Error fetching driver owner email:", error);
+      }
+    }
+    
+    if (open) {
+      fetchDriverOwnerEmail();
+    }
+  }, [open, firestore, driver.ownerId]);
 
   const handleSubmit = async () => {
     if (!firestore || !user) return;
@@ -201,7 +224,7 @@ export function MatchRequestModal({
           <div className="p-4 bg-muted/50 rounded-lg">
             <h4 className="font-medium mb-2">Selected Driver</h4>
             <div className="flex items-start justify-between">
-              <div>
+              <div className="flex-1">
                 <p className="font-semibold flex items-center gap-2">
                   <User className="h-4 w-4" />
                   {driver.name}
@@ -210,7 +233,13 @@ export function MatchRequestModal({
                   <MapPin className="h-3 w-3" />
                   {driver.location}
                 </p>
-                <div className="flex items-center gap-2 mt-1">
+                {driverOwnerEmail && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                    <Mail className="h-3 w-3" />
+                    {driverOwnerEmail}
+                  </p>
+                )}
+                <div className="flex items-center gap-2 mt-2">
                   <Badge variant="secondary">{driver.vehicleType}</Badge>
                   <Badge variant="outline" className="text-green-600 border-green-600">
                     <CheckCircle className="h-3 w-3 mr-1" />
@@ -220,13 +249,13 @@ export function MatchRequestModal({
               </div>
               <div className="text-right">
                 {driver.rating && (
-                  <div className="flex items-center gap-1 text-sm">
+                  <div className="flex items-center gap-1 text-sm mb-1">
                     <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                     {driver.rating.toFixed(1)}
                   </div>
                 )}
                 <div className="text-sm font-medium text-primary">
-                  Score: {matchScore.totalScore}/100
+                  Score: {matchScore.score}/100
                 </div>
               </div>
             </div>
