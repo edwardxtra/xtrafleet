@@ -15,11 +15,7 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarIcon } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { Calendar } from "./ui/calendar";
-import { cn } from "@/lib/utils";
-import { format } from "date-fns";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/firebase";
 
@@ -28,7 +24,7 @@ export function AddLoadForm() {
   const router = useRouter();
   const auth = useAuth();
   const [isPending, startTransition] = useTransition();
-  const [date, setDate] = useState<Date | undefined>();
+  const [pickupDateTime, setPickupDateTime] = useState<Date | undefined>();
   const formRef = useRef<HTMLFormElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -46,10 +42,10 @@ export function AddLoadForm() {
       return;
     }
 
-    if (!date) {
+    if (!pickupDateTime) {
         toast({
-            title: "Pickup date is required.",
-            description: "Please select a date for the load pickup.",
+            title: "Pickup date & time is required.",
+            description: "Please select a date and time for the load pickup.",
             variant: "destructive"
         });
         return;
@@ -59,7 +55,7 @@ export function AddLoadForm() {
         origin: formData.get('origin'),
         destination: formData.get('destination'),
         price: Number(formData.get('price')),
-        pickupDate: `${format(date, "yyyy-MM-dd")}T${formData.get('time')}`,
+        pickupDate: pickupDateTime.toISOString(),
         cargo: formData.get('cargoType'),
         weight: Number(formData.get('weight')),
         additionalDetails: formData.get('additionalDetails'),
@@ -88,7 +84,7 @@ export function AddLoadForm() {
           description: `Successfully added new load from ${data.origin}.`,
         });
         formRef.current?.reset();
-        setDate(undefined);
+        setPickupDateTime(undefined);
         closeRef.current?.click();
         router.refresh();
 
@@ -101,6 +97,10 @@ export function AddLoadForm() {
       }
     });
   };
+
+  // Set minimum date to today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   return (
     <SheetContent className="sm:max-w-lg">
@@ -136,36 +136,15 @@ export function AddLoadForm() {
             <Label htmlFor="weight">Weight (lbs)</Label>
             <Input id="weight" name="weight" type="number" placeholder="e.g., 40000" required />
         </div>
-        <div className="grid grid-cols-2 gap-4">
-           <div className="flex flex-col space-y-2">
-              <Label>Date</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant={"outline"}
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !date && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {date ? format(date, "PPP") : <span>Pick a date</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={setDate}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="time">Time</Label>
-              <Input id="time" name="time" type="time" required />
-            </div>
+        <div className="space-y-2">
+          <Label>Pickup Date & Time</Label>
+          <DateTimePicker
+            date={pickupDateTime}
+            onDateChange={setPickupDateTime}
+            placeholder="Select pickup date & time"
+            minDate={today}
+            showTime={true}
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="additionalDetails">Additional Details</Label>
