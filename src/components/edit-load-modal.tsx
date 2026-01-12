@@ -13,11 +13,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { CalendarIcon, Loader2 } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { cn } from "@/lib/utils";
-import { format, parseISO } from "date-fns";
+import { Loader2 } from "lucide-react";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
+import { parseISO } from "date-fns";
 import { useAuth, useFirestore } from "@/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 import { showSuccess, showError } from "@/lib/toast-utils";
@@ -34,7 +32,7 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
   const auth = useAuth();
   const firestore = useFirestore();
   const [isLoading, setIsLoading] = useState(false);
-  const [date, setDate] = useState<Date | undefined>();
+  const [pickupDateTime, setPickupDateTime] = useState<Date | undefined>();
   const [formData, setFormData] = useState({
     origin: "",
     destination: "",
@@ -42,7 +40,6 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
     cargo: "",
     weight: "",
     description: "",
-    time: "09:00",
   });
 
   useEffect(() => {
@@ -54,10 +51,11 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
         cargo: load.cargo || "",
         weight: load.weight?.toString() || "",
         description: load.description || "",
-        time: load.pickupDate ? format(parseISO(load.pickupDate), "HH:mm") : "09:00",
       });
       if (load.pickupDate) {
-        setDate(parseISO(load.pickupDate));
+        setPickupDateTime(parseISO(load.pickupDate));
+      } else {
+        setPickupDateTime(undefined);
       }
     }
   }, [load]);
@@ -65,6 +63,11 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!load || !firestore || !auth.currentUser) return;
+
+    if (!pickupDateTime) {
+      showError("Pickup date & time is required");
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -77,7 +80,7 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
         cargo: formData.cargo,
         weight: Number(formData.weight),
         description: formData.description,
-        pickupDate: date ? `${format(date, "yyyy-MM-dd")}T${formData.time}` : null,
+        pickupDate: pickupDateTime.toISOString(),
       });
 
       showSuccess("Load updated successfully");
@@ -89,6 +92,10 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
       setIsLoading(false);
     }
   };
+
+  // Set minimum date to today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -160,42 +167,15 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col space-y-2">
-              <Label>Pickup Date</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !date && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {date ? format(date, "PPP") : <span>Pick a date</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={setDate}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-time">Time</Label>
-              <Input
-                id="edit-time"
-                type="time"
-                value={formData.time}
-                onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-                required
-              />
-            </div>
+          <div className="space-y-2">
+            <Label>Pickup Date & Time</Label>
+            <DateTimePicker
+              date={pickupDateTime}
+              onDateChange={setPickupDateTime}
+              placeholder="Select pickup date & time"
+              minDate={today}
+              showTime={true}
+            />
           </div>
 
           <div className="space-y-2">
