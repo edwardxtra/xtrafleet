@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { File, PlusCircle, Upload, WifiOff, AlertCircle, RefreshCw, Package, Download } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { File, PlusCircle, Upload, WifiOff, AlertCircle, RefreshCw, Package, Download, Pencil, Search as SearchIcon, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,19 +28,29 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { AddLoadForm } from "@/components/add-load-form";
+import { EditLoadModal } from "@/components/edit-load-modal";
 import { MoreHorizontal } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { Load } from "@/lib/data";
 import { UploadLoadsCSV } from "@/components/upload-loads-csv";
 import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection } from "firebase/firestore";
+import { collection, doc, deleteDoc } from "firebase/firestore";
 import { showSuccess, showError } from "@/lib/toast-utils";
 
-// Loading skeleton for table
 const TableSkeleton = () => (
   <>
     {[1, 2, 3, 4, 5].map((i) => (
@@ -55,14 +66,16 @@ const TableSkeleton = () => (
   </>
 );
 
-// Reusable table component
 const LoadsTable = ({ 
   loads, 
   isLoading, 
   isUserLoading, 
   loadsError, 
   isOnline,
-  emptyMessage = "No loads found"
+  emptyMessage = "No loads found",
+  onEdit,
+  onDelete,
+  onFindMatch,
 }: { 
   loads: Load[] | null;
   isLoading: boolean;
@@ -70,6 +83,9 @@ const LoadsTable = ({
   loadsError: Error | null;
   isOnline: boolean;
   emptyMessage?: string;
+  onEdit: (load: Load) => void;
+  onDelete: (load: Load) => void;
+  onFindMatch: (load: Load) => void;
 }) => {
   const getBadgeVariant = (status: string) => {
     switch (status) {
@@ -77,6 +93,8 @@ const LoadsTable = ({
         return "secondary";
       case "In-transit":
         return "default";
+      case "Matched":
+        return "outline";
       case "Pending":
       default:
         return "outline";
@@ -145,10 +163,27 @@ const LoadsTable = ({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                    <DropdownMenuItem disabled={!isOnline}>Edit</DropdownMenuItem>
-                    <DropdownMenuItem disabled={!isOnline}>Find Match</DropdownMenuItem>
+                    <DropdownMenuItem 
+                      disabled={!isOnline || load.status !== "Pending"}
+                      onClick={() => onEdit(load)}
+                    >
+                      <Pencil className="h-4 w-4 mr-2" />
+                      Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      disabled={!isOnline || load.status !== "Pending"}
+                      onClick={() => onFindMatch(load)}
+                    >
+                      <SearchIcon className="h-4 w-4 mr-2" />
+                      Find Match
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem className="text-destructive" disabled={!isOnline}>
+                    <DropdownMenuItem 
+                      className="text-destructive" 
+                      disabled={!isOnline || load.status === "In-transit"}
+                      onClick={() => onDelete(load)}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
                       Delete
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -174,10 +209,13 @@ const LoadsTable = ({
 export default function LoadsPage() {
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
+  const router = useRouter();
   const [isOnline, setIsOnline] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
+  const [editingLoad, setEditingLoad] = useState<Load | null>(null);
+  const [deletingLoad, setDeletingLoad] = useState<Load | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  // Network status detection
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -204,7 +242,6 @@ export default function LoadsPage() {
 
   const { data: loads, isLoading, error: loadsError } = useCollection<Load>(loadsQuery);
 
-  // Filter loads by status
   const filteredLoads = useMemo(() => {
     if (!loads) return null;
     
@@ -220,7 +257,6 @@ export default function LoadsPage() {
     }
   }, [loads, activeTab]);
 
-  // Get counts for each tab
   const counts = useMemo(() => {
     if (!loads) return { all: 0, pending: 0, inTransit: 0, delivered: 0 };
     return {
@@ -231,14 +267,12 @@ export default function LoadsPage() {
     };
   }, [loads]);
 
-  // Show error toast
   useEffect(() => {
     if (loadsError) {
       showError('Failed to load loads. Please try again.');
     }
   }, [loadsError]);
 
-  // Export loads to CSV
   const handleExport = () => {
     if (!filteredLoads || filteredLoads.length === 0) {
       showError('No loads to export');
@@ -267,11 +301,29 @@ export default function LoadsPage() {
     
     showSuccess('Loads exported successfully!');
   };
+
+  const handleDelete = async () => {
+    if (!deletingLoad || !firestore || !user?.uid) return;
+    
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(firestore, `owner_operators/${user.uid}/loads/${deletingLoad.id}`));
+      showSuccess('Load deleted successfully');
+      setDeletingLoad(null);
+    } catch (error: any) {
+      showError(error.message || 'Failed to delete load');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleFindMatch = (load: Load) => {
+    router.push(`/dashboard/matches?loadId=${load.id}`);
+  };
   
   return (
     <Sheet>
       <main className="grid flex-1 items-start gap-4 sm:py-0 md:gap-8">
-        {/* Offline Banner */}
         {!isOnline && (
           <Alert variant="destructive">
             <WifiOff className="h-4 w-4" />
@@ -281,7 +333,6 @@ export default function LoadsPage() {
           </Alert>
         )}
 
-        {/* Error Banner */}
         {loadsError && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
@@ -366,12 +417,43 @@ export default function LoadsPage() {
                     ? "No loads found. Add your first load!" 
                     : `No ${activeTab} loads found.`
                 }
+                onEdit={setEditingLoad}
+                onDelete={setDeletingLoad}
+                onFindMatch={handleFindMatch}
               />
             </CardContent>
           </Card>
         </Tabs>
       </main>
+      
       <AddLoadForm />
+      
+      <EditLoadModal
+        open={!!editingLoad}
+        onOpenChange={(open) => !open && setEditingLoad(null)}
+        load={editingLoad}
+      />
+
+      <AlertDialog open={!!deletingLoad} onOpenChange={(open) => !open && setDeletingLoad(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Load</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this load from {deletingLoad?.origin} to {deletingLoad?.destination}? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }
