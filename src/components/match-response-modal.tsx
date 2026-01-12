@@ -36,6 +36,7 @@ import { showSuccess, showError } from "@/lib/toast-utils";
 import { format, parseISO } from "date-fns";
 import { generateTLA } from "@/lib/tla";
 import { notify } from "@/lib/notifications";
+import { createConversation } from "@/lib/messaging-utils";
 
 interface MatchResponseModalProps {
   open: boolean;
@@ -107,6 +108,21 @@ export function MatchResponseModal({
       // Save TLA to Firestore
       const tlaRef = await addDoc(collection(firestore, "tlas"), tlaData);
   
+      // Create conversation between the two parties
+      try {
+        await createConversation(
+          firestore,
+          match.driverOwnerId, // Driver owner (lessor)
+          match.loadOwnerId,   // Load owner (lessee)
+          match.loadId,
+          tlaRef.id
+        );
+        console.log('Conversation created successfully');
+      } catch (convError) {
+        console.warn('Failed to create conversation:', convError);
+        // Don't fail the whole operation if conversation creation fails
+      }
+  
       // Update match status and link TLA
       await updateDoc(doc(firestore, `matches/${match.id}`), {
         status: 'tla_pending',
@@ -139,7 +155,7 @@ export function MatchResponseModal({
         }).catch(err => console.error('Failed to send match accepted notification:', err));
       }
   
-      showSuccess("Match accepted! TLA generated and ready for signing.");
+      showSuccess("Match accepted! TLA generated and messaging enabled.");
       onOpenChange(false);
       if (onSuccess) onSuccess();
     } catch (error) {
@@ -370,7 +386,7 @@ export function MatchResponseModal({
                 <Check className="h-8 w-8 mx-auto text-green-600 mb-2" />
                 <p className="font-medium">Accept these terms?</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  A Trip Lease Agreement will be generated for signing.
+                  A Trip Lease Agreement will be generated and messaging enabled.
                 </p>
               </div>
             </TabsContent>
