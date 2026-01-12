@@ -35,11 +35,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useFirestore } from '@/firebase';
+import { useFirestore, useUser } from '@/firebase';
 import { collection, collectionGroup, getDocs, doc, getDoc } from 'firebase/firestore';
-import { Search, MoreHorizontal, Truck, Eye, RefreshCw, ShieldCheck, Building2 } from 'lucide-react';
+import { Search, MoreHorizontal, Truck, Eye, RefreshCw, ShieldCheck, Building2, Download } from 'lucide-react';
 import { getComplianceStatus, ComplianceStatus } from '@/lib/compliance';
 import type { Driver } from '@/lib/data';
+import { logAuditAction } from '@/lib/audit';
 
 type DriverWithOwner = Driver & {
   ownerCompanyName?: string;
@@ -47,6 +48,7 @@ type DriverWithOwner = Driver & {
 
 export default function AdminDriversPage() {
   const firestore = useFirestore();
+  const { user: adminUser } = useUser();
   const [drivers, setDrivers] = useState<DriverWithOwner[]>([]);
   const [filteredDrivers, setFilteredDrivers] = useState<DriverWithOwner[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -58,7 +60,6 @@ export default function AdminDriversPage() {
   const fetchDrivers = async () => {
     if (!firestore) return;
     setIsLoading(true);
-    
     try {
       const driversSnap = await getDocs(collectionGroup(firestore, 'drivers'));
       const driversData: DriverWithOwner[] = [];
@@ -69,14 +70,9 @@ export default function AdminDriversPage() {
         const pathParts = docSnap.ref.path.split('/');
         const ownerId = pathParts[1];
         ownerIds.add(ownerId);
-        driversData.push({
-          ...data,
-          id: docSnap.id,
-          ownerId,
-        });
+        driversData.push({ ...data, id: docSnap.id, ownerId });
       });
 
-      // Fetch owner names
       const names: Record<string, string> = {};
       for (const ownerId of ownerIds) {
         try {
@@ -85,13 +81,10 @@ export default function AdminDriversPage() {
             const ownerData = ownerDoc.data();
             names[ownerId] = ownerData.companyName || ownerData.legalName || 'Unknown';
           }
-        } catch (e) {
-          console.error('Error fetching owner:', e);
-        }
+        } catch (e) { console.error('Error fetching owner:', e); }
       }
       setOwnerNames(names);
 
-      // Add owner names to drivers
       const driversWithOwners = driversData.map(d => ({
         ...d,
         ownerCompanyName: d.ownerId ? names[d.ownerId] : undefined,
@@ -106,29 +99,61 @@ export default function AdminDriversPage() {
     }
   };
 
-  useEffect(() => {
-    fetchDrivers();
-  }, [firestore]);
+  useEffect(() => { fetchDrivers(); }, [firestore]);
 
   useEffect(() => {
     let filtered = drivers;
-
     if (searchQuery.trim() !== '') {
-      const query = searchQuery.toLowerCase();
+      const q = searchQuery.toLowerCase();
       filtered = filtered.filter(driver => 
-        driver.name?.toLowerCase().includes(query) ||
-        driver.email?.toLowerCase().includes(query) ||
-        driver.location?.toLowerCase().includes(query) ||
-        driver.ownerCompanyName?.toLowerCase().includes(query)
+        driver.name?.toLowerCase().includes(q) ||
+        driver.email?.toLowerCase().includes(q) ||
+        driver.location?.toLowerCase().includes(q) ||
+        driver.ownerCompanyName?.toLowerCase().includes(q)
       );
     }
-
     if (complianceFilter !== 'all') {
       filtered = filtered.filter(driver => getComplianceStatus(driver) === complianceFilter);
     }
-
     setFilteredDrivers(filtered);
   }, [searchQuery, complianceFilter, drivers]);
+
+  const handleExport = () => {
+    const headers = ['Name', 'Email', 'Fleet', 'Location', 'Vehicle Type', 'Availability', 'Compliance', 'CDL Expiry', 'Medical Card Expiry', 'Status'];
+    const csvContent = [
+      headers.join(','),
+      ...filteredDrivers.map(driver => [
+        `"${driver.name || ''}"`,
+        `"${driver.email || ''}"`,
+        `"${driver.ownerCompanyName || ''}"`,
+        `"${driver.location || ''}"`,
+        `"${driver.vehicleType || ''}"`,
+        `"${driver.availability || ''}"`,
+        `"${getComplianceStatus(driver)}"`,
+        `"${driver.cdlExpiry || ''}"`,
+        `"${driver.medicalCardExpiry || ''}"`,
+        driver.isActive === false ? 'Inactive' : 'Active',
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `drivers-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+
+    if (firestore && adminUser) {
+      logAuditAction(firestore, {
+        action: 'data_exported',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'system',
+        targetId: 'drivers',
+        targetName: 'Drivers Export',
+        details: { count: filteredDrivers.length },
+      });
+    }
+  };
 
   const getComplianceBadgeStyle = (status: ComplianceStatus) => {
     switch (status) {
@@ -140,18 +165,16 @@ export default function AdminDriversPage() {
   };
 
   const TableSkeleton = () => (
-    <>
-      {[1,2,3,4,5].map(i => (
-        <TableRow key={i}>
-          <TableCell><Skeleton className="h-4 w-32" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-          <TableCell><Skeleton className="h-6 w-16" /></TableCell>
-          <TableCell><Skeleton className="h-8 w-8" /></TableCell>
-        </TableRow>
-      ))}
-    </>
+    <>{[1,2,3,4,5].map(i => (
+      <TableRow key={i}>
+        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+        <TableCell><Skeleton className="h-6 w-16" /></TableCell>
+        <TableCell><Skeleton className="h-8 w-8" /></TableCell>
+      </TableRow>
+    ))}</>
   );
 
   return (
@@ -161,10 +184,14 @@ export default function AdminDriversPage() {
           <h1 className="text-3xl font-bold font-headline">All Drivers</h1>
           <p className="text-muted-foreground">View drivers across all fleets</p>
         </div>
-        <Button variant="outline" onClick={fetchDrivers} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExport} disabled={filteredDrivers.length === 0}>
+            <Download className="h-4 w-4 mr-2" />Export CSV
+          </Button>
+          <Button variant="outline" onClick={fetchDrivers} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />Refresh
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -177,17 +204,10 @@ export default function AdminDriversPage() {
             <div className="flex items-center gap-2 w-full md:w-auto">
               <div className="relative flex-1 md:w-64">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search drivers..."
-                  className="pl-8"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+                <Input placeholder="Search drivers..." className="pl-8" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
               </div>
               <Select value={complianceFilter} onValueChange={setComplianceFilter}>
-                <SelectTrigger className="w-32">
-                  <SelectValue placeholder="Compliance" />
-                </SelectTrigger>
+                <SelectTrigger className="w-32"><SelectValue placeholder="Compliance" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="Green">Green</SelectItem>
@@ -212,9 +232,7 @@ export default function AdminDriversPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? (
-                <TableSkeleton />
-              ) : filteredDrivers.length > 0 ? (
+              {isLoading ? <TableSkeleton /> : filteredDrivers.length > 0 ? (
                 filteredDrivers.map(driver => {
                   const compliance = getComplianceStatus(driver);
                   return (
@@ -227,36 +245,23 @@ export default function AdminDriversPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <Building2 className="h-3 w-3" />
-                          {driver.ownerCompanyName || 'Unknown'}
+                          <Building2 className="h-3 w-3" />{driver.ownerCompanyName || 'Unknown'}
                         </div>
                       </TableCell>
                       <TableCell>{driver.location || '-'}</TableCell>
                       <TableCell>{driver.vehicleType || '-'}</TableCell>
                       <TableCell>
-                        <Badge variant={driver.availability === 'Available' ? 'default' : 'secondary'}>
-                          {driver.availability || 'Off-duty'}
-                        </Badge>
+                        <Badge variant={driver.availability === 'Available' ? 'default' : 'secondary'}>{driver.availability || 'Off-duty'}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge className={getComplianceBadgeStyle(compliance)}>
-                          <ShieldCheck className="h-3 w-3 mr-1" />
-                          {compliance}
-                        </Badge>
+                        <Badge className={getComplianceBadgeStyle(compliance)}><ShieldCheck className="h-3 w-3 mr-1" />{compliance}</Badge>
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
+                          <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            <DropdownMenuItem onClick={() => setSelectedDriver(driver)}>
-                              <Eye className="h-4 w-4 mr-2" />
-                              View Details
-                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setSelectedDriver(driver)}><Eye className="h-4 w-4 mr-2" />View Details</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -286,47 +291,18 @@ export default function AdminDriversPage() {
           {selectedDriver && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Fleet</p>
-                  <p className="font-medium">{selectedDriver.ownerCompanyName || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Email</p>
-                  <p className="font-medium">{selectedDriver.email || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Location</p>
-                  <p className="font-medium">{selectedDriver.location || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Vehicle Type</p>
-                  <p className="font-medium">{selectedDriver.vehicleType || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">CDL License</p>
-                  <p className="font-medium">{selectedDriver.cdlLicense || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">CDL Expiry</p>
-                  <p className="font-medium">{selectedDriver.cdlExpiry || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Medical Card Expiry</p>
-                  <p className="font-medium">{selectedDriver.medicalCardExpiry || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Insurance Expiry</p>
-                  <p className="font-medium">{selectedDriver.insuranceExpiry || '-'}</p>
-                </div>
+                <div><p className="text-sm text-muted-foreground">Fleet</p><p className="font-medium">{selectedDriver.ownerCompanyName || '-'}</p></div>
+                <div><p className="text-sm text-muted-foreground">Email</p><p className="font-medium">{selectedDriver.email || '-'}</p></div>
+                <div><p className="text-sm text-muted-foreground">Location</p><p className="font-medium">{selectedDriver.location || '-'}</p></div>
+                <div><p className="text-sm text-muted-foreground">Vehicle Type</p><p className="font-medium">{selectedDriver.vehicleType || '-'}</p></div>
+                <div><p className="text-sm text-muted-foreground">CDL License</p><p className="font-medium">{selectedDriver.cdlLicense || '-'}</p></div>
+                <div><p className="text-sm text-muted-foreground">CDL Expiry</p><p className="font-medium">{selectedDriver.cdlExpiry || '-'}</p></div>
+                <div><p className="text-sm text-muted-foreground">Medical Card Expiry</p><p className="font-medium">{selectedDriver.medicalCardExpiry || '-'}</p></div>
+                <div><p className="text-sm text-muted-foreground">Insurance Expiry</p><p className="font-medium">{selectedDriver.insuranceExpiry || '-'}</p></div>
               </div>
               <div className="flex items-center gap-4 pt-4 border-t">
-                <Badge variant={selectedDriver.availability === 'Available' ? 'default' : 'secondary'}>
-                  {selectedDriver.availability || 'Off-duty'}
-                </Badge>
-                <Badge className={getComplianceBadgeStyle(getComplianceStatus(selectedDriver))}>
-                  <ShieldCheck className="h-3 w-3 mr-1" />
-                  {getComplianceStatus(selectedDriver)}
-                </Badge>
+                <Badge variant={selectedDriver.availability === 'Available' ? 'default' : 'secondary'}>{selectedDriver.availability || 'Off-duty'}</Badge>
+                <Badge className={getComplianceBadgeStyle(getComplianceStatus(selectedDriver))}><ShieldCheck className="h-3 w-3 mr-1" />{getComplianceStatus(selectedDriver)}</Badge>
               </div>
             </div>
           )}
