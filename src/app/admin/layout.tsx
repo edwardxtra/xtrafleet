@@ -28,8 +28,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from "@/components/logo";
-import { Home, Users, Truck, LogOut, Loader2, FileText, Link2, Shield, ClipboardList, Package } from "lucide-react";
+import { Home, Users, Truck, LogOut, Loader2, FileText, Link2, Shield, ClipboardList, Package, Settings } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
 function AdminSidebarNavLink({ href, children, tooltip }: { href: string; children: React.ReactNode; tooltip: string; }) {
   const { setOpenMobile, isMobile } = useSidebar();
@@ -54,7 +55,7 @@ function AdminSidebarNav({ onSignOutClick }: { onSignOutClick: () => void }) {
             <AdminSidebarNavLink href="/admin" tooltip="Dashboard"><Home /><span>Dashboard</span></AdminSidebarNavLink>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <AdminSidebarNavLink href="/admin/users" tooltip="Users"><Users /><span>Users</span></AdminSidebarNavLink>
+            <AdminSidebarNavLink href="/admin/users" tooltip="Users"><Users /><span>Users (OOs)</span></AdminSidebarNavLink>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <AdminSidebarNavLink href="/admin/drivers" tooltip="Drivers"><Truck /><span>All Drivers</span></AdminSidebarNavLink>
@@ -70,6 +71,12 @@ function AdminSidebarNav({ onSignOutClick }: { onSignOutClick: () => void }) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <AdminSidebarNavLink href="/admin/audit" tooltip="Audit Log"><ClipboardList /><span>Audit Log</span></AdminSidebarNavLink>
+          </SidebarMenuItem>
+        </SidebarMenu>
+        <Separator className="my-2" />
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <AdminSidebarNavLink href="/admin/settings" tooltip="Admin Access"><Settings /><span>Admin Access</span></AdminSidebarNavLink>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarContent>
