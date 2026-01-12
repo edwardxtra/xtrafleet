@@ -16,38 +16,23 @@ export type Driver = {
   vehicleType: "Dry Van" | "Reefer" | "Flatbed";
   profileSummary?: string;
   ownerId?: string;
-  isActive?: boolean; // For soft-delete/deactivation - defaults to true
-  
-  // CDL
+  isActive?: boolean;
   cdlLicense?: string;
   cdlExpiry?: string;
   cdlLicenseUrl?: string;
   cdlDocumentUrl?: string;
-  
-  // Medical Card
   medicalCardExpiry?: string;
   medicalCardUrl?: string;
-  
-  // Insurance
   insuranceExpiry?: string;
   insuranceUrl?: string;
-  
-  // MVR
   motorVehicleRecordNumber?: string;
   mvrUrl?: string;
-  
-  // Background Check
   backgroundCheckDate?: string;
   backgroundCheckUrl?: string;
-  
-  // Pre-Employment Screening
   preEmploymentScreeningDate?: string;
   preEmploymentScreeningUrl?: string;
-  
-  // Drug & Alcohol Screening
   drugAndAlcoholScreeningDate?: string;
   drugAndAlcoholScreeningUrl?: string;
-  
   rating?: number;
   reviews?: Review[];
 };
@@ -140,6 +125,8 @@ export type OwnerOperator = {
   zip?: string;
   dotNumber?: string;
   mcNumber?: string;
+  isAdmin?: boolean;
+  createdAt?: string;
 };
 
 export type TLASignature = {
