@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { cookies } from 'next/headers';
 import admin from 'firebase-admin';
 import type { DecodedIdToken, App } from 'firebase-admin/auth';
