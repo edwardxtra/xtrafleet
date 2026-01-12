@@ -27,18 +27,27 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/logo";
 import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
+import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
 
-function SidebarNavLink({ href, children, tooltip }: { href: string; children: React.ReactNode; tooltip: string; }) {
+function SidebarNavLink({ href, children, tooltip, badge }: { href: string; children: React.ReactNode; tooltip: string; badge?: number }) {
   const { setOpenMobile, isMobile } = useSidebar();
   const pathname = usePathname();
   const isActive = pathname === href;
   const handleClick = () => { if (isMobile) setOpenMobile(false); };
   return (
     <SidebarMenuButton asChild tooltip={tooltip} isActive={isActive}>
-      <Link href={href} onClick={handleClick}>{children}</Link>
+      <Link href={href} onClick={handleClick} className="flex items-center justify-between w-full">
+        <span className="flex items-center gap-2">{children}</span>
+        {badge && badge > 0 && (
+          <Badge variant="default" className="ml-auto h-5 min-w-5 px-1.5 bg-red-600 hover:bg-red-600">
+            {badge > 99 ? '99+' : badge}
+          </Badge>
+        )}
+      </Link>
     </SidebarMenuButton>
   );
 }
@@ -46,6 +55,8 @@ function SidebarNavLink({ href, children, tooltip }: { href: string; children: R
 function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; isAdmin: boolean }) {
   const { setOpenMobile, isMobile } = useSidebar();
   const handleSignOutClick = () => { if (isMobile) setOpenMobile(false); onSignOutClick(); };
+  const unreadCount = useUnreadMessagesCount();
+  
   return (
     <>
       <SidebarContent>
@@ -66,7 +77,9 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
             <SidebarNavLink href="/dashboard/incoming-matches" tooltip="Incoming Requests"><Inbox /><span>Incoming Requests</span></SidebarNavLink>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarNavLink href="/dashboard/messages" tooltip="Messages"><MessageSquare /><span>Messages</span></SidebarNavLink>
+            <SidebarNavLink href="/dashboard/messages" tooltip="Messages" badge={unreadCount}>
+              <MessageSquare /><span>Messages</span>
+            </SidebarNavLink>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarNavLink href="/dashboard/agreements" tooltip="Agreements"><FileText /><span>Agreements</span></SidebarNavLink>
