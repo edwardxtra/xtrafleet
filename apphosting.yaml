@@ -1,7 +1,9 @@
 # Settings to manage and configure a Firebase App Hosting backend.
 # https://firebase.google.com/docs/app-hosting/configure
+
 runConfig:
   maxInstances: 1
+
 env:
   - variable: NEXT_PUBLIC_APP_URL
     value: https://xtrafleet.com
@@ -9,7 +11,7 @@ env:
     value: studio-5112915880-e9ca2
   - variable: FB_CLIENT_EMAIL
     value: firebase-adminsdk-fbsvc@studio-5112915880-e9ca2.iam.gserviceaccount.com
-  - variable: RESEND_API_KEY
-    secret: RESEND_API_KEY
   - variable: FB_PRIVATE_KEY
     secret: FB_PRIVATE_KEY
+  - variable: RESEND_API_KEY
+    secret: RESEND_API_KEY
