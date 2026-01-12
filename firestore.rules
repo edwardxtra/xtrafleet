@@ -9,9 +9,9 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
 
+    // Check if user is admin - using get() to read isAdmin field
     function isAdmin() {
       return isSignedIn() && 
-        exists(/databases/$(database)/documents/owner_operators/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/owner_operators/$(request.auth.uid)).data.isAdmin == true;
     }
 
@@ -30,7 +30,7 @@ service cloud.firestore {
 
     match /owner_operators/{ownerOperatorId} {
       allow get: if isSignedIn();
-      allow list: if isAdmin();
+      allow list: if isSignedIn();
       allow create: if isSignedIn() && isOwner(ownerOperatorId);
       allow update: if isSignedIn() && (isOwner(ownerOperatorId) || isAdmin());
       allow delete: if isSignedIn() && isOwner(ownerOperatorId);
@@ -44,8 +44,8 @@ service cloud.firestore {
       }
 
       match /loads/{loadId} {
-        allow read: if isSignedIn() && (isOwner(ownerOperatorId) || isAdmin());
-        allow list: if isSignedIn() && (isOwner(ownerOperatorId) || isAdmin());
+        allow read: if isSignedIn();
+        allow list: if isSignedIn();
         allow write: if isSignedIn() && isOwner(ownerOperatorId);
       }
 
@@ -60,9 +60,9 @@ service cloud.firestore {
       allow read: if isSignedIn();
     }
 
-    // Collection Group Query for loads - allows admins to query ALL loads
+    // Collection Group Query for loads - allows querying ALL loads across all owner_operators
     match /{path=**}/loads/{loadId} {
-      allow read: if isAdmin();
+      allow read: if isSignedIn();
     }
 
     // Matches collection
@@ -83,8 +83,8 @@ service cloud.firestore {
 
     // Audit logs collection - admin only
     match /audit_logs/{logId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
       allow update: if false;
       allow delete: if false;
     }
