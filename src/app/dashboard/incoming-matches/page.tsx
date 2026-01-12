@@ -29,7 +29,7 @@ import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebas
 import { collection, query, where, orderBy } from "firebase/firestore";
 import type { Match } from "@/lib/data";
 import { MatchResponseModal } from "@/components/match-response-modal";
-import { format, parseISO, differenceInHours } from "date-fns";
+import { format, parseISO, differenceInHours, isPast } from "date-fns";
 
 const statusConfig = {
   pending: { label: "Pending", variant: "outline" as const, icon: Clock },
@@ -62,10 +62,18 @@ export default function IncomingMatchesPage() {
 
   const { data: matches, isLoading, error } = useCollection<Match>(matchesQuery);
 
-  const pendingMatches = matches?.filter(m => m.status === 'pending') || [];
-  const otherMatches = matches?.filter(m => m.status !== 'pending') || [];
+  // Check if match is expired
+  const isExpired = (match: Match) => {
+    return isPast(parseISO(match.expiresAt));
+  };
+
+  const pendingMatches = matches?.filter(m => m.status === 'pending' && !isExpired(m)) || [];
+  const otherMatches = matches?.filter(m => m.status !== 'pending' || isExpired(m)) || [];
 
   const handleRespond = (match: Match) => {
+    if (isExpired(match)) {
+      return; // Don't open modal for expired matches
+    }
     setSelectedMatch(match);
     setResponseModalOpen(true);
   };
@@ -223,7 +231,9 @@ export default function IncomingMatchesPage() {
           <h2 className="text-lg font-semibold mb-4">Past Requests</h2>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {otherMatches.map(match => {
-              const config = statusConfig[match.status];
+              const expired = isExpired(match);
+              const status = expired ? 'expired' : match.status;
+              const config = statusConfig[status];
               const StatusIcon = config.icon;
               
               return (
@@ -277,7 +287,7 @@ export default function IncomingMatchesPage() {
       )}
 
       {/* Response Modal */}
-      {selectedMatch && (
+      {selectedMatch && !isExpired(selectedMatch) && (
         <MatchResponseModal
           open={responseModalOpen}
           onOpenChange={setResponseModalOpen}

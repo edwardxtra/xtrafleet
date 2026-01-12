@@ -48,15 +48,25 @@ export async function createConversation(
       tlaId: tlaId || null,
       createdAt: Timestamp.now().toDate().toISOString(),
       lastMessageAt: Timestamp.now().toDate().toISOString(),
-      lastMessage: "Conversation started",
+      lastMessage: "Match accepted! Coordinate pickup and delivery details here.",
       unreadCount: {
-        [participantId1]: 0,
-        [participantId2]: 0,
+        [participantId1]: 1,
+        [participantId2]: 1,
       },
     };
 
     const conversationsRef = collection(firestore, "conversations");
     const conversationDoc = await addDoc(conversationsRef, conversationData);
+
+    // Create initial welcome message
+    const messagesRef = collection(firestore, `conversations/${conversationDoc.id}/messages`);
+    await addDoc(messagesRef, {
+      conversationId: conversationDoc.id,
+      senderId: "system",
+      text: "Match accepted! Use this chat to coordinate pickup and delivery details.",
+      timestamp: Timestamp.now().toDate().toISOString(),
+      read: false,
+    });
 
     return conversationDoc.id;
   } catch (error) {

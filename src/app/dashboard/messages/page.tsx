@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useUser, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, Timestamp, getDocs, writeBatch } from "firebase/firestore";
+import { useUser, useFirestore } from "@/firebase";
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, Timestamp, writeBatch } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -27,13 +27,16 @@ export default function MessagesPage() {
 
   // Load conversations
   useEffect(() => {
-    if (!firestore || !user?.uid) return;
+    if (!firestore || !user?.uid) {
+      setIsLoading(false);
+      return;
+    }
 
     const conversationsRef = collection(firestore, "conversations");
+    // Remove orderBy to avoid index requirement - sort in memory instead
     const q = query(
       conversationsRef,
-      where("participants", "array-contains", user.uid),
-      orderBy("lastMessageAt", "desc")
+      where("participants", "array-contains", user.uid)
     );
 
     const unsubscribe = onSnapshot(
@@ -43,12 +46,13 @@ export default function MessagesPage() {
         snapshot.forEach((doc) => {
           convos.push({ id: doc.id, ...doc.data() } as Conversation);
         });
+        // Sort by lastMessageAt in memory
+        convos.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
         setConversations(convos);
         setIsLoading(false);
       },
       (error) => {
         console.error("Error loading conversations:", error);
-        showError("Failed to load conversations");
         setIsLoading(false);
       }
     );
@@ -64,7 +68,7 @@ export default function MessagesPage() {
     }
 
     const messagesRef = collection(firestore, `conversations/${selectedConversation.id}/messages`);
-    const q = query(messagesRef, orderBy("timestamp", "asc"));
+    const q = query(messagesRef);
 
     const unsubscribe = onSnapshot(
       q,
@@ -73,6 +77,8 @@ export default function MessagesPage() {
         snapshot.forEach((doc) => {
           msgs.push({ id: doc.id, ...doc.data() } as Message);
         });
+        // Sort by timestamp in memory
+        msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         setMessages(msgs);
         
         // Mark messages as read
