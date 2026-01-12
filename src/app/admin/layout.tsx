@@ -28,7 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from "@/components/logo";
-import { Home, Users, Truck, LogOut, Loader2, FileText, Link2, Shield, ClipboardList } from "lucide-react";
+import { Home, Users, Truck, LogOut, Loader2, FileText, Link2, Shield, ClipboardList, Package } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 function AdminSidebarNavLink({ href, children, tooltip }: { href: string; children: React.ReactNode; tooltip: string; }) {
@@ -58,6 +58,9 @@ function AdminSidebarNav({ onSignOutClick }: { onSignOutClick: () => void }) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <AdminSidebarNavLink href="/admin/drivers" tooltip="Drivers"><Truck /><span>All Drivers</span></AdminSidebarNavLink>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <AdminSidebarNavLink href="/admin/loads" tooltip="Loads"><Package /><span>All Loads</span></AdminSidebarNavLink>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <AdminSidebarNavLink href="/admin/matches" tooltip="Matches"><Link2 /><span>Matches</span></AdminSidebarNavLink>
