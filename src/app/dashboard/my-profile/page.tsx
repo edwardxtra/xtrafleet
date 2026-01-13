@@ -35,6 +35,7 @@ import type { Driver } from "@/lib/data";
 import { getComplianceStatus } from "@/lib/compliance";
 import { format, parseISO, differenceInDays } from "date-fns";
 import { EditDriverModal } from "@/components/edit-driver-modal";
+import { ProfileCompletionBanner } from "@/components/profile-completion-banner";
 
 const ComplianceItem = ({ 
     label, 
@@ -222,6 +223,11 @@ export default function MyProfilePage() {
 
   return (
     <div className="space-y-6">
+      {/* Profile Completion Banner */}
+      {user?.uid && (
+        <ProfileCompletionBanner driver={driver} driverId={user.uid} />
+      )}
+
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold font-headline">My Profile</h1>
         <Button onClick={() => setEditingDriver(driver)}>
