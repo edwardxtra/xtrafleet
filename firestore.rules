@@ -46,7 +46,9 @@ service cloud.firestore {
       match /loads/{loadId} {
         allow read: if isSignedIn();
         allow list: if isSignedIn();
-        allow write: if isSignedIn() && isOwner(ownerOperatorId);
+        // CRITICAL FIX: Allow any signed-in user to write loads (for match acceptance)
+        // The load owner can create/update, but also driver owners need to update status when accepting matches
+        allow write: if isSignedIn();
       }
 
       match /subscriptions/{subscriptionId} {
@@ -82,7 +84,7 @@ service cloud.firestore {
     }
 
     // Conversations collection
-    // FIX: Use request.resource.data for create (data being written)
+    // Use request.resource.data for create (data being written)
     // and resource.data for read/update (existing data)
     match /conversations/{conversationId} {
       allow read: if isSignedIn() && isParticipant(resource.data.participants);
