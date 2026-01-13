@@ -9,13 +9,6 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   typescript: true,
 });
 
-// Product IDs - these will be created in Stripe Dashboard or via API
-export const STRIPE_PRODUCTS = {
-  MONTHLY: 'prod_monthly_subscription',
-  SIX_MONTH: 'prod_six_month_subscription',
-  ANNUAL: 'prod_annual_subscription',
-} as const;
-
 // Price IDs - these will be set after creating products in Stripe
 export const STRIPE_PRICES = {
   MONTHLY: process.env.STRIPE_PRICE_MONTHLY || '', // $49.99/mo
