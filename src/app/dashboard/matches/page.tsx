@@ -453,9 +453,23 @@ export default function MatchesPage() {
                             </div>
                           </CardContent>
                           <CardFooter className="pt-0">
-                            <Button variant="default" size="sm" className="ml-auto">
-                              Select Load<ArrowRight className="h-4 w-4 ml-1" />
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="w-full">
+                                  <Button 
+                                    variant="default" 
+                                    size="sm" 
+                                    className="ml-auto w-full" 
+                                    disabled
+                                  >
+                                    Select Load<ArrowRight className="h-4 w-4 ml-1" />
+                                  </Button>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="max-w-xs">Select your own load from the left panel to match with this driver</p>
+                              </TooltipContent>
+                            </Tooltip>
                           </CardFooter>
                         </Card>
                       ))}
