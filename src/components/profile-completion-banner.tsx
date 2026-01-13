@@ -159,7 +159,7 @@ export function ProfileCompletionBanner({ driver, driverId }: ProfileCompletionB
           </div>
 
           {/* Action Button */}
-          <Link href={`/dashboard/drivers/${driverId}`}>
+          <Link href="/dashboard/my-profile">
             <Button size="sm" variant={criticalComplete ? "default" : "accent"}>
               {criticalComplete ? "Complete My Profile" : "Add CDL Information →"}
             </Button>
