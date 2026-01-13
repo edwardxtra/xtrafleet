@@ -29,3 +29,4 @@ env:
     value: price_1SpDhVJkUn3hXOyqHesWbtho
   - variable: NEXT_PUBLIC_STRIPE_PRICE_ANNUAL
     value: price_1SpDi9JkUn3hXOyqHPI4bF5H
+
