@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CreditCard, Clock, Check, AlertCircle, ExternalLink, Loader2 } from "lucide-react";
+import { CreditCard, Clock, Check, AlertCircle, ExternalLink, Loader2, Crown } from "lucide-react";
 import { useSubscription } from "@/hooks/use-subscription";
 import { useUser } from "@/firebase";
 import { format, parseISO } from "date-fns";
@@ -263,62 +263,98 @@ export default function BillingPage() {
           </CardHeader>
           <CardContent className="grid gap-4">
             {/* Monthly Plan */}
-            <div className={`border rounded-lg p-4 flex items-center justify-between ${isCurrentPlan("monthly") ? "border-primary border-2 bg-primary/5" : ""}`}>
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="font-semibold">Monthly Plan</p>
-                  {isCurrentPlan("monthly") && <Badge variant="outline" className="bg-primary text-primary-foreground">Current</Badge>}
+            <div 
+              className={`border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${
+                isCurrentPlan("monthly") ? "border-primary border-2 bg-primary/5" : "hover:border-primary/50"
+              }`}
+              onClick={() => !isCurrentPlan("monthly") && handleSubscribe("monthly")}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold">Monthly Plan</p>
+                    {isCurrentPlan("monthly") && <Badge variant="outline" className="bg-primary text-primary-foreground">Current</Badge>}
+                  </div>
+                  <p className="text-2xl font-bold text-primary">$49.99<span className="text-sm text-muted-foreground">/month</span></p>
+                  <p className="text-xs text-muted-foreground mt-1">Billed monthly • Cancel anytime</p>
                 </div>
-                <p className="text-2xl font-bold text-primary">$49.99<span className="text-sm text-muted-foreground">/month</span></p>
-                <p className="text-xs text-muted-foreground mt-1">Billed monthly • Cancel anytime</p>
+                <Button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSubscribe("monthly");
+                  }}
+                  disabled={isCreatingCheckout || isCurrentPlan("monthly")}
+                  variant={isCurrentPlan("monthly") ? "secondary" : "default"}
+                >
+                  {getButtonText("monthly")}
+                </Button>
               </div>
-              <Button 
-                onClick={() => handleSubscribe("monthly")} 
-                disabled={isCreatingCheckout || isCurrentPlan("monthly")}
-                variant={isCurrentPlan("monthly") ? "secondary" : "default"}
-              >
-                {getButtonText("monthly")}
-              </Button>
             </div>
 
             {/* 6-Month Plan */}
-            <div className={`border rounded-lg p-4 flex items-center justify-between ${isCurrentPlan("six_month") ? "border-primary border-2 bg-primary/5" : "bg-muted/30"}`}>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="font-semibold">6-Month Plan</p>
-                  <Badge variant="secondary" className="bg-green-100 text-green-800">Save 10%</Badge>
-                  {isCurrentPlan("six_month") && <Badge variant="outline" className="bg-primary text-primary-foreground">Current</Badge>}
+            <div 
+              className={`border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${
+                isCurrentPlan("six_month") ? "border-primary border-2 bg-primary/5" : "bg-muted/30 hover:border-primary/50"
+              }`}
+              onClick={() => !isCurrentPlan("six_month") && handleSubscribe("six_month")}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-semibold">6-Month Plan</p>
+                    <Badge variant="secondary" className="bg-green-100 text-green-800">Save 10%</Badge>
+                    {isCurrentPlan("six_month") && <Badge variant="outline" className="bg-primary text-primary-foreground">Current</Badge>}
+                  </div>
+                  <p className="text-2xl font-bold text-primary">$269.99<span className="text-sm text-muted-foreground">/6 months</span></p>
+                  <p className="text-xs text-muted-foreground mt-1">$45/month • Billed every 6 months</p>
                 </div>
-                <p className="text-2xl font-bold text-primary">$269.99<span className="text-sm text-muted-foreground">/6 months</span></p>
-                <p className="text-xs text-muted-foreground mt-1">$45/month • Billed every 6 months</p>
+                <Button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSubscribe("six_month");
+                  }}
+                  disabled={isCreatingCheckout || isCurrentPlan("six_month")}
+                  variant={isCurrentPlan("six_month") ? "secondary" : "default"}
+                >
+                  {getButtonText("six_month")}
+                </Button>
               </div>
-              <Button 
-                onClick={() => handleSubscribe("six_month")} 
-                disabled={isCreatingCheckout || isCurrentPlan("six_month")}
-                variant={isCurrentPlan("six_month") ? "secondary" : "default"}
-              >
-                {getButtonText("six_month")}
-              </Button>
             </div>
 
             {/* Annual Plan */}
-            <div className={`border rounded-lg p-4 flex items-center justify-between ${isCurrentPlan("annual") ? "border-primary border-2 bg-primary/5" : "border-2 border-primary/50"}`}>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="font-semibold">Annual Plan</p>
-                  <Badge className="bg-primary">Save 16%</Badge>
-                  {isCurrentPlan("annual") && <Badge variant="outline" className="bg-primary text-primary-foreground">Current</Badge>}
-                </div>
-                <p className="text-2xl font-bold text-primary">$499.99<span className="text-sm text-muted-foreground">/year</span></p>
-                <p className="text-xs text-muted-foreground mt-1">$41.67/month • Best value</p>
+            <div 
+              className={`relative border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md overflow-hidden ${
+                isCurrentPlan("annual") ? "border-primary border-2 bg-primary/5" : "hover:border-primary/50"
+              }`}
+              onClick={() => !isCurrentPlan("annual") && handleSubscribe("annual")}
+            >
+              {/* BEST VALUE Banner */}
+              <div className="absolute top-0 right-0 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground text-xs font-bold px-3 py-1 rounded-bl-lg flex items-center gap-1">
+                <Crown className="h-3 w-3" />
+                BEST VALUE
               </div>
-              <Button 
-                onClick={() => handleSubscribe("annual")} 
-                disabled={isCreatingCheckout || isCurrentPlan("annual")}
-                variant={isCurrentPlan("annual") ? "secondary" : "default"}
-              >
-                {getButtonText("annual")}
-              </Button>
+              
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-semibold">Annual Plan</p>
+                    <Badge className="bg-primary">Save 16%</Badge>
+                    {isCurrentPlan("annual") && <Badge variant="outline" className="bg-primary text-primary-foreground">Current</Badge>}
+                  </div>
+                  <p className="text-2xl font-bold text-primary">$499.99<span className="text-sm text-muted-foreground">/year</span></p>
+                  <p className="text-xs text-muted-foreground mt-1">$41.67/month • Best value</p>
+                </div>
+                <Button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSubscribe("annual");
+                  }}
+                  disabled={isCreatingCheckout || isCurrentPlan("annual")}
+                  variant={isCurrentPlan("annual") ? "secondary" : "default"}
+                >
+                  {getButtonText("annual")}
+                </Button>
+              </div>
             </div>
 
             <div className="text-xs text-muted-foreground mt-2">
