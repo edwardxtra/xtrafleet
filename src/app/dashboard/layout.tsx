@@ -32,6 +32,7 @@ import { Logo } from "@/components/logo";
 import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
+import { Footer } from "@/components/footer";
 
 function SidebarNavLink({ href, children, tooltip, badge }: { href: string; children: React.ReactNode; tooltip: string; badge?: number }) {
   const { setOpenMobile, isMobile } = useSidebar();
@@ -197,6 +198,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="ml-auto text-sm text-muted-foreground">{user?.email}</div>
         </header>
         <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
+        <Footer />
       </SidebarInset>
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
         <AlertDialogContent>
