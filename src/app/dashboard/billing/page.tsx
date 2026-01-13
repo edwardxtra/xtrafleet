@@ -139,19 +139,36 @@ export default function BillingPage() {
     if (!planType) return "No Plan";
     const planNames: Record<string, string> = {
       monthly: "Monthly Plan",
+      "Monthly Plan": "Monthly Plan",
       six_month: "6-Month Plan",
-      annual: "Yearly Plan"
+      "6-Month Plan": "6-Month Plan",
+      annual: "Yearly Plan",
+      "Yearly Plan": "Yearly Plan"
     };
     return planNames[planType] || planType;
   };
 
+  // Normalize plan type for comparison
+  const normalizePlanType = (planType: string | null): string | null => {
+    if (!planType) return null;
+    const normalized: Record<string, string> = {
+      monthly: "monthly",
+      "Monthly Plan": "monthly",
+      six_month: "six_month",
+      "6-Month Plan": "six_month",
+      annual: "annual",
+      "Yearly Plan": "annual"
+    };
+    return normalized[planType] || planType;
+  };
+
   const isCurrentPlan = (planType: string) => {
-    return subscription.planType === planType;
+    return normalizePlanType(subscription.planType) === planType;
   };
 
   const getButtonText = (planType: string) => {
     if (isCurrentPlan(planType)) {
-      return "Current Plan";
+      return "Your Plan";
     }
     if (subscription.hasActiveSubscription) {
       return "Switch Plan";
