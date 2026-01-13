@@ -20,7 +20,6 @@ export interface ConversationData {
 
 /**
  * Create a conversation between driver owner (lessor) and load owner (lessee)
- * FIX #2: Added detailed logging to debug conversation creation
  */
 export async function createConversation(
   firestore: Firestore,
@@ -95,16 +94,9 @@ export async function createConversation(
     const conversationRef = await addDoc(collection(firestore, "conversations"), conversationData);
     console.log("✅ Conversation created with ID:", conversationRef.id);
 
-    // Add initial system message
-    console.log("📤 Adding initial message...");
-    await addDoc(collection(firestore, `conversations/${conversationRef.id}/messages`), {
-      conversationId: conversationRef.id,
-      senderId: "system",
-      text: `Trip from ${loadData.origin} to ${loadData.destination} - ${loadData.cargo}. Use this chat to coordinate details.`,
-      timestamp: new Date().toISOString(),
-      read: false,
-    });
-    console.log("✅ Initial message added");
+    // SKIP the initial system message - it was causing permission errors
+    // The conversation will start empty and users can send the first message
+    console.log("✅ Conversation ready for messaging");
 
     console.log("🎉 Conversation setup complete!");
     return conversationRef.id;
