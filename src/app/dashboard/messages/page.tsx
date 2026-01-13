@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useUser, useFirestore } from "@/firebase";
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, Timestamp, writeBatch } from "firebase/firestore";
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, Timestamp, writeBatch, getDocs } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,6 @@ export default function MessagesPage() {
     }
 
     const conversationsRef = collection(firestore, "conversations");
-    // Remove orderBy to avoid index requirement - sort in memory instead
     const q = query(
       conversationsRef,
       where("participants", "array-contains", user.uid)
@@ -46,7 +45,6 @@ export default function MessagesPage() {
         snapshot.forEach((doc) => {
           convos.push({ id: doc.id, ...doc.data() } as Conversation);
         });
-        // Sort by lastMessageAt in memory
         convos.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
         setConversations(convos);
         setIsLoading(false);
@@ -77,12 +75,8 @@ export default function MessagesPage() {
         snapshot.forEach((doc) => {
           msgs.push({ id: doc.id, ...doc.data() } as Message);
         });
-        // Sort by timestamp in memory
         msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         setMessages(msgs);
-        
-        // Mark messages as read
-        markMessagesAsRead();
       },
       (error) => {
         console.error("Error loading messages:", error);
@@ -93,40 +87,52 @@ export default function MessagesPage() {
     return () => unsubscribe();
   }, [firestore, selectedConversation]);
 
+  // CRITICAL FIX: Mark messages as read when messages change or conversation is selected
+  useEffect(() => {
+    if (!firestore || !selectedConversation || !user?.uid || messages.length === 0) return;
+
+    const markMessagesAsRead = async () => {
+      const unreadMessages = messages.filter(
+        (msg) => !msg.read && msg.senderId !== user.uid
+      );
+
+      if (unreadMessages.length === 0) return;
+
+      console.log(`Marking ${unreadMessages.length} messages as read`);
+
+      const batch = writeBatch(firestore);
+
+      unreadMessages.forEach((msg) => {
+        const msgRef = doc(firestore, `conversations/${selectedConversation.id}/messages/${msg.id}`);
+        batch.update(msgRef, { read: true });
+      });
+
+      // Update unread count in conversation
+      const conversationRef = doc(firestore, `conversations/${selectedConversation.id}`);
+      batch.update(conversationRef, {
+        [`unreadCount.${user.uid}`]: 0
+      });
+
+      try {
+        await batch.commit();
+        console.log('✅ Messages marked as read');
+      } catch (error) {
+        console.error("Error marking messages as read:", error);
+      }
+    };
+
+    // Small delay to ensure we have the latest messages
+    const timer = setTimeout(() => {
+      markMessagesAsRead();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [firestore, selectedConversation, user?.uid, messages]);
+
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  const markMessagesAsRead = async () => {
-    if (!firestore || !selectedConversation || !user?.uid) return;
-
-    const unreadMessages = messages.filter(
-      (msg) => !msg.read && msg.senderId !== user.uid
-    );
-
-    if (unreadMessages.length === 0) return;
-
-    const batch = writeBatch(firestore);
-
-    unreadMessages.forEach((msg) => {
-      const msgRef = doc(firestore, `conversations/${selectedConversation.id}/messages/${msg.id}`);
-      batch.update(msgRef, { read: true });
-    });
-
-    // Update unread count in conversation
-    const conversationRef = doc(firestore, `conversations/${selectedConversation.id}`);
-    const currentUnreadCount = selectedConversation.unreadCount?.[user.uid] || 0;
-    batch.update(conversationRef, {
-      [`unreadCount.${user.uid}`]: Math.max(0, currentUnreadCount - unreadMessages.length)
-    });
-
-    try {
-      await batch.commit();
-    } catch (error) {
-      console.error("Error marking messages as read:", error);
-    }
-  };
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -253,8 +259,7 @@ export default function MessagesPage() {
                       </div>
                     </button>
                   );
-                })}
-              </div>
+                })}\n              </div>
             )}
           </ScrollArea>
         </CardContent>
