@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -41,7 +41,7 @@ import {
 import type { Match } from "@/lib/data";
 import { useUser, useFirestore } from "@/firebase";
 import { doc, updateDoc, getDoc, collection, addDoc } from "firebase/firestore";
-import { showSuccess, showError } from "@/lib/toast-utils";
+import { showSuccess, showError, showInfo } from "@/lib/toast-utils";
 import { format, parseISO } from "date-fns";
 import { generateTLA } from "@/lib/tla";
 import { notify } from "@/lib/notifications";
@@ -152,8 +152,7 @@ export function MatchResponseModal({
         tlaId: tlaRef.id,
       });
   
-      // CRITICAL FIX: Update load status to "Matched" - NO TRY-CATCH
-      // This MUST succeed or we rollback by throwing error
+      // CRITICAL FIX: Update load status to "Matched"
       console.log('Updating load status to Matched...');
       await updateDoc(doc(firestore, `owner_operators/${match.loadOwnerId}/loads/${match.loadId}`), {
         status: 'Matched',
@@ -165,6 +164,7 @@ export function MatchResponseModal({
       // Send email notification to load owner
       const loadOwnerEmail = (lesseeInfo as any).contactEmail || '';
       const loadOwnerName = (lesseeInfo as any).legalName || '';
+      const loadOwnerCompanyName = (lesseeInfo as any).companyName || loadOwnerName;
       
       if (loadOwnerEmail) {
         notify.matchAccepted({
@@ -178,7 +178,14 @@ export function MatchResponseModal({
         }).catch(err => console.error('Failed to send match accepted notification:', err));
       }
   
-      showSuccess("Match accepted! Redirecting to TLA...");
+      // NEW: Show in-app notification with messaging info
+      showSuccess("Match accepted! TLA created and ready to sign.");
+      
+      // NEW: Show info toast about messaging
+      setTimeout(() => {
+        showInfo(`💬 You can now message ${loadOwnerCompanyName} in the Messages tab!`);
+      }, 1500);
+      
       onOpenChange(false);
       
       // Redirect to TLA page so driver owner can sign immediately
