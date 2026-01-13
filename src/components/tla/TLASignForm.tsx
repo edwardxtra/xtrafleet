@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2, PenLine } from "lucide-react";
+import { Loader2, PenLine, FileText } from "lucide-react";
+import Link from "next/link";
 import type { TLA, InsuranceOption } from "@/lib/data";
 import { useUser, useFirestore } from "@/firebase";
 import { signTLA } from "@/lib/tla-actions";
@@ -24,6 +25,7 @@ export function TLASignForm({ tla, tlaId, signingRole, onSignSuccess }: TLASignF
   const [isSigning, setIsSigning] = useState(false);
   const [signatureName, setSignatureName] = useState("");
   const [agreeToTerms, setAgreeToTerms] = useState(false);
+  const [consentToEsign, setConsentToEsign] = useState(false);
   const [insuranceOption, setInsuranceOption] = useState<InsuranceOption | "">("");
 
   const needsInsuranceSelection = signingRole === 'lessee' && !tla.insurance?.option;
@@ -32,12 +34,17 @@ export function TLASignForm({ tla, tlaId, signingRole, onSignSuccess }: TLASignF
     if (!firestore || !user) return;
 
     if (!signatureName.trim()) {
-      showError("Please enter your name to sign");
+      showError("Please enter your full legal name");
       return;
     }
 
     if (!agreeToTerms) {
-      showError("Please agree to the terms to sign");
+      showError("Please agree to the terms of the agreement");
+      return;
+    }
+
+    if (!consentToEsign) {
+      showError("Please consent to use electronic signatures");
       return;
     }
 
@@ -62,6 +69,7 @@ export function TLASignForm({ tla, tlaId, signingRole, onSignSuccess }: TLASignF
       if (updatedTLA) {
         setSignatureName("");
         setAgreeToTerms(false);
+        setConsentToEsign(false);
         setInsuranceOption("");
         onSignSuccess(updatedTLA);
       }
@@ -115,10 +123,14 @@ export function TLASignForm({ tla, tlaId, signingRole, onSignSuccess }: TLASignF
           <Label htmlFor="signatureName">Full Legal Name *</Label>
           <Input
             id="signatureName"
-            placeholder="Type your full name to sign"
+            placeholder="Type your full name exactly as it appears on your license"
             value={signatureName}
             onChange={(e) => setSignatureName(e.target.value)}
+            autoComplete="name"
           />
+          <p className="text-xs text-muted-foreground">
+            Your typed name will serve as your electronic signature
+          </p>
         </div>
 
         {/* Agreement Checkbox */}
@@ -132,11 +144,41 @@ export function TLASignForm({ tla, tlaId, signingRole, onSignSuccess }: TLASignF
             I have read and agree to all terms and conditions of this Trip Lease Agreement.
           </Label>
         </div>
+
+        {/* E-Sign Consent Checkbox */}
+        <div className="flex items-start space-x-2">
+          <Checkbox
+            id="consentToEsign"
+            checked={consentToEsign}
+            onCheckedChange={(checked) => setConsentToEsign(checked === true)}
+          />
+          <Label htmlFor="consentToEsign" className="text-sm font-normal cursor-pointer">
+            I consent to use electronic signatures and understand that my electronic signature is 
+            legally binding.{" "}
+            <Link 
+              href="/legal/esign-consent" 
+              target="_blank"
+              className="text-primary hover:underline inline-flex items-center gap-1"
+            >
+              Learn more
+              <FileText className="h-3 w-3" />
+            </Link>
+          </Label>
+        </div>
+
+        {/* Audit Trail Notice */}
+        <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-md">
+          <p className="font-medium mb-1">Signature Audit Trail:</p>
+          <p>
+            Your signature will include your name, current date/time, IP address, and device information 
+            for legal compliance and verification purposes.
+          </p>
+        </div>
       </CardContent>
       <CardFooter>
         <Button
           onClick={handleSign}
-          disabled={isSigning || !signatureName || !agreeToTerms || (needsInsuranceSelection && !insuranceOption)}
+          disabled={isSigning || !signatureName.trim() || !agreeToTerms || !consentToEsign || (needsInsuranceSelection && !insuranceOption)}
           className="w-full"
         >
           {isSigning ? (
@@ -147,7 +189,7 @@ export function TLASignForm({ tla, tlaId, signingRole, onSignSuccess }: TLASignF
           ) : (
             <>
               <PenLine className="h-4 w-4 mr-2" />
-              Sign Agreement
+              Sign Agreement Electronically
             </>
           )}
         </Button>
