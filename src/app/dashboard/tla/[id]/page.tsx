@@ -11,7 +11,7 @@ import { useTLA } from "@/hooks/use-tla";
 import { useTLARoles } from "@/hooks/use-tla-roles";
 import { downloadTLAPDF } from "@/lib/generate-tla-pdf";
 
-// Import all our new components
+// Import all our components
 import { TLAStatusBadge } from "@/components/tla/TLAStatusBadge";
 import { TLASignatureCard } from "@/components/tla/TLASignatureCard";
 import { TLAStatusAlerts } from "@/components/tla/TLAStatusAlerts";
@@ -20,6 +20,7 @@ import { TLATripControls } from "@/components/tla/TLATripControls";
 import { TLAAgreementDetails } from "@/components/tla/TLAAgreementDetails";
 import { TLACompletedSummary } from "@/components/tla/TLACompletedSummary";
 import { TLAPartiesCard } from "@/components/tla/TLAPartiesCard";
+import { TLAMatchFeeCard, TLAMatchFeePaidCard } from "@/components/tla/TLAMatchFeeCard";
 
 export default function TLAPage() {
   const params = useParams();
@@ -110,8 +111,20 @@ export default function TLAPage() {
           {/* Signatures */}
           <TLASignatureCard tla={tla} />
 
-          {/* Trip Controls - Show after TLA is signed */}
+          {/* Match Fee Payment - Show after fully signed */}
+          {tla.matchFeePaid ? (
+            <TLAMatchFeePaidCard />
+          ) : (
+            <TLAMatchFeeCard 
+              tla={tla} 
+              tlaId={tlaId} 
+              isLoadOwner={roles.isLessee} 
+            />
+          )}
+
+          {/* Trip Controls - Show after TLA is signed AND match fee paid */}
           {(tla.status === "signed" || tla.status === "in_progress") &&
+            tla.matchFeePaid &&
             roles.canControlTrip &&
             user && (
               <TLATripControls
@@ -121,7 +134,6 @@ export default function TLAPage() {
                 userName={roles.userName}
                 isDriver={roles.isDriver}
                 onTripUpdate={(updatedTLA) => {
-                  // Refetch to update UI
                   refetch();
                 }}
               />
@@ -137,7 +149,6 @@ export default function TLAPage() {
               tlaId={tlaId}
               signingRole={roles.signingRole}
               onSignSuccess={(updatedTLA) => {
-                // Refetch to update UI
                 refetch();
               }}
             />
