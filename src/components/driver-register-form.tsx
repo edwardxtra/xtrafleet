@@ -24,6 +24,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { useAuth } from "@/firebase";
 
 // Simplified schema - just the essentials to create account
 const quickProfileSchema = z.object({
@@ -47,6 +49,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
+  const auth = useAuth();
 
   const form = useForm<QuickProfileValues>({
     resolver: zodResolver(quickProfileSchema),
@@ -59,6 +62,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
     try {
       const { password, firstName, lastName, ...profileData } = values;
 
+      // Create account
       const response = await fetch('/api/create-driver-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -72,7 +76,6 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
             name: `${firstName} ${lastName}`,
             firstName,
             lastName,
-            // Set profile as incomplete
             profileComplete: false,
             profileCompletionStep: 'basic_info_complete',
           },
@@ -85,13 +88,18 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
         throw new Error(data.error || 'Failed to create account');
       }
 
+      // Auto-login the user
+      if (auth) {
+        await signInWithEmailAndPassword(auth, invitationEmail, password);
+      }
+
       toast({
-        title: "Account Created! 🎉",
-        description: "Welcome to XtraFleet! Complete your profile to start receiving loads.",
+        title: "Welcome to XtraFleet! 🎉",
+        description: "Your account has been created. Complete your profile to start receiving loads.",
       });
 
-      // Redirect to login
-      router.push('/login?welcome=true');
+      // Redirect directly to dashboard
+      router.push('/dashboard');
 
     } catch (error: any) {
       console.error('Failed to create driver profile:', error);
