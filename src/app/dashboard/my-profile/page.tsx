@@ -142,15 +142,27 @@ export default function MyProfilePage() {
   const { user } = useUser();
   const firestore = useFirestore();
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
+  const [ownerId, setOwnerId] = useState<string | null>(null);
 
-  // Get driver's own profile from their owner's subcollection
-  // Note: This assumes the driver document is stored somewhere accessible
-  // You may need to adjust the path based on your data structure
-  const driverQuery = useMemoFirebase(() => {
+  // First, get the user's role document to find their ownerId
+  const userRoleQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
-    // Try to get driver document - adjust path as needed based on your structure
-    return doc(firestore, `drivers/${user.uid}`);
+    return doc(firestore, `users/${user.uid}`);
   }, [firestore, user?.uid]);
+
+  const { data: userRole } = useDoc<{ role: string; ownerId: string }>(userRoleQuery);
+
+  useEffect(() => {
+    if (userRole?.ownerId) {
+      setOwnerId(userRole.ownerId);
+    }
+  }, [userRole]);
+
+  // Now get the driver's profile from their owner's subcollection
+  const driverQuery = useMemoFirebase(() => {
+    if (!firestore || !user?.uid || !ownerId) return null;
+    return doc(firestore, `owner_operators/${ownerId}/drivers/${user.uid}`);
+  }, [firestore, user?.uid, ownerId]);
 
   const { data: driver, isLoading, error } = useDoc<Driver>(driverQuery);
 
@@ -171,7 +183,7 @@ export default function MyProfilePage() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || !ownerId) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-10 w-40" />
