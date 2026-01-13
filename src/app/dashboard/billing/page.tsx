@@ -135,11 +135,28 @@ export default function BillingPage() {
     return <Badge variant="secondary">No Subscription</Badge>;
   };
 
-  const getPlanName = () => {
-    if (!subscription.planType) return "No Plan";
-    const plan = PLAN_PRICES[subscription.planType as keyof typeof PLAN_PRICES];
-    if (!plan) return subscription.planType;
-    return `${plan.price} / ${plan.interval}`;
+  const getPlanDisplayName = (planType: string | null) => {
+    if (!planType) return "No Plan";
+    const planNames: Record<string, string> = {
+      monthly: "Monthly Plan",
+      six_month: "6-Month Plan",
+      annual: "Yearly Plan"
+    };
+    return planNames[planType] || planType;
+  };
+
+  const isCurrentPlan = (planType: string) => {
+    return subscription.planType === planType;
+  };
+
+  const getButtonText = (planType: string) => {
+    if (isCurrentPlan(planType)) {
+      return "Current Plan";
+    }
+    if (subscription.hasActiveSubscription) {
+      return "Switch Plan";
+    }
+    return "Subscribe";
   };
 
   return (
@@ -192,7 +209,7 @@ export default function BillingPage() {
               <>
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Plan</p>
-                  <p className="text-lg font-semibold text-primary">{getPlanName()}</p>
+                  <p className="text-lg font-semibold text-primary">{getPlanDisplayName(subscription.planType)}</p>
                 </div>
 
                 {subscription.isInTrial && (
@@ -239,63 +256,73 @@ export default function BillingPage() {
           <CardHeader>
             <CardTitle className="font-headline">Subscription Plans</CardTitle>
             <CardDescription>
-              Choose a plan that works for you. All plans include unlimited loads and drivers.
+              {subscription.hasActiveSubscription 
+                ? "You can switch plans anytime. Changes take effect at your next billing cycle."
+                : "Choose a plan that works for you. All plans include unlimited loads and drivers."}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             {/* Monthly Plan */}
-            <div className="border rounded-lg p-4 flex items-center justify-between">
+            <div className={`border rounded-lg p-4 flex items-center justify-between ${isCurrentPlan("monthly") ? "border-primary border-2 bg-primary/5" : ""}`}>
               <div>
-                <p className="font-semibold">Monthly Plan</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold">Monthly Plan</p>
+                  {isCurrentPlan("monthly") && <Badge variant="outline" className="bg-primary text-primary-foreground">Current</Badge>}
+                </div>
                 <p className="text-2xl font-bold text-primary">$49.99<span className="text-sm text-muted-foreground">/month</span></p>
                 <p className="text-xs text-muted-foreground mt-1">Billed monthly • Cancel anytime</p>
               </div>
               <Button 
                 onClick={() => handleSubscribe("monthly")} 
-                disabled={isCreatingCheckout || subscription.planType === "monthly"}
+                disabled={isCreatingCheckout || isCurrentPlan("monthly")}
+                variant={isCurrentPlan("monthly") ? "secondary" : "default"}
               >
-                {subscription.planType === "monthly" ? "Current Plan" : "Subscribe"}
+                {getButtonText("monthly")}
               </Button>
             </div>
 
             {/* 6-Month Plan */}
-            <div className="border rounded-lg p-4 flex items-center justify-between bg-primary/5">
+            <div className={`border rounded-lg p-4 flex items-center justify-between ${isCurrentPlan("six_month") ? "border-primary border-2 bg-primary/5" : "bg-muted/30"}`}>
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <p className="font-semibold">6-Month Plan</p>
                   <Badge variant="secondary" className="bg-green-100 text-green-800">Save 10%</Badge>
+                  {isCurrentPlan("six_month") && <Badge variant="outline" className="bg-primary text-primary-foreground">Current</Badge>}
                 </div>
                 <p className="text-2xl font-bold text-primary">$269.99<span className="text-sm text-muted-foreground">/6 months</span></p>
                 <p className="text-xs text-muted-foreground mt-1">$45/month • Billed every 6 months</p>
               </div>
               <Button 
                 onClick={() => handleSubscribe("six_month")} 
-                disabled={isCreatingCheckout || subscription.planType === "six_month"}
+                disabled={isCreatingCheckout || isCurrentPlan("six_month")}
+                variant={isCurrentPlan("six_month") ? "secondary" : "default"}
               >
-                {subscription.planType === "six_month" ? "Current Plan" : "Subscribe"}
+                {getButtonText("six_month")}
               </Button>
             </div>
 
             {/* Annual Plan */}
-            <div className="border-2 border-primary rounded-lg p-4 flex items-center justify-between">
+            <div className={`border rounded-lg p-4 flex items-center justify-between ${isCurrentPlan("annual") ? "border-primary border-2 bg-primary/5" : "border-2 border-primary/50"}`}>
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <p className="font-semibold">Annual Plan</p>
                   <Badge className="bg-primary">Save 16%</Badge>
+                  {isCurrentPlan("annual") && <Badge variant="outline" className="bg-primary text-primary-foreground">Current</Badge>}
                 </div>
                 <p className="text-2xl font-bold text-primary">$499.99<span className="text-sm text-muted-foreground">/year</span></p>
                 <p className="text-xs text-muted-foreground mt-1">$41.67/month • Best value</p>
               </div>
               <Button 
                 onClick={() => handleSubscribe("annual")} 
-                disabled={isCreatingCheckout || subscription.planType === "annual"}
+                disabled={isCreatingCheckout || isCurrentPlan("annual")}
+                variant={isCurrentPlan("annual") ? "secondary" : "default"}
               >
-                {subscription.planType === "annual" ? "Current Plan" : "Subscribe"}
+                {getButtonText("annual")}
               </Button>
             </div>
 
             <div className="text-xs text-muted-foreground mt-2">
-              <p>✓ All plans include a {subscription.isInTrial ? "90" : "14"}-day free trial</p>
+              <p>✓ All plans include a 90-day free trial</p>
               <p>✓ $25 match fee applies per TLA (paid by load owner)</p>
               <p>✓ Cancel anytime before trial ends - no charge</p>
             </div>
