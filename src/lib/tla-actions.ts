@@ -3,6 +3,7 @@ import type { TLA, InsuranceOption } from "@/lib/data";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import { notify } from "@/lib/notifications";
 import { calculateTripDuration, formatTripDuration } from "@/lib/tla-utils";
+import { captureSignatureAudit } from "@/lib/audit-utils";
 
 export interface SignTLAParams {
   firestore: Firestore;
@@ -23,17 +24,24 @@ export interface TripActionParams {
 }
 
 /**
- * Sign a TLA as lessor or lessee
+ * Sign a TLA as lessor or lessee with complete audit trail
  */
 export async function signTLA(params: SignTLAParams): Promise<TLA | null> {
   const { firestore, tlaId, tla, userId, signatureName, role, insuranceOption } = params;
   
   try {
+    // Capture audit trail data
+    const auditData = await captureSignatureAudit();
+    
     const signature = {
       signedBy: userId,
       signedByName: signatureName,
       signedByRole: role,
-      signedAt: new Date().toISOString(),
+      signedAt: auditData.timestamp,
+      // NEW: E-signature audit trail fields
+      ipAddress: auditData.ipAddress,
+      userAgent: auditData.userAgent,
+      consentToEsign: true, // User explicitly checked the consent box
     };
     
     const updateData: Record<string, any> = {
