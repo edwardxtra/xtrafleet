@@ -100,7 +100,7 @@ export function MatchRequestModal({
       const driverOwnerDoc = await getDoc(doc(firestore, `owner_operators/${driverOwnerId}`));
       const driverOwnerData = driverOwnerDoc.exists() ? driverOwnerDoc.data() : null;
       const driverOwnerName = driverOwnerData?.legalName || driverOwnerData?.companyName || 'Unknown';
-      const driverOwnerEmail = driverOwnerData?.contactEmail || '';
+      const driverOwnerEmailFetched = driverOwnerData?.contactEmail || '';
 
       // Calculate expiry (48 hours from now)
       const expiresAt = new Date();
@@ -112,6 +112,7 @@ export function MatchRequestModal({
         loadId: load.id,
         loadOwnerId: user.uid,
         loadOwnerName,
+        loadOwnerEmail, // FIX #1: Add load owner email to match document
 
         // Driver info
         driverId: driver.id,
@@ -166,9 +167,9 @@ export function MatchRequestModal({
       console.log("Match request created:", matchRef.id);
 
       // Send email notification to driver owner
-      if (driverOwnerEmail) {
+      if (driverOwnerEmailFetched) {
         notify.matchRequest({
-          driverOwnerEmail,
+          driverOwnerEmail: driverOwnerEmailFetched,
           driverOwnerName,
           driverName: driver.name,
           loadOrigin: load.origin,
