@@ -1,0 +1,219 @@
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { User, Truck, DollarSign, Shield, Timer } from "lucide-react";
+import type { TLA } from "@/lib/data";
+import { formatTLADate, formatTripDuration } from "@/lib/tla-utils";
+
+interface TLAAgreementDetailsProps {
+  tla: TLA;
+}
+
+export function TLAAgreementDetails({ tla }: TLAAgreementDetailsProps) {
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader>
+        <CardTitle>Agreement Details</CardTitle>
+        <CardDescription>
+          FMCSA-Compliant Short-Term Lease – Driver Only
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ScrollArea className="h-[500px] pr-4">
+          <div className="space-y-6 text-sm">
+            {/* Parties */}
+            <div>
+              <h3 className="font-semibold mb-3">Parties</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Fleet A (Lessor - Driver Provider)
+                  </p>
+                  <p className="font-semibold">{tla.lessor.legalName}</p>
+                  <p className="text-muted-foreground text-xs">{tla.lessor.address}</p>
+                  {tla.lessor.dotNumber && (
+                    <p className="text-xs">DOT: {tla.lessor.dotNumber}</p>
+                  )}
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Fleet B (Lessee - Hiring Carrier)
+                  </p>
+                  <p className="font-semibold">{tla.lessee.legalName}</p>
+                  <p className="text-muted-foreground text-xs">{tla.lessee.address}</p>
+                  {tla.lessee.dotNumber && (
+                    <p className="text-xs">DOT: {tla.lessee.dotNumber}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Driver */}
+            <div>
+              <h3 className="font-semibold mb-3 flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Driver
+              </h3>
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="font-semibold">{tla.driver.name}</p>
+                {tla.driver.cdlNumber && <p className="text-xs">CDL: {tla.driver.cdlNumber}</p>}
+                {tla.driver.medicalCardExpiry && (
+                  <p className="text-xs">
+                    Medical Card Expires: {formatTLADate(tla.driver.medicalCardExpiry)}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Trip Details */}
+            <div>
+              <h3 className="font-semibold mb-3 flex items-center gap-2">
+                <Truck className="h-4 w-4" />
+                Trip Details
+              </h3>
+              <div className="grid gap-2">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Route:</span>
+                  <span className="font-medium">
+                    {tla.trip.origin} → {tla.trip.destination}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Cargo:</span>
+                  <span>{tla.trip.cargo}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Weight:</span>
+                  <span>{tla.trip.weight.toLocaleString()} lbs</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Start Date:</span>
+                  <span>{formatTLADate(tla.trip.startDate)}</span>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Payment */}
+            <div>
+              <h3 className="font-semibold mb-3 flex items-center gap-2">
+                <DollarSign className="h-4 w-4" />
+                Payment Terms
+              </h3>
+              <div className="p-3 bg-green-50 dark:bg-green-950/20 rounded-lg">
+                <p className="text-2xl font-bold text-green-600">
+                  ${tla.payment.amount.toLocaleString()}
+                </p>
+                <p className="text-xs text-muted-foreground">Due upon trip completion</p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Insurance */}
+            <div>
+              <h3 className="font-semibold mb-3 flex items-center gap-2">
+                <Shield className="h-4 w-4" />
+                Insurance & Liability
+              </h3>
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <p>
+                  Fleet B assumes liability for all vehicle and driver operations during the
+                  trip.
+                </p>
+                <p>
+                  Fleet A confirms that the Driver holds a valid CDL, possesses a current
+                  medical certificate, and has a compliant driver qualification file.
+                </p>
+                {tla.insurance?.option && (
+                  <div className="mt-3 p-2 bg-muted rounded">
+                    <p className="font-medium text-foreground">
+                      {tla.insurance.option === 'existing_policy'
+                        ? '☑ Lessee confirms existing insurance policy covers this trip'
+                        : '☑ Lessee elected trip-based coverage'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Trip Tracking Info (if started) */}
+            {tla.tripTracking?.startedAt && (
+              <>
+                <div>
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <Timer className="h-4 w-4" />
+                    Trip Tracking
+                  </h3>
+                  <div className="grid gap-2">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Started:</span>
+                      <span>{formatTLADate(tla.tripTracking.startedAt)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Started By:</span>
+                      <span>{tla.tripTracking.startedByName}</span>
+                    </div>
+                    {tla.tripTracking.endedAt && (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Ended:</span>
+                          <span>{formatTLADate(tla.tripTracking.endedAt)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Ended By:</span>
+                          <span>{tla.tripTracking.endedByName}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Duration:</span>
+                          <span className="font-medium">
+                            {formatTripDuration(tla.tripTracking.durationMinutes || 0)}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <Separator />
+              </>
+            )}
+
+            {/* Legal Terms Summary */}
+            <div>
+              <h3 className="font-semibold mb-3">Terms & Conditions</h3>
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <p>
+                  <strong>Control:</strong> Fleet B has exclusive possession, control, and
+                  responsibility for the Driver during the trip.
+                </p>
+                <p>
+                  <strong>Indemnification:</strong> Each party agrees to indemnify and hold
+                  harmless the other against claims caused by its negligence.
+                </p>
+                <p>
+                  <strong>Platform:</strong> XtraFleet Technologies, Inc. is a neutral
+                  technology facilitator and assumes no liability.
+                </p>
+                <p>
+                  <strong>Retention:</strong> Both parties shall retain documentation for a
+                  minimum of three (3) years.
+                </p>
+                <p>
+                  <strong>Governing Law:</strong> This Agreement is governed by Delaware law
+                  and applicable FMCSA regulations.
+                </p>
+              </div>
+            </div>
+          </div>
+        </ScrollArea>
+      </CardContent>
+    </Card>
+  );
+}
