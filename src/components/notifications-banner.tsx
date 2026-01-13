@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useUser, useFirestore } from "@/firebase";
-import { collection, query, where, onSnapshot, orderBy, limit, updateDoc, doc } from "firebase/firestore";
+import { collection, query, where, onSnapshot, updateDoc, doc } from "firebase/firestore";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { X, MessageSquare, FileText, CheckCircle } from "lucide-react";
@@ -29,14 +29,13 @@ export function NotificationsBanner() {
   useEffect(() => {
     if (!firestore || !user) return;
 
-    // Listen for unread notifications
+    // Simplified query - only filter by userId and read status
+    // Sort in memory to avoid needing a compound index
     const notificationsRef = collection(firestore, "notifications");
     const q = query(
       notificationsRef,
       where("userId", "==", user.uid),
-      where("read", "==", false),
-      orderBy("createdAt", "desc"),
-      limit(3)
+      where("read", "==", false)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -44,7 +43,14 @@ export function NotificationsBanner() {
         id: doc.id,
         ...doc.data()
       })) as Notification[];
-      setNotifications(notifs);
+      
+      // Sort by createdAt in memory (newest first)
+      notifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      
+      // Limit to 3 most recent
+      setNotifications(notifs.slice(0, 3));
+    }, (error) => {
+      console.error("Error loading notifications:", error);
     });
 
     return () => unsubscribe();
