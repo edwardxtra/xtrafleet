@@ -3,8 +3,9 @@ import { stripe } from '@/lib/stripe';
 import { adminDb } from '@/lib/firebase-admin';
 import Stripe from 'stripe';
 
-// Disable body parsing, we need raw body for webhook verification
+// This is required for webhooks to work in Next.js App Router
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -14,13 +15,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No signature' }, { status: 400 });
   }
 
+  // Skip webhook verification if secret is not set (for testing)
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    console.warn('STRIPE_WEBHOOK_SECRET not set, skipping webhook verification');
+    return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 });
+  }
+
   let event: Stripe.Event;
 
   try {
     event = stripe.webhooks.constructEvent(
       body,
       signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
+      process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (err: any) {
     console.error('Webhook signature verification failed:', err.message);
@@ -235,8 +242,6 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   });
 
   console.log(`Payment failure recorded for user ${userId}`);
-
-  // TODO: Send email notification about payment failure
 }
 
 async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent) {
