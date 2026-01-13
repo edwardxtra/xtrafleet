@@ -41,7 +41,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { Search, Link2, RefreshCw, ArrowRight, Ban, Download, Loader2 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { Match, MatchStatus } from '@/lib/data';
@@ -101,12 +101,34 @@ export default function AdminMatchesPage() {
     if (!firestore || !cancellingMatch || !adminUser) return;
     setIsProcessing(true);
     try {
+      // Update match status
       await updateDoc(doc(firestore, 'matches', cancellingMatch.id), {
         status: 'cancelled',
         cancelledAt: new Date().toISOString(),
         cancelledBy: adminUser.uid,
         cancelReason: cancelReason,
       });
+
+      // CRITICAL FIX: Also cancel the associated TLA if it exists
+      if (cancellingMatch.tlaId) {
+        try {
+          const tlaRef = doc(firestore, 'tlas', cancellingMatch.tlaId);
+          const tlaDoc = await getDoc(tlaRef);
+          
+          if (tlaDoc.exists()) {
+            await updateDoc(tlaRef, {
+              status: 'cancelled',
+              cancelledAt: new Date().toISOString(),
+              cancelledBy: adminUser.uid,
+              cancelReason: `Match cancelled by admin: ${cancelReason}`,
+            });
+            console.log('✅ TLA cancelled:', cancellingMatch.tlaId);
+          }
+        } catch (tlaError) {
+          console.error('Failed to cancel TLA:', tlaError);
+          // Don't fail the whole operation if TLA update fails
+        }
+      }
 
       await logAuditAction(firestore, {
         action: 'match_cancelled',
@@ -121,10 +143,11 @@ export default function AdminMatchesPage() {
           loadOwner: cancellingMatch.loadOwnerName,
           driverOwner: cancellingMatch.driverOwnerName,
           rate: cancellingMatch.originalTerms?.rate,
+          tlaId: cancellingMatch.tlaId,
         },
       });
 
-      showSuccess('Match cancelled successfully');
+      showSuccess('Match and associated TLA cancelled successfully');
       setCancellingMatch(null);
       setCancelReason('');
       setSelectedMatch(null);
@@ -343,7 +366,7 @@ export default function AdminMatchesPage() {
             <AlertDialogTitle>Cancel Match</AlertDialogTitle>
             <AlertDialogDescription>
               This will cancel the match for <strong>{cancellingMatch?.loadSnapshot?.origin} → {cancellingMatch?.loadSnapshot?.destination}</strong>. 
-              Both parties will be notified.
+              Both parties will be notified{cancellingMatch?.tlaId && ' and the associated TLA will be cancelled'}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4">
