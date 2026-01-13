@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -107,6 +106,18 @@ export function MatchResponseModal({
       if (!driverInfo) {
         throw new Error(`Driver not found: ${match.driverId} under owner ${match.driverOwnerId}`);
       }
+
+      // CRITICAL FIX: Check if load is already matched
+      console.log('Checking load status...');
+      const loadDoc = await getDoc(doc(firestore, `owner_operators/${match.loadOwnerId}/loads/${match.loadId}`));
+      if (!loadDoc.exists()) {
+        throw new Error('Load not found');
+      }
+      
+      const loadData = loadDoc.data();
+      if (loadData.status !== 'Pending') {
+        throw new Error(`This load has already been matched (status: ${loadData.status}). Please refresh the page.`);
+      }
   
       // Generate TLA
       const tlaData = generateTLA({
@@ -141,14 +152,15 @@ export function MatchResponseModal({
         tlaId: tlaRef.id,
       });
   
-      // Update load status to "Matched"
-      try {
-        await updateDoc(doc(firestore, `owner_operators/${match.loadOwnerId}/loads/${match.loadId}`), {
-          status: 'Matched',
-        });
-      } catch (loadError) {
-        console.warn("Could not update load status:", loadError);
-      }
+      // CRITICAL FIX: Update load status to "Matched" - NO TRY-CATCH
+      // This MUST succeed or we rollback by throwing error
+      console.log('Updating load status to Matched...');
+      await updateDoc(doc(firestore, `owner_operators/${match.loadOwnerId}/loads/${match.loadId}`), {
+        status: 'Matched',
+        matchedAt: new Date().toISOString(),
+        tlaId: tlaRef.id,
+      });
+      console.log('✅ Load status updated successfully');
   
       // Send email notification to load owner
       const loadOwnerEmail = (lesseeInfo as any).contactEmail || '';
@@ -169,13 +181,13 @@ export function MatchResponseModal({
       showSuccess("Match accepted! Redirecting to TLA...");
       onOpenChange(false);
       
-      // FIX #4: Redirect to TLA page so driver owner can sign immediately
+      // Redirect to TLA page so driver owner can sign immediately
       router.push(`/dashboard/tla/${tlaRef.id}`);
       
       if (onSuccess) onSuccess();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error accepting match:", error);
-      showError("Failed to accept match. Please try again.");
+      showError(error.message || "Failed to accept match. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -328,7 +340,7 @@ export function MatchResponseModal({
               </div>
             </div>
 
-            {/* FIX #2: Load Owner Info with Email and Score */}
+            {/* Load Owner Info with Email and Score */}
             <div className="p-4 bg-muted/50 rounded-lg">
               <h4 className="font-medium mb-2 flex items-center gap-2">
                 <Building2 className="h-4 w-4" />
