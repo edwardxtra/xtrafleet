@@ -165,6 +165,7 @@ export function MatchResponseModal({
       const loadOwnerEmail = (lesseeInfo as any).contactEmail || '';
       const loadOwnerName = (lesseeInfo as any).legalName || '';
       const loadOwnerCompanyName = (lesseeInfo as any).companyName || loadOwnerName;
+      const driverOwnerCompanyName = (lessorInfo as any).companyName || (lessorInfo as any).legalName;
       
       if (loadOwnerEmail) {
         notify.matchAccepted({
@@ -177,11 +178,29 @@ export function MatchResponseModal({
           tlaId: tlaRef.id,
         }).catch(err => console.error('Failed to send match accepted notification:', err));
       }
+
+      // NEW: Create in-app notification for load owner
+      try {
+        await addDoc(collection(firestore, "notifications"), {
+          userId: match.loadOwnerId,
+          type: "match_accepted",
+          title: "Match Accepted!",
+          message: `${driverOwnerCompanyName} accepted your match for ${match.loadSnapshot.origin} → ${match.loadSnapshot.destination}. You can now message them!`,
+          link: "/dashboard/messages",
+          linkText: "Go to Messages",
+          createdAt: new Date().toISOString(),
+          read: false,
+        });
+        console.log('✅ In-app notification created for load owner');
+      } catch (notifError) {
+        console.warn('Failed to create in-app notification:', notifError);
+        // Don't fail the whole operation
+      }
   
-      // NEW: Show in-app notification with messaging info
+      // Show in-app notification with messaging info
       showSuccess("Match accepted! TLA created and ready to sign.");
       
-      // NEW: Show info toast about messaging
+      // Show info toast about messaging
       setTimeout(() => {
         showInfo(`💬 You can now message ${loadOwnerCompanyName} in the Messages tab!`);
       }, 1500);
