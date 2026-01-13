@@ -82,9 +82,11 @@ service cloud.firestore {
     }
 
     // Conversations collection
+    // FIX: Use request.resource.data for create (data being written)
+    // and resource.data for read/update (existing data)
     match /conversations/{conversationId} {
       allow read: if isSignedIn() && isParticipant(resource.data.participants);
-      allow create: if isSignedIn();
+      allow create: if isSignedIn() && isParticipant(request.resource.data.participants);
       allow update: if isSignedIn() && isParticipant(resource.data.participants);
       allow delete: if false;
 
