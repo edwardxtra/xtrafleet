@@ -107,7 +107,7 @@ export function MatchResponseModal({
         throw new Error(`Driver not found: ${match.driverId} under owner ${match.driverOwnerId}`);
       }
 
-      // CRITICAL FIX: Check if load is already matched
+      // Check if load is already matched
       console.log('Checking load status...');
       const loadDoc = await getDoc(doc(firestore, `owner_operators/${match.loadOwnerId}/loads/${match.loadId}`));
       if (!loadDoc.exists()) {
@@ -134,15 +134,14 @@ export function MatchResponseModal({
       try {
         await createConversation(
           firestore,
-          match.driverOwnerId, // Driver owner (lessor)
-          match.loadOwnerId,   // Load owner (lessee)
+          match.driverOwnerId,
+          match.loadOwnerId,
           match.loadId,
           tlaRef.id
         );
         console.log('Conversation created successfully');
       } catch (convError) {
         console.warn('Failed to create conversation:', convError);
-        // Don't fail the whole operation if conversation creation fails
       }
   
       // Update match status and link TLA
@@ -152,7 +151,7 @@ export function MatchResponseModal({
         tlaId: tlaRef.id,
       });
   
-      // CRITICAL FIX: Update load status to "Matched"
+      // Update load status to "Matched"
       console.log('Updating load status to Matched...');
       await updateDoc(doc(firestore, `owner_operators/${match.loadOwnerId}/loads/${match.loadId}`), {
         status: 'Matched',
@@ -179,7 +178,7 @@ export function MatchResponseModal({
         }).catch(err => console.error('Failed to send match accepted notification:', err));
       }
 
-      // NEW: Create in-app notification for load owner
+      // Create in-app notification for load owner
       try {
         await addDoc(collection(firestore, "notifications"), {
           userId: match.loadOwnerId,
@@ -194,23 +193,22 @@ export function MatchResponseModal({
         console.log('✅ In-app notification created for load owner');
       } catch (notifError) {
         console.warn('Failed to create in-app notification:', notifError);
-        // Don't fail the whole operation
       }
   
-      // Show in-app notification with messaging info
+      // CRITICAL FIX: Show BOTH toasts before redirecting
       showSuccess("Match accepted! TLA created and ready to sign.");
+      showInfo(`💬 You can now message ${loadOwnerCompanyName} in the Messages tab!`);
       
-      // Show info toast about messaging
-      setTimeout(() => {
-        showInfo(`💬 You can now message ${loadOwnerCompanyName} in the Messages tab!`);
-      }, 1500);
-      
+      // Close modal
       onOpenChange(false);
       
-      // Redirect to TLA page so driver owner can sign immediately
-      router.push(`/dashboard/tla/${tlaRef.id}`);
-      
       if (onSuccess) onSuccess();
+      
+      // Delay redirect slightly to allow toasts to be seen
+      setTimeout(() => {
+        router.push(`/dashboard/tla/${tlaRef.id}`);
+      }, 800);
+      
     } catch (error: any) {
       console.error("Error accepting match:", error);
       showError(error.message || "Failed to accept match. Please try again.");
