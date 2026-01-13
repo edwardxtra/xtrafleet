@@ -1,122 +1,57 @@
 'use client';
 
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser, useFirestore, useStorage } from '@/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
+import { doc, getDoc, query, collection, where, orderBy, limit } from 'firebase/firestore';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { 
-  Loader2, 
-  CheckCircle, 
-  AlertTriangle, 
-  XCircle, 
-  Edit, 
-  X, 
-  Save, 
-  Upload,
-  WifiOff,
-  User,
-  Mail,
-  MapPin,
-  Truck
-} from 'lucide-react';
-import { getComplianceStatusFromItems, type ComplianceItem } from '@/lib/compliance';
-import { format, differenceInDays, parseISO } from 'date-fns';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { showSuccess, showError, showWarning } from '@/lib/toast-utils';
-import { parseError } from '@/lib/error-utils';
-import { ProfileCompletionBanner } from '@/components/profile-completion-banner';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Truck,
+  FileText,
+  CheckCircle,
+  Clock,
+  XCircle,
+  TrendingUp,
+  AlertCircle,
+} from 'lucide-react';
+import Link from 'next/link';
+import { format, parseISO } from 'date-fns';
 
-interface Driver {
+interface Match {
   id: string;
-  name: string;
-  email: string;
-  location: string;
-  vehicleType: string;
-  availability: string;
-  cdlLicense?: string;
-  cdlExpiry?: string;
-  cdlLicenseUrl?: string;
-  cdlDocumentUrl?: string;
-  medicalCardExpiry?: string;
-  medicalCardUrl?: string;
-  insuranceExpiry?: string;
-  insuranceUrl?: string;
-  motorVehicleRecordNumber?: string;
-  mvrUrl?: string;
-  backgroundCheckDate?: string;
-  backgroundCheckUrl?: string;
-  preEmploymentScreeningDate?: string;
-  preEmploymentScreeningUrl?: string;
-  drugAndAlcoholScreeningDate?: string;
-  drugAndAlcoholScreeningUrl?: string;
+  status: string;
+  loadSnapshot: {
+    origin: string;
+    destination: string;
+    pickupDate: string;
+  };
+  originalTerms: {
+    rate: number;
+  };
+  createdAt: string;
+  tlaId?: string;
 }
 
 export default function DriverDashboard() {
   const { user, isUserLoading } = useUser();
   const db = useFirestore();
-  const storage = useStorage();
   const router = useRouter();
-  const [driver, setDriver] = useState<Driver | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedDriver, setEditedDriver] = useState<Driver | null>(null);
-  const [saving, setSaving] = useState(false);
   const [ownerId, setOwnerId] = useState<string>('');
-  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
-  const [isOnline, setIsOnline] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [driverName, setDriverName] = useState<string>('');
 
-  // Network status detection
+  // Load driver info
   useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      showSuccess('You\'re back online!');
-    };
-    const handleOffline = () => {
-      setIsOnline(false);
-      showWarning('You\'re offline. Some features may not work.');
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    setIsOnline(navigator.onLine);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isUserLoading && !user) {
-      router.push('/login');
-    }
-  }, [user, isUserLoading, router]);
-
-  useEffect(() => {
-    async function loadDriverData() {
+    async function loadDriverInfo() {
       if (!user || !db) return;
 
       try {
-        setLoadError(null);
         const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (!userDoc.exists()) {
-          throw new Error('User not found');
-        }
+        if (!userDoc.exists()) return;
 
         const userData = userDoc.data();
         if (userData.role !== 'driver') {
@@ -124,693 +59,270 @@ export default function DriverDashboard() {
           return;
         }
 
-        const ownerOperatorId = userData.ownerId;
-        setOwnerId(ownerOperatorId);
+        setOwnerId(userData.ownerId);
 
-        const driverDoc = await getDoc(doc(db, 'owner_operators', ownerOperatorId, 'drivers', user.uid));
+        const driverDoc = await getDoc(doc(db, 'owner_operators', userData.ownerId, 'drivers', user.uid));
         if (driverDoc.exists()) {
-          const driverData = { id: driverDoc.id, ...driverDoc.data() } as Driver;
-          setDriver(driverData);
-          setEditedDriver(driverData);
-        } else {
-          setLoadError('Driver profile not found. Please contact your administrator.');
+          setDriverName(driverDoc.data().name);
         }
-      } catch (error) {
-        console.error('Error loading driver data:', error);
-        const appError = parseError(error);
-        setLoadError(appError.message);
-        showError(appError.message, 'Failed to load profile');
       } finally {
         setLoading(false);
       }
     }
 
     if (user && db) {
-      loadDriverData();
+      loadDriverInfo();
     }
   }, [user, db, router]);
 
-  const handleEdit = () => {
-    setIsEditing(true);
-    setEditedDriver(driver);
-  };
+  // Query matches where this driver is involved
+  const matchesQuery = useMemoFirebase(() => {
+    if (!db || !user?.uid) return null;
+    return query(
+      collection(db, 'matches'),
+      where('driverId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(10)
+    );
+  }, [db, user?.uid]);
 
-  const handleCancel = () => {
-    setIsEditing(false);
-    setEditedDriver(driver);
-  };
+  const { data: matches } = useCollection<Match>(matchesQuery);
 
-  const handleSave = async () => {
-    if (!editedDriver || !db || !ownerId || !user) return;
-
-    if (!isOnline) {
-      showError('You\'re offline. Please check your connection and try again.');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const driverRef = doc(db, 'owner_operators', ownerId, 'drivers', user.uid);
-      await updateDoc(driverRef, {
-        name: editedDriver.name,
-        location: editedDriver.location,
-        vehicleType: editedDriver.vehicleType,
-        availability: editedDriver.availability,
-        cdlLicense: editedDriver.cdlLicense,
-        cdlExpiry: editedDriver.cdlExpiry,
-        medicalCardExpiry: editedDriver.medicalCardExpiry,
-        insuranceExpiry: editedDriver.insuranceExpiry,
-        motorVehicleRecordNumber: editedDriver.motorVehicleRecordNumber,
-        backgroundCheckDate: editedDriver.backgroundCheckDate,
-        preEmploymentScreeningDate: editedDriver.preEmploymentScreeningDate,
-        drugAndAlcoholScreeningDate: editedDriver.drugAndAlcoholScreeningDate,
-        updatedAt: new Date().toISOString(),
-      });
-
-      setDriver(editedDriver);
-      setIsEditing(false);
-      showSuccess('Your profile has been updated successfully.');
-    } catch (error) {
-      console.error('Error saving driver data:', error);
-      const appError = parseError(error);
-      showError(appError.message, 'Failed to save changes');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleInputChange = (field: keyof Driver, value: string) => {
-    if (editedDriver) {
-      setEditedDriver({ ...editedDriver, [field]: value });
-    }
-  };
-
-  const handleFileUpload = async (docType: string, fieldName: keyof Driver) => {
-    if (!isOnline) {
-      showError('You\'re offline. Please check your connection and try again.');
-      return;
-    }
-
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.pdf,.jpg,.jpeg,.png';
-    
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
+  // Calculate stats
+  const activeMatches = matches?.filter(m => 
+    ['accepted', 'tla_pending', 'tla_signed', 'in_progress'].includes(m.status)
+  ) || [];
   
-      if (file.size > 10 * 1024 * 1024) {
-        showError('File size must be less than 10MB. Please choose a smaller file.');
-        return;
-      }
+  const completedMatches = matches?.filter(m => m.status === 'completed') || [];
+  const pendingMatches = matches?.filter(m => m.status === 'pending') || [];
 
-      const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-      if (!allowedTypes.includes(file.type)) {
-        showError('Please upload a PDF, JPG, or PNG file.');
-        return;
-      }
-
-      setUploadingDoc(docType);
-      
-      try {
-        if (!user || !ownerId || !db || !storage) {
-          throw new Error('Missing required data');
-        }
-        
-        const fileExtension = file.name.split('.').pop();
-        const fileName = `${docType.toLowerCase().replace(/\s+/g, '-')}.${fileExtension}`;
-        const storagePath = `driver-documents/${ownerId}/${user.uid}/${fileName}`;
-        
-        const storageRef = ref(storage, storagePath);
-        await uploadBytes(storageRef, file);
-        
-        const downloadURL = await getDownloadURL(storageRef);
-        
-        const driverRef = doc(db, 'owner_operators', ownerId, 'drivers', user.uid);
-        await updateDoc(driverRef, {
-          [fieldName]: downloadURL,
-          updatedAt: new Date().toISOString(),
-        });
-        
-        if (editedDriver) {
-          setEditedDriver({ ...editedDriver, [fieldName]: downloadURL });
-        }
-        if (driver) {
-          setDriver({ ...driver, [fieldName]: downloadURL });
-        }
-        
-        showSuccess(`${docType} uploaded successfully!`);
-        
-      } catch (error) {
-        console.error('Upload error:', error);
-        const appError = parseError(error);
-        showError(appError.message, `Failed to upload ${docType}`);
-      } finally {
-        setUploadingDoc(null);
-      }
-    };
-    
-    input.click();
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <Badge variant="outline"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
+      case 'accepted':
+        return <Badge variant="default"><CheckCircle className="h-3 w-3 mr-1" />Accepted</Badge>;
+      case 'declined':
+        return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Declined</Badge>;
+      case 'tla_pending':
+        return <Badge variant="default" className="bg-blue-600">TLA Pending</Badge>;
+      case 'tla_signed':
+        return <Badge variant="default" className="bg-green-600">TLA Signed</Badge>;
+      case 'in_progress':
+        return <Badge variant="default"><Truck className="h-3 w-3 mr-1" />In Progress</Badge>;
+      case 'completed':
+        return <Badge variant="secondary"><CheckCircle className="h-3 w-3 mr-1" />Completed</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
   };
 
   if (isUserLoading || loading) {
     return (
-      <div className="max-w-6xl mx-auto">
-        <Skeleton className="h-40 w-full mb-6" />
-        <Skeleton className="h-64 w-full mb-6" />
-        <Skeleton className="h-96 w-full" />
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid gap-4 md:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
+        </div>
+        <Skeleton className="h-96" />
       </div>
     );
   }
-
-  if (loadError && !driver) {
-    return (
-      <div className="max-w-6xl mx-auto">
-        <Alert variant="destructive" className="mb-6">
-          <XCircle className="h-4 w-4" />
-          <AlertDescription>{loadError}</AlertDescription>
-        </Alert>
-        <Button onClick={() => window.location.reload()}>
-          Try Again
-        </Button>
-      </div>
-    );
-  }
-
-  if (!driver) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p>Driver profile not found</p>
-      </div>
-    );
-  }
-
-  const complianceItems: ComplianceItem[] = [
-    { label: 'CDL Expiry', value: driver.cdlExpiry, type: 'expiry' },
-    { label: 'CDL License Number', value: driver.cdlLicense, type: 'field' },
-    { label: 'Medical Card Expiry', value: driver.medicalCardExpiry, type: 'expiry' },
-    { label: 'Insurance Expiry', value: driver.insuranceExpiry, type: 'expiry' },
-    { label: 'Motor Vehicle Record Number', value: driver.motorVehicleRecordNumber, type: 'field' },
-    { label: 'Background Check', value: driver.backgroundCheckDate, type: 'screening' },
-    { label: 'Pre-Employment Screening', value: driver.preEmploymentScreeningDate, type: 'field' },
-    { label: 'Drug & Alcohol Screening', value: driver.drugAndAlcoholScreeningDate, type: 'screening' },
-  ];
-
-  const complianceStatus = getComplianceStatusFromItems(complianceItems);
-
-  const getStatusIcon = (status: 'Green' | 'Yellow' | 'Red') => {
-    if (status === 'Green') return <CheckCircle className="h-5 w-5 text-green-600" />;
-    if (status === 'Yellow') return <AlertTriangle className="h-5 w-5 text-yellow-600" />;
-    return <XCircle className="h-5 w-5 text-red-600" />;
-  };
-
-  const getStatusColor = (status: 'Green' | 'Yellow' | 'Red') => {
-    if (status === 'Green') return 'bg-green-50 border-green-200';
-    if (status === 'Yellow') return 'bg-yellow-50 border-yellow-200';
-    return 'bg-red-50 border-red-200';
-  };
-
-  const getItemStatus = (item: ComplianceItem): 'Green' | 'Yellow' | 'Red' => {
-    if (!item.value) return 'Red';
-
-    if (item.type === 'expiry') {
-      try {
-        const expiryDate = parseISO(item.value);
-        const daysUntilExpiry = differenceInDays(expiryDate, new Date());
-        if (daysUntilExpiry < 0) return 'Red';
-        if (daysUntilExpiry <= 30) return 'Yellow';
-        return 'Green';
-      } catch {
-        return 'Red';
-      }
-    }
-
-    if (item.type === 'screening') {
-      try {
-        const screeningDate = parseISO(item.value);
-        const validUntil = new Date(screeningDate);
-        validUntil.setFullYear(validUntil.getFullYear() + 1);
-        const daysUntilExpiry = differenceInDays(validUntil, new Date());
-        if (daysUntilExpiry < 0) return 'Red';
-        if (daysUntilExpiry <= 30) return 'Yellow';
-        return 'Green';
-      } catch {
-        return 'Red';
-      }
-    }
-
-    return 'Green';
-  };
 
   return (
-    <div className="max-w-6xl mx-auto">
-      {!isOnline && (
-        <Alert variant="destructive" className="mb-4">
-          <WifiOff className="h-4 w-4" />
-          <AlertDescription>
-            You're currently offline. Some features may not work until you're back online.
-          </AlertDescription>
-        </Alert>
-      )}
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold mb-2">Welcome back{driverName && `, ${driverName.split(' ')[0]}`}!</h1>
+        <p className="text-muted-foreground">Here's an overview of your activity</p>
+      </div>
 
-      {user?.uid && (
-        <ProfileCompletionBanner 
-          driver={driver} 
-          driverId={user.uid}
-          onEditClick={handleEdit}
-        />
-      )}
+      {/* Stats Grid */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Matches</CardTitle>
+            <Truck className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{activeMatches.length}</div>
+            <p className="text-xs text-muted-foreground">
+              {activeMatches.length === 0 ? 'No active loads' : 'Currently in progress'}
+            </p>
+          </CardContent>
+        </Card>
 
-      {/* Profile Information Card */}
-      <Card className="mb-6" data-document-section>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Profile Information</CardTitle>
-            {!isEditing && (
-              <Button onClick={handleEdit} variant="outline" size="sm" disabled={!isOnline}>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Profile
-              </Button>
-            )}
-            {isEditing && (
-              <div className="flex gap-2">
-                <Button onClick={handleCancel} variant="outline" size="sm" disabled={saving}>
-                  <X className="h-4 w-4 mr-2" />
-                  Cancel
-                </Button>
-                <Button onClick={handleSave} size="sm" disabled={saving || !isOnline}>
-                  {saving ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4 mr-2" />
-                  )}
-                  Save Changes
-                </Button>
-              </div>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {isEditing && editedDriver ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  value={editedDriver.name || ''}
-                  onChange={(e) => handleInputChange('name', e.target.value)}
-                />
-              </div>
-              <div>
-                <Label htmlFor="email">Email Address</Label>
-                <Input
-                  id="email"
-                  value={editedDriver.email || ''}
-                  disabled
-                  className="bg-gray-50"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Email cannot be changed</p>
-              </div>
-              <div>
-                <Label htmlFor="location">Location</Label>
-                <Input
-                  id="location"
-                  value={editedDriver.location || ''}
-                  onChange={(e) => handleInputChange('location', e.target.value)}
-                  placeholder="City, State"
-                />
-              </div>
-              <div>
-                <Label htmlFor="vehicleType">Vehicle Type</Label>
-                <Select
-                  value={editedDriver.vehicleType || ''}
-                  onValueChange={(value) => handleInputChange('vehicleType', value)}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Completed</CardTitle>
+            <CheckCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{completedMatches.length}</div>
+            <p className="text-xs text-muted-foreground">
+              {completedMatches.length === 0 ? 'No completed loads yet' : 'Total completed'}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pending Requests</CardTitle>
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{pendingMatches.length}</div>
+            <p className="text-xs text-muted-foreground">
+              {pendingMatches.length === 0 ? 'No pending requests' : 'Awaiting response'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Active Agreements */}
+      {activeMatches.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Active Agreements</CardTitle>
+            <CardDescription>Transportation Load Agreements in progress</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {activeMatches.map((match) => (
+                <div
+                  key={match.id}
+                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors"
                 >
-                  <SelectTrigger id="vehicleType">
-                    <SelectValue placeholder="Select vehicle type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Dry Van">Dry Van</SelectItem>
-                    <SelectItem value="Flatbed">Flatbed</SelectItem>
-                    <SelectItem value="Reefer">Reefer</SelectItem>
-                    <SelectItem value="Box Truck">Box Truck</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="availability">Status</Label>
-                <Select
-                  value={editedDriver.availability || ''}
-                  onValueChange={(value) => handleInputChange('availability', value)}
-                >
-                  <SelectTrigger id="availability">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Available">Available</SelectItem>
-                    <SelectItem value="On Assignment">On Assignment</SelectItem>
-                    <SelectItem value="Unavailable">Unavailable</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="font-medium">
+                        {match.loadSnapshot.origin} → {match.loadSnapshot.destination}
+                      </p>
+                      {getStatusBadge(match.status)}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Pickup: {format(parseISO(match.loadSnapshot.pickupDate), 'MMM dd, yyyy')}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Rate</p>
+                      <p className="font-semibold">${match.originalTerms.rate.toLocaleString()}</p>
+                    </div>
+                    {match.tlaId && (
+                      <Button asChild size="sm">
+                        <Link href={`/dashboard/tla/${match.tlaId}`}>
+                          <FileText className="h-4 w-4 mr-2" />
+                          View TLA
+                        </Link>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <User className="h-4 w-4" />
-                  <span>Full Name</span>
-                </div>
-                <p className="font-medium">{driver.name}</p>
-              </div>
-              <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <Mail className="h-4 w-4" />
-                  <span>Email Address</span>
-                </div>
-                <p className="font-medium">{driver.email}</p>
-              </div>
-              <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <MapPin className="h-4 w-4" />
-                  <span>Location</span>
-                </div>
-                <p className="font-medium">{driver.location}</p>
-              </div>
-              <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <Truck className="h-4 w-4" />
-                  <span>Vehicle Type</span>
-                </div>
-                <p className="font-medium">{driver.vehicleType}</p>
-              </div>
-              <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <span>Status</span>
-                </div>
-                <Badge variant={driver.availability === 'Available' ? 'default' : 'secondary'}>
-                  {driver.availability}
-                </Badge>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {complianceStatus !== 'Green' && (
-        <Alert className={`mb-6 ${getStatusColor(complianceStatus)}`}>
-          <div className="flex items-start gap-3">
-            {getStatusIcon(complianceStatus)}
-            <div>
-              <h3 className="font-semibold text-lg mb-1">
-                {complianceStatus === 'Yellow' && 'Documents Expiring Soon'}
-                {complianceStatus === 'Red' && 'Action Required'}
-              </h3>
-              <AlertDescription>
-                {complianceStatus === 'Yellow' && 'Some documents will expire within 30 days. Please update them soon.'}
-                {complianceStatus === 'Red' && 'Some documents are expired or missing. Please update them immediately.'}
-              </AlertDescription>
-            </div>
-          </div>
-        </Alert>
+          </CardContent>
+        </Card>
       )}
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Compliance Overview</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Overall Status</span>
-              <Badge 
-                variant={complianceStatus === 'Green' ? 'default' : complianceStatus === 'Yellow' ? 'secondary' : 'destructive'} 
-                className={complianceStatus === 'Green' ? 'bg-green-600 hover:bg-green-700' : ''}
-              >
-                {complianceStatus}
-              </Badge>
-            </div>
-            <div className="border-t pt-3">
-              <p className="text-sm text-gray-600 mb-2">Quick Stats</p>
-              <div className="grid grid-cols-3 gap-4 text-center">
-                <div>
-                  <p className="text-2xl font-bold text-green-600">
-                    {complianceItems.filter(item => getItemStatus(item) === 'Green').length}
-                  </p>
-                  <p className="text-xs text-gray-600">Valid</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-yellow-600">
-                    {complianceItems.filter(item => getItemStatus(item) === 'Yellow').length}
-                  </p>
-                  <p className="text-xs text-gray-600">Expiring</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-red-600">
-                    {complianceItems.filter(item => getItemStatus(item) === 'Red').length}
-                  </p>
-                  <p className="text-xs text-gray-600">Issues</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
+      {/* Recent Matches */}
       <Card>
         <CardHeader>
-          <CardTitle>Compliance Documents</CardTitle>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Recent Matches</CardTitle>
+              <CardDescription>
+                {matches && matches.length > 0 
+                  ? `Your last ${Math.min(matches.length, 10)} match${matches.length !== 1 ? 'es' : ''}`
+                  : 'No matches yet'}
+              </CardDescription>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/driver-dashboard/matches">
+                View All
+              </Link>
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          {isEditing && editedDriver ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="cdlLicense">CDL License Number</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="cdlLicense"
-                      value={editedDriver.cdlLicense || ''}
-                      onChange={(e) => handleInputChange('cdlLicense', e.target.value)}
-                    />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleFileUpload('CDL License', 'cdlLicenseUrl')}
-                      disabled={uploadingDoc === 'CDL License' || !isOnline}
-                    >
-                      {uploadingDoc === 'CDL License' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="cdlExpiry">CDL Expiry</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="cdlExpiry"
-                      type="date"
-                      value={editedDriver.cdlExpiry || ''}
-                      onChange={(e) => handleInputChange('cdlExpiry', e.target.value)}
-                    />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleFileUpload('CDL Document', 'cdlDocumentUrl')}
-                      disabled={uploadingDoc === 'CDL Document' || !isOnline}
-                    >
-                      {uploadingDoc === 'CDL Document' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="medicalCardExpiry">Medical Card Expiry</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="medicalCardExpiry"
-                      type="date"
-                      value={editedDriver.medicalCardExpiry || ''}
-                      onChange={(e) => handleInputChange('medicalCardExpiry', e.target.value)}
-                    />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleFileUpload('Medical Card', 'medicalCardUrl')}
-                      disabled={uploadingDoc === 'Medical Card' || !isOnline}
-                    >
-                      {uploadingDoc === 'Medical Card' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="insuranceExpiry">Insurance Expiry</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="insuranceExpiry"
-                      type="date"
-                      value={editedDriver.insuranceExpiry || ''}
-                      onChange={(e) => handleInputChange('insuranceExpiry', e.target.value)}
-                    />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleFileUpload('Insurance', 'insuranceUrl')}
-                      disabled={uploadingDoc === 'Insurance' || !isOnline}
-                    >
-                      {uploadingDoc === 'Insurance' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="motorVehicleRecordNumber">Motor Vehicle Record Number</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="motorVehicleRecordNumber"
-                      value={editedDriver.motorVehicleRecordNumber || ''}
-                      onChange={(e) => handleInputChange('motorVehicleRecordNumber', e.target.value)}
-                    />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleFileUpload('MVR', 'mvrUrl')}
-                      disabled={uploadingDoc === 'MVR' || !isOnline}
-                    >
-                      {uploadingDoc === 'MVR' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="backgroundCheckDate">Background Check Date</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="backgroundCheckDate"
-                      type="date"
-                      value={editedDriver.backgroundCheckDate || ''}
-                      onChange={(e) => handleInputChange('backgroundCheckDate', e.target.value)}
-                    />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleFileUpload('Background Check', 'backgroundCheckUrl')}
-                      disabled={uploadingDoc === 'Background Check' || !isOnline}
-                    >
-                      {uploadingDoc === 'Background Check' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="preEmploymentScreeningDate">Pre-Employment Screening Date</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="preEmploymentScreeningDate"
-                      type="date"
-                      value={editedDriver.preEmploymentScreeningDate || ''}
-                      onChange={(e) => handleInputChange('preEmploymentScreeningDate', e.target.value)}
-                    />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleFileUpload('Pre-Employment Screening', 'preEmploymentScreeningUrl')}
-                      disabled={uploadingDoc === 'Pre-Employment Screening' || !isOnline}
-                    >
-                      {uploadingDoc === 'Pre-Employment Screening' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="drugAndAlcoholScreeningDate">Drug & Alcohol Screening Date</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="drugAndAlcoholScreeningDate"
-                      type="date"
-                      value={editedDriver.drugAndAlcoholScreeningDate || ''}
-                      onChange={(e) => handleInputChange('drugAndAlcoholScreeningDate', e.target.value)}
-                    />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => handleFileUpload('Drug & Alcohol Screening', 'drugAndAlcoholScreeningUrl')}
-                      disabled={uploadingDoc === 'Drug & Alcohol Screening' || !isOnline}
-                    >
-                      {uploadingDoc === 'Drug & Alcohol Screening' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Upload className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </div>
+          {!matches || matches.length === 0 ? (
+            <div className="text-center py-12">
+              <Truck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No Matches Yet</h3>
+              <p className="text-muted-foreground mb-4">
+                Matches will appear here once owner-operators send you load requests
+              </p>
+              <Button asChild>
+                <Link href="/driver-dashboard/profile">
+                  Complete Your Profile
+                </Link>
+              </Button>
             </div>
           ) : (
-            <div className="space-y-4">
-              {complianceItems.map((item, index) => {
-                const status = getItemStatus(item);
-                return (
-                  <div key={index} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center gap-3 flex-1">
-                      {getStatusIcon(status)}
-                      <div className="flex-1">
-                        <p className="font-medium">{item.label}</p>
-                        {item.value && item.type === 'expiry' && (
-                          <p className="text-sm text-gray-600">
-                            Expires: {format(parseISO(item.value), 'MMM dd, yyyy')}
-                          </p>
-                        )}
-                        {item.value && item.type === 'screening' && (
-                          <p className="text-sm text-gray-600">
-                            Completed: {format(parseISO(item.value), 'MMM dd, yyyy')}
-                          </p>
-                        )}
-                        {item.value && item.type === 'field' && (
-                          <p className="text-sm text-gray-600">Provided</p>
-                        )}
-                        {!item.value && (
-                          <p className="text-sm text-red-600">Missing</p>
-                        )}
-                      </div>
+            <div className="space-y-3">
+              {matches.slice(0, 5).map((match) => (
+                <div
+                  key={match.id}
+                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="font-medium">
+                        {match.loadSnapshot.origin} → {match.loadSnapshot.destination}
+                      </p>
+                      {getStatusBadge(match.status)}
                     </div>
-                    <Badge 
-                      variant={status === 'Green' ? 'default' : status === 'Yellow' ? 'secondary' : 'destructive'}
-                      className={status === 'Green' ? 'bg-green-600 hover:bg-green-700 text-white' : ''}
-                    >
-                      {status}
-                    </Badge>
+                    <p className="text-sm text-muted-foreground">
+                      {format(parseISO(match.createdAt), 'MMM dd, yyyy h:mm a')}
+                    </p>
                   </div>
-                );
-              })}
+                  <div className="text-right">
+                    <p className="text-sm text-muted-foreground">Rate</p>
+                    <p className="font-semibold">${match.originalTerms.rate.toLocaleString()}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Quick Actions */}
+      {matches && matches.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Quick Actions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Button asChild variant="outline" className="h-auto py-4">
+                <Link href="/driver-dashboard/matches">
+                  <div className="flex items-center gap-3">
+                    <Truck className="h-5 w-5" />
+                    <div className="text-left">
+                      <p className="font-medium">View All Matches</p>
+                      <p className="text-sm text-muted-foreground">See complete match history</p>
+                    </div>
+                  </div>
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="h-auto py-4">
+                <Link href="/driver-dashboard/profile">
+                  <div className="flex items-center gap-3">
+                    <TrendingUp className="h-5 w-5" />
+                    <div className="text-left">
+                      <p className="font-medium">Update Profile</p>
+                      <p className="text-sm text-muted-foreground">Manage your information</p>
+                    </div>
+                  </div>
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
