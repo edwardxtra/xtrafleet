@@ -27,6 +27,7 @@ import { format, differenceInDays, parseISO } from 'date-fns';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { showSuccess, showError, showWarning } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
+import { ProfileCompletionBanner } from '@/components/profile-completion-banner';
 
 interface Driver {
   id: string;
@@ -409,6 +410,11 @@ export default function DriverDashboard() {
         </Alert>
       )}
 
+      {/* Profile Completion Banner */}
+      {user?.uid && (
+        <ProfileCompletionBanner driver={driver} driverId={user.uid} />
+      )}
+
       {/* Profile Header */}
       <div className="mb-8">
         <h2 className="text-3xl font-bold mb-2">{driver.name}</h2>
@@ -491,7 +497,8 @@ export default function DriverDashboard() {
             {!isEditing && (
               <Button onClick={handleEdit} variant="outline" size="sm" disabled={!isOnline}>
                 <Edit className="h-4 w-4 mr-2" />
-                Edit Document Status
+                Edit
+ Document Status
               </Button>
             )}
             {isEditing && (
@@ -736,8 +743,7 @@ export default function DriverDashboard() {
                     </Badge>
                   </div>
                 );
-              })}
-            </div>
+              })}</div>
           )}
         </CardContent>
       </Card>
