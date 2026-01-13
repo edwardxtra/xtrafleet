@@ -46,8 +46,7 @@ service cloud.firestore {
       match /loads/{loadId} {
         allow read: if isSignedIn();
         allow list: if isSignedIn();
-        // CRITICAL FIX: Allow any signed-in user to write loads (for match acceptance)
-        // The load owner can create/update, but also driver owners need to update status when accepting matches
+        // Allow any signed-in user to write loads (for match acceptance)
         allow write: if isSignedIn();
       }
 
@@ -84,8 +83,6 @@ service cloud.firestore {
     }
 
     // Conversations collection
-    // Use request.resource.data for create (data being written)
-    // and resource.data for read/update (existing data)
     match /conversations/{conversationId} {
       allow read: if isSignedIn() && isParticipant(resource.data.participants);
       allow create: if isSignedIn() && isParticipant(request.resource.data.participants);
@@ -98,6 +95,18 @@ service cloud.firestore {
         allow update: if isSignedIn() && isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants);
         allow delete: if false;
       }
+    }
+
+    // Notifications collection
+    match /notifications/{notificationId} {
+      // Users can read their own notifications
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // Anyone can create notifications (for system-generated notifications)
+      allow create: if isSignedIn();
+      // Users can only update their own notifications (to mark as read)
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // No deletion allowed
+      allow delete: if false;
     }
 
     // Audit logs collection
