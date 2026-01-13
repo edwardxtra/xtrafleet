@@ -15,3 +15,17 @@ env:
     secret: FB_PRIVATE_KEY
   - variable: RESEND_API_KEY
     secret: RESEND_API_KEY
+  
+  # Stripe Configuration
+  - variable: STRIPE_SECRET_KEY
+    secret: STRIPE_SECRET_KEY
+  - variable: STRIPE_WEBHOOK_SECRET
+    secret: STRIPE_WEBHOOK_SECRET
+  - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    value: pk_test_51Sn7v5JkUn3hXOyqkTTuouQcJDxztUdcpnrJ2RhteANOjJBKcmeUTeQLPXmC45QGDjlIiKBuCmPHuDcQ5nPMVL9U00SaZvo8p5
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_MONTHLY
+    value: price_1SpDgoJkUn3hXOyqyWvriBDO
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_SIX_MONTH
+    value: price_1SpDhVJkUn3hXOyqHesWbtho
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_ANNUAL
+    value: price_1SpDi9JkUn3hXOyqHPI4bF5H
