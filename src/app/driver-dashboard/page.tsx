@@ -497,8 +497,7 @@ export default function DriverDashboard() {
             {!isEditing && (
               <Button onClick={handleEdit} variant="outline" size="sm" disabled={!isOnline}>
                 <Edit className="h-4 w-4 mr-2" />
-                Edit
- Document Status
+                Edit Document Status
               </Button>
             )}
             {isEditing && (
@@ -743,7 +742,8 @@ export default function DriverDashboard() {
                     </Badge>
                   </div>
                 );
-              })}</div>
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
