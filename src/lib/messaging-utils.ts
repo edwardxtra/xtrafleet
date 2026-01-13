@@ -2,33 +2,33 @@ import { Firestore, collection, addDoc, Timestamp, doc, getDoc } from "firebase/
 
 export async function createConversation(
   firestore: Firestore,
-  participantId1: string,
-  participantId2: string,
+  driverOwnerId: string,  // Lessor (driver owner)
+  loadOwnerId: string,    // Lessee (load owner) 
   loadId: string,
   tlaId?: string
 ) {
   try {
     // Fetch participant details
-    const [owner1Doc, owner2Doc] = await Promise.all([
-      getDoc(doc(firestore, `owner_operators/${participantId1}`)),
-      getDoc(doc(firestore, `owner_operators/${participantId2}`))
+    const [driverOwnerDoc, loadOwnerDoc] = await Promise.all([
+      getDoc(doc(firestore, `owner_operators/${driverOwnerId}`)),
+      getDoc(doc(firestore, `owner_operators/${loadOwnerId}`))
     ]);
 
-    const owner1Data = owner1Doc.data();
-    const owner2Data = owner2Doc.data();
+    const driverOwnerData = driverOwnerDoc.data();
+    const loadOwnerData = loadOwnerDoc.data();
 
-    // Fetch load details
-    const loadDoc = await getDoc(doc(firestore, `owner_operators/${participantId1}/loads/${loadId}`));
+    // Fetch load details - CRITICAL FIX: Use loadOwnerId, not driverOwnerId
+    const loadDoc = await getDoc(doc(firestore, `owner_operators/${loadOwnerId}/loads/${loadId}`));
     const loadData = loadDoc.data();
 
     const participantDetails = {
-      [participantId1]: {
-        companyName: owner1Data?.companyName || owner1Data?.email || "Unknown",
-        email: owner1Data?.email || "",
+      [driverOwnerId]: {
+        companyName: driverOwnerData?.companyName || driverOwnerData?.legalName || driverOwnerData?.email || "Unknown",
+        email: driverOwnerData?.contactEmail || driverOwnerData?.email || "",
       },
-      [participantId2]: {
-        companyName: owner2Data?.companyName || owner2Data?.email || "Unknown",
-        email: owner2Data?.email || "",
+      [loadOwnerId]: {
+        companyName: loadOwnerData?.companyName || loadOwnerData?.legalName || loadOwnerData?.email || "Unknown",
+        email: loadOwnerData?.contactEmail || loadOwnerData?.email || "",
       },
     };
 
@@ -41,7 +41,7 @@ export async function createConversation(
       : undefined;
 
     const conversationData = {
-      participants: [participantId1, participantId2],
+      participants: [driverOwnerId, loadOwnerId],
       participantDetails,
       loadId,
       loadDetails,
@@ -50,8 +50,8 @@ export async function createConversation(
       lastMessageAt: Timestamp.now().toDate().toISOString(),
       lastMessage: "Match accepted! Coordinate pickup and delivery details here.",
       unreadCount: {
-        [participantId1]: 1,
-        [participantId2]: 1,
+        [driverOwnerId]: 1,
+        [loadOwnerId]: 1,
       },
     };
 
@@ -68,9 +68,10 @@ export async function createConversation(
       read: false,
     });
 
+    console.log("✅ Conversation created successfully:", conversationDoc.id);
     return conversationDoc.id;
   } catch (error) {
-    console.error("Error creating conversation:", error);
+    console.error("❌ Error creating conversation:", error);
     throw error;
   }
 }
