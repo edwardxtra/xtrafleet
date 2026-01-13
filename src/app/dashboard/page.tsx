@@ -38,6 +38,7 @@ import { collection, query, where } from 'firebase/firestore';
 import type { Driver, Load, Match } from '@/lib/data';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { ActiveAgreementsWidget } from '@/components/active-agreements-widget';
+import { NotificationsBanner } from '@/components/notifications-banner';
 
 export default function Dashboard() {
   const { user, isUserLoading } = useUser();
@@ -201,6 +202,9 @@ export default function Dashboard() {
           </AlertDescription>
         </Alert>
       )}
+
+      {/* NEW: Notifications Banner */}
+      <NotificationsBanner />
 
       <div className="flex items-center">
         <h1 className="font-headline text-lg font-semibold md:text-2xl">
