@@ -1,77 +1,115 @@
-import { Firestore, collection, addDoc, Timestamp, doc, getDoc } from "firebase/firestore";
+import { Firestore, collection, addDoc, doc, getDoc } from "firebase/firestore";
 
+export interface ConversationData {
+  participants: string[];
+  participantDetails: Record<string, {
+    companyName: string;
+    email: string;
+  }>;
+  loadDetails: {
+    origin: string;
+    destination: string;
+    cargo: string;
+  };
+  tlaId?: string;
+  lastMessage: string;
+  lastMessageAt: string;
+  unreadCount: Record<string, number>;
+  createdAt: string;
+}
+
+/**
+ * Create a conversation between driver owner (lessor) and load owner (lessee)
+ * FIX #2: Added detailed logging to debug conversation creation
+ */
 export async function createConversation(
   firestore: Firestore,
   driverOwnerId: string,  // Lessor (driver owner)
-  loadOwnerId: string,    // Lessee (load owner) 
+  loadOwnerId: string,    // Lessee (load owner)
   loadId: string,
   tlaId?: string
-) {
+): Promise<string | null> {
   try {
-    // Fetch participant details
-    const [driverOwnerDoc, loadOwnerDoc] = await Promise.all([
-      getDoc(doc(firestore, `owner_operators/${driverOwnerId}`)),
-      getDoc(doc(firestore, `owner_operators/${loadOwnerId}`))
-    ]);
+    console.log("🔵 Creating conversation...");
+    console.log("  Driver Owner (Lessor):", driverOwnerId);
+    console.log("  Load Owner (Lessee):", loadOwnerId);
+    console.log("  Load ID:", loadId);
+    console.log("  TLA ID:", tlaId);
 
-    const driverOwnerData = driverOwnerDoc.data();
-    const loadOwnerData = loadOwnerDoc.data();
-
-    // Fetch load details - CRITICAL FIX: Use loadOwnerId, not driverOwnerId
+    // Fetch load details
     const loadDoc = await getDoc(doc(firestore, `owner_operators/${loadOwnerId}/loads/${loadId}`));
+    if (!loadDoc.exists()) {
+      console.error("❌ Load not found:", loadId);
+      throw new Error("Load not found");
+    }
     const loadData = loadDoc.data();
+    console.log("✅ Load data fetched");
 
-    const participantDetails = {
-      [driverOwnerId]: {
-        companyName: driverOwnerData?.companyName || driverOwnerData?.legalName || driverOwnerData?.email || "Unknown",
-        email: driverOwnerData?.contactEmail || driverOwnerData?.email || "",
-      },
-      [loadOwnerId]: {
-        companyName: loadOwnerData?.companyName || loadOwnerData?.legalName || loadOwnerData?.email || "Unknown",
-        email: loadOwnerData?.contactEmail || loadOwnerData?.email || "",
-      },
-    };
+    // Fetch driver owner (lessor) info
+    const lessorDoc = await getDoc(doc(firestore, `owner_operators/${driverOwnerId}`));
+    if (!lessorDoc.exists()) {
+      console.error("❌ Driver owner not found:", driverOwnerId);
+      throw new Error("Driver owner not found");
+    }
+    const lessorData = lessorDoc.data();
+    console.log("✅ Driver owner data fetched");
 
-    const loadDetails = loadData
-      ? {
-          origin: loadData.origin || "",
-          destination: loadData.destination || "",
-          cargo: loadData.cargo || "",
-        }
-      : undefined;
+    // Fetch load owner (lessee) info
+    const lesseeDoc = await getDoc(doc(firestore, `owner_operators/${loadOwnerId}`));
+    if (!lesseeDoc.exists()) {
+      console.error("❌ Load owner not found:", loadOwnerId);
+      throw new Error("Load owner not found");
+    }
+    const lesseeData = lesseeDoc.data();
+    console.log("✅ Load owner data fetched");
 
-    const conversationData = {
+    // Create conversation
+    const conversationData: ConversationData = {
       participants: [driverOwnerId, loadOwnerId],
-      participantDetails,
-      loadId,
-      loadDetails,
-      tlaId: tlaId || null,
-      createdAt: Timestamp.now().toDate().toISOString(),
-      lastMessageAt: Timestamp.now().toDate().toISOString(),
-      lastMessage: "Match accepted! Coordinate pickup and delivery details here.",
-      unreadCount: {
-        [driverOwnerId]: 1,
-        [loadOwnerId]: 1,
+      participantDetails: {
+        [driverOwnerId]: {
+          companyName: lessorData.companyName || lessorData.legalName || "Driver Owner",
+          email: lessorData.contactEmail || lessorData.email || "",
+        },
+        [loadOwnerId]: {
+          companyName: lesseeData.companyName || lesseeData.legalName || "Load Owner",
+          email: lesseeData.contactEmail || lesseeData.email || "",
+        },
       },
+      loadDetails: {
+        origin: loadData.origin,
+        destination: loadData.destination,
+        cargo: loadData.cargo,
+      },
+      tlaId,
+      lastMessage: "Conversation started",
+      lastMessageAt: new Date().toISOString(),
+      unreadCount: {
+        [driverOwnerId]: 0,
+        [loadOwnerId]: 0,
+      },
+      createdAt: new Date().toISOString(),
     };
 
-    const conversationsRef = collection(firestore, "conversations");
-    const conversationDoc = await addDoc(conversationsRef, conversationData);
+    console.log("📤 Creating conversation document...");
+    const conversationRef = await addDoc(collection(firestore, "conversations"), conversationData);
+    console.log("✅ Conversation created with ID:", conversationRef.id);
 
-    // Create initial welcome message
-    const messagesRef = collection(firestore, `conversations/${conversationDoc.id}/messages`);
-    await addDoc(messagesRef, {
-      conversationId: conversationDoc.id,
+    // Add initial system message
+    console.log("📤 Adding initial message...");
+    await addDoc(collection(firestore, `conversations/${conversationRef.id}/messages`), {
+      conversationId: conversationRef.id,
       senderId: "system",
-      text: "Match accepted! Use this chat to coordinate pickup and delivery details.",
-      timestamp: Timestamp.now().toDate().toISOString(),
+      text: `Trip from ${loadData.origin} to ${loadData.destination} - ${loadData.cargo}. Use this chat to coordinate details.`,
+      timestamp: new Date().toISOString(),
       read: false,
     });
+    console.log("✅ Initial message added");
 
-    console.log("✅ Conversation created successfully:", conversationDoc.id);
-    return conversationDoc.id;
+    console.log("🎉 Conversation setup complete!");
+    return conversationRef.id;
   } catch (error) {
-    console.error("❌ Error creating conversation:", error);
+    console.error("❌ Failed to create conversation:", error);
     throw error;
   }
 }

@@ -57,15 +57,19 @@ export function ActiveAgreementsWidget() {
           ...doc.data()
         })) as TLA[];
         
+        // FIX #3: Filter out cancelled and voided TLAs
+        const activeTlas = tlasData.filter(tla => 
+          tla.status !== 'cancelled' && tla.status !== 'voided'
+        );
+        
         // Sort to prioritize action-needed items
-        const sorted = tlasData.sort((a, b) => {
+        const sorted = activeTlas.sort((a, b) => {
           const priorityOrder: Record<string, number> = {
             'in_progress': 1,
             'pending_lessor': 2,
             'pending_lessee': 2,
             'signed': 3,
             'completed': 4,
-            'voided': 5,
           };
           return (priorityOrder[a.status] || 99) - (priorityOrder[b.status] || 99);
         });
