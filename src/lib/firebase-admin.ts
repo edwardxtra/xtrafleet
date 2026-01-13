@@ -1,48 +1,65 @@
-import * as admin from 'firebase-admin';
+// Firebase Admin SDK - Server-side only
+// This file should ONLY be imported in API routes (src/app/api/**)
 
-let isInitialized = false;
+let adminInstance: any = null;
 
-function initializeAdmin() {
-  if (isInitialized) return;
+function getAdmin() {
+  if (adminInstance) return adminInstance;
+  
+  // Dynamic import to prevent build-time initialization
+  const admin = require('firebase-admin');
   
   if (!admin.apps.length) {
     try {
-      // For Firebase App Hosting, credentials are handled automatically
-      // For local development, use service account
       if (process.env.FIREBASE_SERVICE_ACCOUNT) {
         const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
         admin.initializeApp({
           credential: admin.credential.cert(serviceAccount),
         });
       } else {
-        // Use default credentials (works on Firebase hosting)
         admin.initializeApp();
       }
-      isInitialized = true;
     } catch (error) {
       console.error('Firebase admin initialization error:', error);
     }
   }
+  
+  adminInstance = admin;
+  return admin;
 }
 
 export const getAdminAuth = () => {
-  initializeAdmin();
+  const admin = getAdmin();
   return admin.auth();
 };
 
 export const getAdminDb = () => {
-  initializeAdmin();
+  const admin = getAdmin();
   return admin.firestore();
 };
 
 export const getAdminStorage = () => {
-  initializeAdmin();
+  const admin = getAdmin();
   return admin.storage();
 };
 
-// Legacy exports for backwards compatibility - will initialize on first access
-export const adminAuth = admin.auth();
-export const adminDb = admin.firestore();
-export const adminStorage = admin.storage();
+// Backwards compatibility - these will lazy-load on first access
+export const adminAuth = new Proxy({} as any, {
+  get: (target, prop) => {
+    return getAdminAuth()[prop];
+  }
+});
 
-export default admin;
+export const adminDb = new Proxy({} as any, {
+  get: (target, prop) => {
+    return getAdminDb()[prop];
+  }
+});
+
+export const adminStorage = new Proxy({} as any, {
+  get: (target, prop) => {
+    return getAdminStorage()[prop];
+  }
+});
+
+export default getAdmin;
