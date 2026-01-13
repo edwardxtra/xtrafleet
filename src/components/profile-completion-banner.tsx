@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -36,9 +34,10 @@ interface ProfileCompletionBannerProps {
     drugAndAlcoholScreeningUrl?: string;
   };
   driverId: string;
+  onEditClick?: () => void; // Optional callback to trigger edit mode
 }
 
-export function ProfileCompletionBanner({ driver, driverId }: ProfileCompletionBannerProps) {
+export function ProfileCompletionBanner({ driver, driverId, onEditClick }: ProfileCompletionBannerProps) {
   const [isDismissed, setIsDismissed] = useState(false);
 
   // Calculate completion
@@ -66,6 +65,18 @@ export function ProfileCompletionBanner({ driver, driverId }: ProfileCompletionB
 
   // Don't show if dismissed or 100% complete
   if (isDismissed || allComplete) return null;
+
+  const handleEditClick = () => {
+    if (onEditClick) {
+      // Scroll to document section smoothly
+      const documentSection = document.querySelector('[data-document-section]');
+      if (documentSection) {
+        documentSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      // Trigger edit mode
+      setTimeout(() => onEditClick(), 300);
+    }
+  };
 
   return (
     <Alert className={`mb-6 ${!criticalComplete ? 'border-amber-500 bg-amber-50' : 'border-blue-500 bg-blue-50'}`}>
@@ -159,11 +170,13 @@ export function ProfileCompletionBanner({ driver, driverId }: ProfileCompletionB
           </div>
 
           {/* Action Button */}
-          <Link href="/dashboard/my-profile">
-            <Button size="sm" variant={criticalComplete ? "default" : "accent"}>
-              {criticalComplete ? "Complete My Profile" : "Add CDL Information →"}
-            </Button>
-          </Link>
+          <Button 
+            size="sm" 
+            variant={criticalComplete ? "default" : "accent"}
+            onClick={handleEditClick}
+          >
+            {criticalComplete ? "Complete My Profile" : "Add CDL Information →"}
+          </Button>
         </div>
 
         {/* Dismiss Button */}
