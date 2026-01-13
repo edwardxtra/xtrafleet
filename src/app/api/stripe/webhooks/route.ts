@@ -45,12 +45,26 @@ export async function POST(request: NextRequest) {
           });
         }
         
-        if (session.mode === 'subscription' && metadata?.userId) {
-          await adminDb.collection('owner_operators').doc(metadata.userId).update({
+        if (session.mode === 'subscription' && metadata?.userId && session.subscription) {
+          // Fetch the subscription to get trial_end
+          const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+          
+          const updateData: any = {
             stripeSubscriptionId: session.subscription,
-            subscriptionStatus: 'trialing',
+            subscriptionStatus: subscription.status,
+            subscriptionPlanType: metadata.planType || 'monthly',
             updatedAt: new Date().toISOString(),
-          });
+          };
+          
+          if (subscription.trial_end) {
+            updateData.trialEndsAt = new Date(subscription.trial_end * 1000).toISOString();
+          }
+          
+          if (subscription.current_period_end) {
+            updateData.subscriptionPeriodEnd = new Date(subscription.current_period_end * 1000).toISOString();
+          }
+          
+          await adminDb.collection('owner_operators').doc(metadata.userId).update(updateData);
         }
         break;
       }
