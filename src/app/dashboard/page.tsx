@@ -65,15 +65,21 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Check if user is a driver by looking for their document in drivers collection
-  const driverQuery = useMemoFirebase(() => {
+  // Check if user is a driver by looking at their role in users collection
+  const userRoleQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
-    // Try to find this user as a driver in any owner's collection
-    // For now, we'll check if they have a role field or if they're in a drivers subcollection
-    return doc(firestore, `drivers/${user.uid}`);
+    return doc(firestore, `users/${user.uid}`);
   }, [firestore, user?.uid]);
 
-  const { data: driverProfile } = useDoc<Driver>(driverQuery);
+  const { data: userRole } = useDoc<{ role: string; ownerId: string; driverId: string }>(userRoleQuery);
+
+  // If user is a driver, get their profile for the banner
+  const driverProfileQuery = useMemoFirebase(() => {
+    if (!firestore || !user?.uid || userRole?.role !== 'driver' || !userRole?.ownerId) return null;
+    return doc(firestore, `owner_operators/${userRole.ownerId}/drivers/${user.uid}`);
+  }, [firestore, user?.uid, userRole]);
+
+  const { data: driverProfile } = useDoc<Driver>(driverProfileQuery);
 
   const driversQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
@@ -218,7 +224,7 @@ export default function Dashboard() {
       <NotificationsBanner />
 
       {/* NEW: Profile Completion Banner for Drivers */}
-      {driverProfile && user?.uid && (
+      {userRole?.role === 'driver' && driverProfile && user?.uid && (
         <ProfileCompletionBanner driver={driverProfile} driverId={user.uid} />
       )}
 
