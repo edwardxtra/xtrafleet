@@ -20,7 +20,11 @@ import {
   X, 
   Save, 
   Upload,
-  WifiOff
+  WifiOff,
+  User,
+  Mail,
+  MapPin,
+  Truck
 } from 'lucide-react';
 import { getComplianceStatusFromItems, type ComplianceItem } from '@/lib/compliance';
 import { format, differenceInDays, parseISO } from 'date-fns';
@@ -28,6 +32,13 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { showSuccess, showError, showWarning } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
 import { ProfileCompletionBanner } from '@/components/profile-completion-banner';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface Driver {
   id: string;
@@ -161,6 +172,10 @@ export default function DriverDashboard() {
     try {
       const driverRef = doc(db, 'owner_operators', ownerId, 'drivers', user.uid);
       await updateDoc(driverRef, {
+        name: editedDriver.name,
+        location: editedDriver.location,
+        vehicleType: editedDriver.vehicleType,
+        availability: editedDriver.availability,
         cdlLicense: editedDriver.cdlLicense,
         cdlExpiry: editedDriver.cdlExpiry,
         medicalCardExpiry: editedDriver.medicalCardExpiry,
@@ -174,7 +189,7 @@ export default function DriverDashboard() {
 
       setDriver(editedDriver);
       setIsEditing(false);
-      showSuccess('Your changes have been saved successfully.');
+      showSuccess('Your profile has been updated successfully.');
     } catch (error) {
       console.error('Error saving driver data:', error);
       const appError = parseError(error);
@@ -204,13 +219,11 @@ export default function DriverDashboard() {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
   
-      // Validate file size (10MB max)
       if (file.size > 10 * 1024 * 1024) {
         showError('File size must be less than 10MB. Please choose a smaller file.');
         return;
       }
 
-      // Validate file type
       const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
       if (!allowedTypes.includes(file.type)) {
         showError('Please upload a PDF, JPG, or PNG file.');
@@ -224,26 +237,21 @@ export default function DriverDashboard() {
           throw new Error('Missing required data');
         }
         
-        // Create storage path
         const fileExtension = file.name.split('.').pop();
         const fileName = `${docType.toLowerCase().replace(/\s+/g, '-')}.${fileExtension}`;
         const storagePath = `driver-documents/${ownerId}/${user.uid}/${fileName}`;
         
-        // Upload file
         const storageRef = ref(storage, storagePath);
         await uploadBytes(storageRef, file);
         
-        // Get download URL
         const downloadURL = await getDownloadURL(storageRef);
         
-        // Update Firestore
         const driverRef = doc(db, 'owner_operators', ownerId, 'drivers', user.uid);
         await updateDoc(driverRef, {
           [fieldName]: downloadURL,
           updatedAt: new Date().toISOString(),
         });
         
-        // Update local state
         if (editedDriver) {
           setEditedDriver({ ...editedDriver, [fieldName]: downloadURL });
         }
@@ -265,26 +273,16 @@ export default function DriverDashboard() {
     input.click();
   };
 
-  // Loading skeleton
   if (isUserLoading || loading) {
     return (
       <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
-          <Skeleton className="h-10 w-48 mb-2" />
-          <Skeleton className="h-5 w-64 mb-3" />
-          <div className="flex gap-2">
-            <Skeleton className="h-6 w-20" />
-            <Skeleton className="h-6 w-24" />
-          </div>
-        </div>
-
         <Skeleton className="h-40 w-full mb-6" />
+        <Skeleton className="h-64 w-full mb-6" />
         <Skeleton className="h-96 w-full" />
       </div>
     );
   }
 
-  // Error state
   if (loadError && !driver) {
     return (
       <div className="max-w-6xl mx-auto">
@@ -308,46 +306,14 @@ export default function DriverDashboard() {
   }
 
   const complianceItems: ComplianceItem[] = [
-    {
-      label: 'CDL Expiry',
-      value: driver.cdlExpiry,
-      type: 'expiry',
-    },
-    {
-      label: 'CDL License Number',
-      value: driver.cdlLicense,
-      type: 'field',
-    },
-    {
-      label: 'Medical Card Expiry',
-      value: driver.medicalCardExpiry,
-      type: 'expiry',
-    },
-    {
-      label: 'Insurance Expiry',
-      value: driver.insuranceExpiry,
-      type: 'expiry',
-    },
-    {
-      label: 'Motor Vehicle Record Number',
-      value: driver.motorVehicleRecordNumber,
-      type: 'field',
-    },
-    {
-      label: 'Background Check',
-      value: driver.backgroundCheckDate,
-      type: 'screening',
-    },
-    {
-      label: 'Pre-Employment Screening',
-      value: driver.preEmploymentScreeningDate,
-      type: 'field',
-    },
-    {
-      label: 'Drug & Alcohol Screening',
-      value: driver.drugAndAlcoholScreeningDate,
-      type: 'screening',
-    },
+    { label: 'CDL Expiry', value: driver.cdlExpiry, type: 'expiry' },
+    { label: 'CDL License Number', value: driver.cdlLicense, type: 'field' },
+    { label: 'Medical Card Expiry', value: driver.medicalCardExpiry, type: 'expiry' },
+    { label: 'Insurance Expiry', value: driver.insuranceExpiry, type: 'expiry' },
+    { label: 'Motor Vehicle Record Number', value: driver.motorVehicleRecordNumber, type: 'field' },
+    { label: 'Background Check', value: driver.backgroundCheckDate, type: 'screening' },
+    { label: 'Pre-Employment Screening', value: driver.preEmploymentScreeningDate, type: 'field' },
+    { label: 'Drug & Alcohol Screening', value: driver.drugAndAlcoholScreeningDate, type: 'screening' },
   ];
 
   const complianceStatus = getComplianceStatusFromItems(complianceItems);
@@ -371,7 +337,6 @@ export default function DriverDashboard() {
       try {
         const expiryDate = parseISO(item.value);
         const daysUntilExpiry = differenceInDays(expiryDate, new Date());
-
         if (daysUntilExpiry < 0) return 'Red';
         if (daysUntilExpiry <= 30) return 'Yellow';
         return 'Green';
@@ -386,7 +351,6 @@ export default function DriverDashboard() {
         const validUntil = new Date(screeningDate);
         validUntil.setFullYear(validUntil.getFullYear() + 1);
         const daysUntilExpiry = differenceInDays(validUntil, new Date());
-
         if (daysUntilExpiry < 0) return 'Red';
         if (daysUntilExpiry <= 30) return 'Yellow';
         return 'Green';
@@ -400,7 +364,6 @@ export default function DriverDashboard() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      {/* Offline Banner */}
       {!isOnline && (
         <Alert variant="destructive" className="mb-4">
           <WifiOff className="h-4 w-4" />
@@ -410,26 +373,153 @@ export default function DriverDashboard() {
         </Alert>
       )}
 
-      {/* Profile Completion Banner */}
       {user?.uid && (
-        <ProfileCompletionBanner driver={driver} driverId={user.uid} />
+        <ProfileCompletionBanner 
+          driver={driver} 
+          driverId={user.uid}
+          onEditClick={handleEdit}
+        />
       )}
 
-      {/* Profile Header */}
-      <div className="mb-8">
-        <h2 className="text-3xl font-bold mb-2">{driver.name}</h2>
-        <p className="text-gray-600 mb-3">{driver.email}</p>
-        <div className="flex gap-2">
-          <Badge variant="secondary">{driver.vehicleType}</Badge>
-          <Badge variant={driver.availability === 'Available' ? 'default' : 'secondary'}>
-            {driver.availability}
-          </Badge>
-        </div>
-      </div>
+      {/* Profile Information Card */}
+      <Card className="mb-6" data-document-section>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Profile Information</CardTitle>
+            {!isEditing && (
+              <Button onClick={handleEdit} variant="outline" size="sm" disabled={!isOnline}>
+                <Edit className="h-4 w-4 mr-2" />
+                Edit Profile
+              </Button>
+            )}
+            {isEditing && (
+              <div className="flex gap-2">
+                <Button onClick={handleCancel} variant="outline" size="sm" disabled={saving}>
+                  <X className="h-4 w-4 mr-2" />
+                  Cancel
+                </Button>
+                <Button onClick={handleSave} size="sm" disabled={saving || !isOnline}>
+                  {saving ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  Save Changes
+                </Button>
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isEditing && editedDriver ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <Label htmlFor="name">Full Name</Label>
+                <Input
+                  id="name"
+                  value={editedDriver.name || ''}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="email">Email Address</Label>
+                <Input
+                  id="email"
+                  value={editedDriver.email || ''}
+                  disabled
+                  className="bg-gray-50"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Email cannot be changed</p>
+              </div>
+              <div>
+                <Label htmlFor="location">Location</Label>
+                <Input
+                  id="location"
+                  value={editedDriver.location || ''}
+                  onChange={(e) => handleInputChange('location', e.target.value)}
+                  placeholder="City, State"
+                />
+              </div>
+              <div>
+                <Label htmlFor="vehicleType">Vehicle Type</Label>
+                <Select
+                  value={editedDriver.vehicleType || ''}
+                  onValueChange={(value) => handleInputChange('vehicleType', value)}
+                >
+                  <SelectTrigger id="vehicleType">
+                    <SelectValue placeholder="Select vehicle type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Dry Van">Dry Van</SelectItem>
+                    <SelectItem value="Flatbed">Flatbed</SelectItem>
+                    <SelectItem value="Reefer">Reefer</SelectItem>
+                    <SelectItem value="Box Truck">Box Truck</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="availability">Status</Label>
+                <Select
+                  value={editedDriver.availability || ''}
+                  onValueChange={(value) => handleInputChange('availability', value)}
+                >
+                  <SelectTrigger id="availability">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Available">Available</SelectItem>
+                    <SelectItem value="On Assignment">On Assignment</SelectItem>
+                    <SelectItem value="Unavailable">Unavailable</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <User className="h-4 w-4" />
+                  <span>Full Name</span>
+                </div>
+                <p className="font-medium">{driver.name}</p>
+              </div>
+              <div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <Mail className="h-4 w-4" />
+                  <span>Email Address</span>
+                </div>
+                <p className="font-medium">{driver.email}</p>
+              </div>
+              <div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <MapPin className="h-4 w-4" />
+                  <span>Location</span>
+                </div>
+                <p className="font-medium">{driver.location}</p>
+              </div>
+              <div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <Truck className="h-4 w-4" />
+                  <span>Vehicle Type</span>
+                </div>
+                <p className="font-medium">{driver.vehicleType}</p>
+              </div>
+              <div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <span>Status</span>
+                </div>
+                <Badge variant={driver.availability === 'Available' ? 'default' : 'secondary'}>
+                  {driver.availability}
+                </Badge>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      {/* Conditional Alert - Only show if Yellow or Red */}
       {complianceStatus !== 'Green' && (
-        <Alert className={`mb-8 ${getStatusColor(complianceStatus)}`}>
+        <Alert className={`mb-6 ${getStatusColor(complianceStatus)}`}>
           <div className="flex items-start gap-3">
             {getStatusIcon(complianceStatus)}
             <div>
@@ -446,7 +536,6 @@ export default function DriverDashboard() {
         </Alert>
       )}
 
-      {/* Compliance Overview */}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Compliance Overview</CardTitle>
@@ -489,34 +578,9 @@ export default function DriverDashboard() {
         </CardContent>
       </Card>
 
-      {/* Document Status */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Document Status</CardTitle>
-            {!isEditing && (
-              <Button onClick={handleEdit} variant="outline" size="sm" disabled={!isOnline}>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Document Status
-              </Button>
-            )}
-            {isEditing && (
-              <div className="flex gap-2">
-                <Button onClick={handleCancel} variant="outline" size="sm" disabled={saving}>
-                  <X className="h-4 w-4 mr-2" />
-                  Cancel
-                </Button>
-                <Button onClick={handleSave} size="sm" disabled={saving || !isOnline}>
-                  {saving ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4 mr-2" />
-                  )}
-                  Save Changes
-                </Button>
-              </div>
-            )}
-          </div>
+          <CardTitle>Compliance Documents</CardTitle>
         </CardHeader>
         <CardContent>
           {isEditing && editedDriver ? (
