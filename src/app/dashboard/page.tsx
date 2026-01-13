@@ -33,12 +33,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, query, where } from 'firebase/firestore';
+import { useUser, useCollection, useFirestore, useMemoFirebase, useDoc } from "@/firebase";
+import { collection, query, where, doc } from 'firebase/firestore';
 import type { Driver, Load, Match } from '@/lib/data';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { ActiveAgreementsWidget } from '@/components/active-agreements-widget';
 import { NotificationsBanner } from '@/components/notifications-banner';
+import { ProfileCompletionBanner } from '@/components/profile-completion-banner';
 
 export default function Dashboard() {
   const { user, isUserLoading } = useUser();
@@ -63,6 +64,16 @@ export default function Dashboard() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Check if user is a driver by looking for their document in drivers collection
+  const driverQuery = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    // Try to find this user as a driver in any owner's collection
+    // For now, we'll check if they have a role field or if they're in a drivers subcollection
+    return doc(firestore, `drivers/${user.uid}`);
+  }, [firestore, user?.uid]);
+
+  const { data: driverProfile } = useDoc<Driver>(driverQuery);
 
   const driversQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
@@ -205,6 +216,11 @@ export default function Dashboard() {
 
       {/* NEW: Notifications Banner */}
       <NotificationsBanner />
+
+      {/* NEW: Profile Completion Banner for Drivers */}
+      {driverProfile && user?.uid && (
+        <ProfileCompletionBanner driver={driverProfile} driverId={user.uid} />
+      )}
 
       <div className="flex items-center">
         <h1 className="font-headline text-lg font-semibold md:text-2xl">
