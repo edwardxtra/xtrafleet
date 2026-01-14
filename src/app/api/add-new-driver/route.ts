@@ -14,31 +14,52 @@ const inviteSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const adminApp = await initializeFirebaseAdmin();
-  if (!adminApp) {
-    return handleError(new Error('Server misconfigured'), 'Server configuration error. Cannot connect to backend services.', 500);
-  }
-
   try {
+    console.log('[API /add-new-driver POST] Request received');
+    
+    const adminApp = await initializeFirebaseAdmin();
+    if (!adminApp) {
+      console.error('[API /add-new-driver POST] Firebase Admin initialization failed');
+      return handleError(
+        new Error('Firebase Admin not initialized'), 
+        'Server configuration error. Please contact support if this persists.', 
+        500
+      );
+    }
+
     const firestore = adminApp.firestore();
     
     const ownerUser = await getAuthenticatedUser(req as any);
     
     if (!ownerUser) {
+      console.warn('[API /add-new-driver POST] User authentication failed');
       return handleError(new Error('Unauthorized'), 'You must be logged in to invite a driver.', 401);
     }
 
-    const body = await req.json();
+    console.log(`[API /add-new-driver POST] User authenticated: ${ownerUser.uid}`);
+
+    let body;
+    try {
+      body = await req.json();
+      console.log('[API /add-new-driver POST] Request body parsed successfully');
+    } catch (parseError: any) {
+      console.error('[API /add-new-driver POST] Failed to parse request body:', parseError);
+      return handleError(parseError, 'Invalid request body. Please check your data and try again.', 400);
+    }
+
     const validation = inviteSchema.safeParse(body);
 
     if (!validation.success) {
       const fieldErrors = validation.error.flatten().fieldErrors;
       const errorMessage = Object.values(fieldErrors).flat().join(', ');
+      console.warn('[API /add-new-driver POST] Validation failed:', errorMessage);
       return NextResponse.json({ error: errorMessage, fieldErrors }, { status: 400 });
     }
 
     const { email } = validation.data;
     const ownerOperatorId = ownerUser.uid;
+
+    console.log(`[API /add-new-driver POST] Checking for existing invitation to: ${email}`);
 
     // Check if invitation already exists for this email
     const existingInvite = await firestore.collection('driver_invitations')
@@ -48,10 +69,12 @@ export async function POST(req: NextRequest) {
       .get();
     
     if (!existingInvite.empty) {
+      console.warn(`[API /add-new-driver POST] Invitation already exists for: ${email}`);
       return handleError(new Error('Already invited'), 'An invitation has already been sent to this email.', 409);
     }
 
     // Get owner info
+    console.log(`[API /add-new-driver POST] Fetching owner info for: ${ownerOperatorId}`);
     const ownerDoc = await firestore.doc('owner_operators/' + ownerOperatorId).get();
     const ownerData = ownerDoc.data();
     const companyName = ownerData?.legalName || ownerData?.companyName || 'A fleet';
@@ -60,6 +83,8 @@ export async function POST(req: NextRequest) {
     const invitationToken = crypto.randomUUID();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
+
+    console.log(`[API /add-new-driver POST] Creating invitation token: ${invitationToken}`);
 
     // Save invitation to Firestore
     await firestore.collection('driver_invitations').doc(invitationToken).set({
@@ -71,19 +96,23 @@ export async function POST(req: NextRequest) {
       status: 'pending',
     });
 
+    console.log(`[API /add-new-driver POST] ✓ Invitation saved to Firestore`);
+
     // Build invitation link
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://xtrafleet.com';
     const inviteLink = baseUrl + '/driver-register?token=' + invitationToken;
 
     // Send invitation email
     if (!resend) {
-      console.warn('Resend not configured. Invitation link:', inviteLink);
+      console.warn('[API /add-new-driver POST] Resend not configured. Invitation link:', inviteLink);
       return NextResponse.json({ 
         id: invitationToken, 
         message: 'Invitation created (email service not configured).',
         inviteLink: inviteLink 
       }, { status: 201 });
     }
+
+    console.log(`[API /add-new-driver POST] Sending invitation email to: ${email}`);
 
     const { error: emailError } = await resend.emails.send({
       from: 'XtraFleet <noreply@xtrafleet.com>',
@@ -102,12 +131,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (emailError) {
-      console.error('Failed to send invitation email:', emailError);
+      console.error('[API /add-new-driver POST] Failed to send invitation email:', emailError);
       await firestore.collection('driver_invitations').doc(invitationToken).delete();
       return handleError(new Error('Email failed'), 'Failed to send invitation email. Please try again.', 500);
     }
 
-    console.log('Invitation sent successfully to:', email);
+    console.log(`[API /add-new-driver POST] ✓ Invitation sent successfully to: ${email}`);
     
     return NextResponse.json({ 
       id: invitationToken, 
@@ -115,7 +144,7 @@ export async function POST(req: NextRequest) {
     }, { status: 201 });
 
   } catch (error: any) {
-    console.error('Add driver error:', error);
-    return handleError(error, 'Failed to send invitation');
+    console.error('[API /add-new-driver POST] Unexpected error:', error);
+    return handleError(error, 'Failed to send invitation. Please try again.');
   }
 }
