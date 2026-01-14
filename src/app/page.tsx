@@ -2,6 +2,8 @@ import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/logo";
 import Link from "next/link";
 import { CheckCircle, Clock, Shield } from "lucide-react";
+import { TestimonialsSection } from "@/components/testimonials-section";
+import { PricingSection } from "@/components/pricing-section";
 
 function StatCard({ number, label }: { number: string; label: string }) {
   return (
@@ -28,6 +30,7 @@ export default function Home() {
       </header>
 
       <main className="flex-1">
+        {/* Hero Section */}
         <section className="relative h-[70vh] md:h-[80vh] flex items-center justify-center text-center text-white px-4 bg-gradient-to-br from-primary to-primary/80">          
           <div className="space-y-8 max-w-4xl">
             <h1 className="text-4xl md:text-6xl font-bold font-headline drop-shadow-lg">
@@ -58,6 +61,7 @@ export default function Home() {
           </div>
         </section>
         
+        {/* Features Section */}
         <section className="py-16 px-6 md:px-10 bg-background">
           <div className="max-w-5xl mx-auto text-center">
             <h2 className="text-3xl font-bold font-headline mb-4">Why XtraFleet?</h2>
@@ -95,6 +99,12 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {/* Testimonials Section */}
+        <TestimonialsSection />
+
+        {/* Pricing Section */}
+        <PricingSection />
       </main>
 
       <footer className="py-6 px-6 md:px-10 border-t bg-muted">
