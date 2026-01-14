@@ -30,6 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { HelpWidget } from "@/components/help-widget";
 import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
@@ -206,6 +207,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
         <Footer />
       </SidebarInset>
+      
+      {/* Help Widget - Available on all dashboard pages */}
+      <HelpWidget />
+      
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
