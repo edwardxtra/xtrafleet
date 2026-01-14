@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 import Link from "next/link";
 import { CheckCircle, Clock, Shield } from "lucide-react";
 import { TestimonialsSection } from "@/components/testimonials-section";
@@ -20,6 +21,7 @@ export default function Home() {
       <header className="py-4 px-6 md:px-10 flex items-center justify-between border-b">
         <Logo />
         <div className="flex items-center gap-4">
+          <ThemeToggle />
           <Button asChild variant="ghost">
             <Link href="/login">Log In</Link>
           </Button>
