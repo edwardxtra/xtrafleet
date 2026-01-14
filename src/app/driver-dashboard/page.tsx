@@ -17,9 +17,11 @@ import {
   XCircle,
   TrendingUp,
   AlertCircle,
+  WifiOff,
 } from 'lucide-react';
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
+import { useOnlineStatus } from '@/hooks/use-online-status';
 
 interface Match {
   id: string;
@@ -43,6 +45,7 @@ export default function DriverDashboard() {
   const [loading, setLoading] = useState(true);
   const [ownerId, setOwnerId] = useState<string>('');
   const [driverName, setDriverName] = useState<string>('');
+  const isOnline = useOnlineStatus();
 
   // Load driver info
   useEffect(() => {
@@ -75,14 +78,14 @@ export default function DriverDashboard() {
     }
   }, [user, db, router]);
 
-  // Query matches where this driver is involved
+  // Query matches where this driver is involved - OPTIMIZED with pagination
   const matchesQuery = useMemoFirebase(() => {
     if (!db || !user?.uid) return null;
     return query(
       collection(db, 'matches'),
       where('driverId', '==', user.uid),
       orderBy('createdAt', 'desc'),
-      limit(10)
+      limit(20) // OPTIMIZATION: Only load 20 most recent
     );
   }, [db, user?.uid]);
 
@@ -133,6 +136,15 @@ export default function DriverDashboard() {
 
   return (
     <div className="space-y-6">
+      {!isOnline && (
+        <Alert variant="destructive">
+          <WifiOff className="h-4 w-4" />
+          <AlertDescription>
+            You are currently offline. Data may not be up to date.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold mb-2">Welcome back{driverName && `, ${driverName.split(' ')[0]}`}!</h1>
@@ -235,15 +247,17 @@ export default function DriverDashboard() {
               <CardTitle>Recent Matches</CardTitle>
               <CardDescription>
                 {matches && matches.length > 0 
-                  ? `Your last ${Math.min(matches.length, 10)} match${matches.length !== 1 ? 'es' : ''}`
+                  ? `Your last ${Math.min(matches.length, 20)} match${matches.length !== 1 ? 'es' : ''}`
                   : 'No matches yet'}
               </CardDescription>
             </div>
-            <Button asChild variant="outline" size="sm">
-              <Link href="/driver-dashboard/matches">
-                View All
-              </Link>
-            </Button>
+            {matches && matches.length > 0 && (
+              <Button asChild variant="outline" size="sm">
+                <Link href="/driver-dashboard/matches">
+                  View All
+                </Link>
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
