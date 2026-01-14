@@ -16,55 +16,92 @@ const loadSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const adminApp = await initializeFirebaseAdmin();
-  if (!adminApp) {
-    return handleError(new Error('Server misconfigured'), 'Server configuration error. Cannot connect to backend services.', 500);
-  }
-
   try {
-    const user = await getAuthenticatedUser(req as any);
-    if (!user) {
-      return handleError(new Error('Unauthorized'), 'Unauthorized', 401);
+    console.log('[API /loads POST] Request received');
+    
+    const adminApp = await initializeFirebaseAdmin();
+    if (!adminApp) {
+      console.error('[API /loads POST] Firebase Admin initialization failed');
+      return handleError(
+        new Error('Firebase Admin not initialized'), 
+        'Server configuration error. Please contact support if this persists.', 
+        500
+      );
     }
 
+    const user = await getAuthenticatedUser(req as any);
+    if (!user) {
+      console.warn('[API /loads POST] User authentication failed');
+      return handleError(new Error('Unauthorized'), 'You must be logged in to create loads', 401);
+    }
+
+    console.log(`[API /loads POST] User authenticated: ${user.uid}`);
+
     const firestore = adminApp.firestore();
-    const body = await req.json();
+    
+    let body;
+    try {
+      body = await req.json();
+      console.log('[API /loads POST] Request body parsed successfully');
+    } catch (parseError: any) {
+      console.error('[API /loads POST] Failed to parse request body:', parseError);
+      return handleError(parseError, 'Invalid request body. Please check your data and try again.', 400);
+    }
+
     const validation = loadSchema.safeParse(body);
 
     if (!validation.success) {
       const fieldErrors = validation.error.flatten().fieldErrors;
       const errorMessage = Object.values(fieldErrors).flat().join(', ');
+      console.warn('[API /loads POST] Validation failed:', errorMessage);
       return NextResponse.json({ error: errorMessage, fieldErrors }, { status: 400 });
     }
     
     const newLoadData = { ...validation.data, ownerOperatorId: user.uid };
+    
+    console.log(`[API /loads POST] Creating load for user ${user.uid}`);
     const docRef = await firestore.collection(`owner_operators/${user.uid}/loads`).add(newLoadData);
+    console.log(`[API /loads POST] ✓ Load created successfully: ${docRef.id}`);
 
     return NextResponse.json({ id: docRef.id, ...newLoadData }, { status: 201 });
   } catch (error: any) {
-    return handleError(error, 'Failed to create load');
+    console.error('[API /loads POST] Unexpected error:', error);
+    return handleError(error, 'Failed to create load. Please try again.');
   }
 }
 
 export async function GET(req: NextRequest) {
-  const adminApp = await initializeFirebaseAdmin();
-  if (!adminApp) {
-    return handleError(new Error('Server misconfigured'), 'Server configuration error. Cannot connect to backend services.', 500);
-  }
-    
   try {
+    console.log('[API /loads GET] Request received');
+    
+    const adminApp = await initializeFirebaseAdmin();
+    if (!adminApp) {
+      console.error('[API /loads GET] Firebase Admin initialization failed');
+      return handleError(
+        new Error('Firebase Admin not initialized'), 
+        'Server configuration error. Please contact support if this persists.', 
+        500
+      );
+    }
+    
     const user = await getAuthenticatedUser(req as any);
     if (!user) {
-      return handleError(new Error('Unauthorized'), 'Unauthorized', 401);
+      console.warn('[API /loads GET] User authentication failed');
+      return handleError(new Error('Unauthorized'), 'You must be logged in to view loads', 401);
     }
+
+    console.log(`[API /loads GET] User authenticated: ${user.uid}`);
         
     const firestore = adminApp.firestore();
     const loadsCollection = firestore.collection(`owner_operators/${user.uid}/loads`);
     const querySnapshot = await loadsCollection.get();
     const loads = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
+    console.log(`[API /loads GET] ✓ Retrieved ${loads.length} loads for user ${user.uid}`);
+
     return NextResponse.json(loads, { status: 200 });
   } catch (error: any) {
-    return handleError(error, 'Failed to fetch loads');
+    console.error('[API /loads GET] Unexpected error:', error);
+    return handleError(error, 'Failed to fetch loads. Please try again.');
   }
 }
