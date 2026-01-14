@@ -1,65 +1,68 @@
 // Firebase Admin SDK - Server-side only
 // This file should ONLY be imported in API routes (src/app/api/**)
 
-let adminInstance: any = null;
+import * as admin from 'firebase-admin';
 
-function getAdmin() {
-  if (adminInstance) return adminInstance;
-  
-  // Dynamic import to prevent build-time initialization
-  const admin = require('firebase-admin');
-  
-  if (!admin.apps.length) {
-    try {
-      if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-        admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount),
-        });
-      } else {
-        admin.initializeApp();
-      }
-    } catch (error) {
-      console.error('Firebase admin initialization error:', error);
-    }
+// Singleton instance
+let isInitialized = false;
+
+function initializeAdmin() {
+  // If already initialized, skip
+  if (isInitialized && admin.apps.length > 0) {
+    console.log('✅ Firebase Admin already initialized');
+    return;
   }
-  
-  adminInstance = admin;
-  return admin;
+
+  try {
+    console.log('🔵 Attempting Firebase Admin initialization...');
+    console.log('🔵 Current apps count:', admin.apps.length);
+    console.log('🔵 Has FIREBASE_SERVICE_ACCOUNT:', !!process.env.FIREBASE_SERVICE_ACCOUNT);
+    
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      console.log('🔵 Using FIREBASE_SERVICE_ACCOUNT from env');
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+      console.log('✅ Firebase Admin initialized with service account');
+    } else {
+      console.log('⚠️ No FIREBASE_SERVICE_ACCOUNT, using default credentials');
+      // This will use Application Default Credentials (ADC)
+      admin.initializeApp();
+      console.log('✅ Firebase Admin initialized with default credentials');
+    }
+    
+    isInitialized = true;
+    console.log('✅ Firebase Admin initialization complete');
+  } catch (error) {
+    console.error('❌ Firebase admin initialization error:', error);
+    console.error('Error details:', JSON.stringify(error, null, 2));
+    throw new Error(`Failed to initialize Firebase Admin: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
+// Initialize on first import
+initializeAdmin();
+
 export const getAdminAuth = () => {
-  const admin = getAdmin();
+  if (!isInitialized) {
+    initializeAdmin();
+  }
   return admin.auth();
 };
 
 export const getAdminDb = () => {
-  const admin = getAdmin();
+  if (!isInitialized) {
+    initializeAdmin();
+  }
   return admin.firestore();
 };
 
 export const getAdminStorage = () => {
-  const admin = getAdmin();
+  if (!isInitialized) {
+    initializeAdmin();
+  }
   return admin.storage();
 };
 
-// Backwards compatibility - these will lazy-load on first access
-export const adminAuth = new Proxy({} as any, {
-  get: (target, prop) => {
-    return getAdminAuth()[prop];
-  }
-});
-
-export const adminDb = new Proxy({} as any, {
-  get: (target, prop) => {
-    return getAdminDb()[prop];
-  }
-});
-
-export const adminStorage = new Proxy({} as any, {
-  get: (target, prop) => {
-    return getAdminStorage()[prop];
-  }
-});
-
-export default getAdmin;
+export default admin;
