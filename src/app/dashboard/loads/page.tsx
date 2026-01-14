@@ -50,16 +50,30 @@ import { UploadLoadsCSV } from "@/components/upload-loads-csv";
 import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebase";
 import { collection, doc, deleteDoc } from "firebase/firestore";
 import { showSuccess, showError } from "@/lib/toast-utils";
+import { 
+  TableAvatar, 
+  TableStatusBadge, 
+  TableCurrency, 
+  TableDate 
+} from "@/components/ui/table-components";
 
 const TableSkeleton = () => (
   <>
     {[1, 2, 3, 4, 5].map((i) => (
       <TableRow key={i}>
-        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
-        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+        <TableCell>
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-8 w-8 rounded-full" />
+            <div>
+              <Skeleton className="h-4 w-32 mb-1" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          </div>
+        </TableCell>
         <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-        <TableCell><Skeleton className="h-4 w-16" /></TableCell>
         <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
+        <TableCell className="text-right"><Skeleton className="h-4 w-16" /></TableCell>
+        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
         <TableCell><Skeleton className="h-8 w-8" /></TableCell>
       </TableRow>
     ))}
@@ -87,29 +101,15 @@ const LoadsTable = ({
   onDelete: (load: Load) => void;
   onFindMatch: (load: Load) => void;
 }) => {
-  const getBadgeVariant = (status: string) => {
-    switch (status) {
-      case "Delivered":
-        return "secondary";
-      case "In-transit":
-        return "default";
-      case "Matched":
-        return "outline";
-      case "Pending":
-      default:
-        return "outline";
-    }
-  };
-
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Origin</TableHead>
-          <TableHead>Destination</TableHead>
-          <TableHead>Cargo</TableHead>
-          <TableHead>Weight</TableHead>
+          <TableHead>Route</TableHead>
+          <TableHead>Cargo & Weight</TableHead>
           <TableHead>Status</TableHead>
+          <TableHead className="text-right">Rate</TableHead>
+          <TableHead>Posted</TableHead>
           <TableHead>
             <span className="sr-only">Actions</span>
           </TableHead>
@@ -137,17 +137,27 @@ const LoadsTable = ({
           </TableRow>
         ) : loads && loads.length > 0 ? (
           loads.map((load) => (
-            <TableRow key={load.id}>
-              <TableCell className="font-medium">
-                {load.origin}
-              </TableCell>
-              <TableCell>{load.destination}</TableCell>
-              <TableCell>{load.cargo}</TableCell>
-              <TableCell>{load.weight?.toLocaleString() || 0} lbs</TableCell>
+            <TableRow key={load.id} className="hover:bg-muted/50">
               <TableCell>
-                <Badge variant={getBadgeVariant(load.status)}>
-                  {load.status}
-                </Badge>
+                <TableAvatar 
+                  name={`${load.origin} → ${load.destination}`}
+                  subtitle={load.distance ? `${load.distance} mi` : undefined}
+                />
+              </TableCell>
+              <TableCell>
+                <div className="space-y-0.5">
+                  <p className="font-medium text-sm">{load.cargo || 'General Freight'}</p>
+                  <p className="text-xs text-muted-foreground">{load.weight?.toLocaleString() || 0} lbs</p>
+                </div>
+              </TableCell>
+              <TableCell>
+                <TableStatusBadge status={load.status.toLowerCase()} />
+              </TableCell>
+              <TableCell className="text-right">
+                <TableCurrency amount={load.price || 0} />
+              </TableCell>
+              <TableCell>
+                <TableDate date={load.createdAt || load.pickupDate} />
               </TableCell>
               <TableCell>
                 <DropdownMenu>
