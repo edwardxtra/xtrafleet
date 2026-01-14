@@ -66,13 +66,13 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
           <SidebarMenuItem>
             <SidebarNavLink href="/dashboard" tooltip="Dashboard"><Home /><span>Dashboard</span></SidebarNavLink>
           </SidebarMenuItem>
-          <SidebarMenuItem>
+          <SidebarMenuItem data-tour="sidebar-drivers">
             <SidebarNavLink href="/dashboard/drivers" tooltip="Drivers"><Users /><span>Drivers</span></SidebarNavLink>
           </SidebarMenuItem>
-          <SidebarMenuItem>
+          <SidebarMenuItem data-tour="sidebar-loads">
             <SidebarNavLink href="/dashboard/loads" tooltip="Loads"><Truck /><span>Loads</span></SidebarNavLink>
           </SidebarMenuItem>
-          <SidebarMenuItem>
+          <SidebarMenuItem data-tour="sidebar-matches">
             <SidebarNavLink href="/dashboard/matches" tooltip="Find Matches"><BarChart /><span>Find Matches</span></SidebarNavLink>
           </SidebarMenuItem>
           <SidebarMenuItem>
