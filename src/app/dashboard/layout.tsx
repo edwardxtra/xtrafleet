@@ -128,12 +128,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [roleChecked, setRoleChecked] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
-    if (!isUserLoading && !user) {
+    // Don't redirect during logout process
+    if (!isUserLoading && !user && !isLoggingOut) {
       router.push('/login?error=You must be logged in to access this page.');
     }
-  }, [user, isUserLoading, router]);
+  }, [user, isUserLoading, isLoggingOut, router]);
 
   useEffect(() => {
     async function checkRole() {
@@ -163,11 +165,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const handleSignOut = async () => {
     try {
+      setIsLoggingOut(true);
       await auth.signOut();
       await fetch('/api/auth/session', { method: 'DELETE' });
       router.push('/login');
     } catch (error) {
       console.error("Failed to sign out:", error);
+      setIsLoggingOut(false);
     }
   };
 
