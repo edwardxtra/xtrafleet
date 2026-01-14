@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
+import { stripe } from '@/lib/stripe';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    const { stripe } = await import('@/lib/stripe');
-    const { getAdminAuth, getAdminDb } = await import('@/lib/firebase-admin');
-    
     const authHeader = request.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
