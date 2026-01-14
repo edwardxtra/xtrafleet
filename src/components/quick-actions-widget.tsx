@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { LucideIcon, UserPlus, Truck, BarChart, FileText, Inbox, Upload } from 'lucide-react';
+import { LucideIcon, UserPlus, Truck, BarChart, FileText, Inbox } from 'lucide-react';
 
 interface QuickActionButton {
   icon: LucideIcon;
@@ -44,13 +44,6 @@ const quickActions: QuickActionButton[] = [
     description: 'Incoming match requests',
     href: '/dashboard/incoming-matches',
   },
-  {
-    icon: Upload,
-    label: 'Bulk Import',
-    description: 'Upload drivers via CSV',
-    href: '/dashboard/drivers',
-    variant: 'outline',
-  },
 ];
 
 export function QuickActionsWidget() {
@@ -60,7 +53,7 @@ export function QuickActionsWidget() {
         <CardTitle className="font-headline">Quick Actions</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {quickActions.map((action) => {
             const Icon = action.icon;
             return (
