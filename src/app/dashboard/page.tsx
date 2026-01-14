@@ -10,9 +10,6 @@ import {
   Wallet,
   WifiOff,
   AlertCircle,
-  CheckCircle,
-  Clock,
-  XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -30,7 +27,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebase";
@@ -44,6 +40,12 @@ import { QuickActionsWidget } from '@/components/quick-actions-widget';
 import { TrendIndicator } from '@/components/ui/trend-indicator';
 import { OnboardingChecklist } from '@/components/onboarding-checklist';
 import { GuidedTour, type TourStep } from '@/components/guided-tour';
+import { 
+  TableAvatar, 
+  TableStatusBadge, 
+  TableCurrency, 
+  TableDate 
+} from '@/components/ui/table-components';
 
 const dashboardTourSteps: TourStep[] = [
   {
@@ -214,29 +216,6 @@ export default function Dashboard() {
       showError('Failed to load loads data');
     }
   }, [driversError, loadsError]);
-
-  const getStatusBadge = (status: Match['status']) => {
-    switch (status) {
-      case 'pending':
-        return <Badge variant="outline"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
-      case 'accepted':
-        return <Badge variant="default"><CheckCircle className="h-3 w-3 mr-1" />Accepted</Badge>;
-      case 'declined':
-        return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Declined</Badge>;
-      case 'countered':
-        return <Badge variant="secondary">Countered</Badge>;
-      case 'tla_pending':
-        return <Badge variant="default">TLA Pending</Badge>;
-      case 'tla_signed':
-        return <Badge variant="default" className="bg-green-600">TLA Signed</Badge>;
-      case 'in_progress':
-        return <Badge variant="default"><Truck className="h-3 w-3 mr-1" />In Progress</Badge>;
-      case 'completed':
-        return <Badge variant="secondary"><CheckCircle className="h-3 w-3 mr-1" />Completed</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
 
   if (isLoading) {
     return (
@@ -441,7 +420,7 @@ export default function Dashboard() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Route</TableHead>
+                  <TableHead>Driver & Route</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Rate</TableHead>
                 </TableRow>
@@ -458,26 +437,24 @@ export default function Dashboard() {
                   </TableRow>
                 ) : (
                   recentMatches.map((match) => (
-                    <TableRow key={match.id}>
+                    <TableRow key={match.id} className="hover:bg-muted/50">
                       <TableCell>
-                        <div className="font-medium text-sm">
-                          {match.loadSnapshot.origin} → {match.loadSnapshot.destination}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {match.driverSnapshot.name}
-                        </div>
+                        <TableAvatar 
+                          name={match.driverSnapshot.name}
+                          subtitle={`${match.loadSnapshot.origin} → ${match.loadSnapshot.destination}`}
+                        />
                       </TableCell>
                       <TableCell>
                         {match.tlaId && ['tla_pending', 'tla_signed', 'in_progress', 'completed'].includes(match.status) ? (
                           <Link href={`/dashboard/tla/${match.tlaId}`}>
-                            {getStatusBadge(match.status)}
+                            <TableStatusBadge status={match.status} />
                           </Link>
                         ) : (
-                          getStatusBadge(match.status)
+                          <TableStatusBadge status={match.status} />
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-medium">
-                        ${match.originalTerms.rate.toLocaleString()}
+                      <TableCell className="text-right">
+                        <TableCurrency amount={match.originalTerms.rate} />
                       </TableCell>
                     </TableRow>
                   ))
