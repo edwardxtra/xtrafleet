@@ -34,7 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, query, where, orderBy, limit, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit } from 'firebase/firestore';
 import type { Driver, Load, Match } from '@/lib/data';
 import { showError } from '@/lib/toast-utils';
 import { ActiveAgreementsWidget } from '@/components/active-agreements-widget';
@@ -43,6 +43,46 @@ import { useOnlineStatus } from '@/hooks/use-online-status';
 import { QuickActionsWidget } from '@/components/quick-actions-widget';
 import { TrendIndicator } from '@/components/ui/trend-indicator';
 import { OnboardingChecklist } from '@/components/onboarding-checklist';
+import { GuidedTour, type TourStep } from '@/components/guided-tour';
+
+const dashboardTourSteps: TourStep[] = [
+  {
+    target: '[data-tour="onboarding-checklist"]',
+    title: 'Welcome to XtraFleet! 👋',
+    content: 'This checklist shows you exactly what to do to get started. Complete all steps to activate your account.',
+    placement: 'bottom',
+  },
+  {
+    target: '[data-tour="quick-actions"]',
+    title: 'Quick Actions',
+    content: 'Use these shortcuts to quickly access common tasks without navigating through menus.',
+    placement: 'bottom',
+  },
+  {
+    target: '[data-tour="sidebar-drivers"]',
+    title: 'Manage Your Drivers',
+    content: 'Add and manage your drivers here. Upload their CDL, medical cards, and insurance documents.',
+    placement: 'right',
+  },
+  {
+    target: '[data-tour="sidebar-loads"]',
+    title: 'Post Loads',
+    content: 'Create load postings with origin, destination, and rates. Our AI will match them with qualified drivers.',
+    placement: 'right',
+  },
+  {
+    target: '[data-tour="sidebar-matches"]',
+    title: 'Find Matches',
+    content: 'Our AI analyzes your drivers and loads to suggest the best matches based on location, compliance, and profitability.',
+    placement: 'right',
+  },
+  {
+    target: '[data-tour="stats"]',
+    title: 'Track Your Performance',
+    content: 'Monitor your available drivers, pending loads, and monthly matches at a glance.',
+    placement: 'bottom',
+  },
+];
 
 export default function Dashboard() {
   const { user, isUserLoading } = useUser();
@@ -229,6 +269,13 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Guided Tour */}
+      <GuidedTour 
+        steps={dashboardTourSteps}
+        tourKey="dashboard-initial"
+        autoStart={true}
+      />
+
       {!isOnline && (
         <Alert variant="destructive">
           <WifiOff className="h-4 w-4" />
@@ -264,12 +311,16 @@ export default function Dashboard() {
       </div>
 
       {/* Onboarding Checklist - only show if not fully complete */}
-      <OnboardingChecklist items={checklistItems} />
+      <div data-tour="onboarding-checklist">
+        <OnboardingChecklist items={checklistItems} />
+      </div>
 
       {/* Quick Actions Widget */}
-      <QuickActionsWidget />
+      <div data-tour="quick-actions">
+        <QuickActionsWidget />
+      </div>
       
-      <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4" data-tour="stats">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
