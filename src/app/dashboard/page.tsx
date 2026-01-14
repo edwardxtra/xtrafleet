@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Activity,
@@ -34,51 +34,41 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, query, where } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit } from 'firebase/firestore';
 import type { Driver, Load, Match } from '@/lib/data';
-import { showSuccess, showError } from '@/lib/toast-utils';
+import { showError } from '@/lib/toast-utils';
 import { ActiveAgreementsWidget } from '@/components/active-agreements-widget';
 import { NotificationsBanner } from '@/components/notifications-banner';
+import { useOnlineStatus } from '@/hooks/use-online-status';
 
 export default function Dashboard() {
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
-  const [isOnline, setIsOnline] = useState(true);
-
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      showSuccess('You\'re back online!');
-    };
-    const handleOffline = () => {
-      setIsOnline(false);
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    setIsOnline(navigator.onLine);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
+  const isOnline = useOnlineStatus();
 
   const driversQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
-    return query(collection(firestore, `owner_operators/${user.uid}/drivers`), where("availability", "==", "Available"));
+    return query(
+      collection(firestore, `owner_operators/${user.uid}/drivers`), 
+      where("availability", "==", "Available")
+    );
   }, [firestore, user?.uid]);
 
   const loadsQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
-    return query(collection(firestore, `owner_operators/${user.uid}/loads`), where("status", "==", "Pending"));
+    return query(
+      collection(firestore, `owner_operators/${user.uid}/loads`), 
+      where("status", "==", "Pending")
+    );
   }, [firestore, user?.uid]);
 
   const matchesQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
     return query(
       collection(firestore, "matches"),
-      where("loadOwnerId", "==", user.uid)
+      where("loadOwnerId", "==", user.uid),
+      orderBy("createdAt", "desc"),
+      limit(20) // OPTIMIZATION: Only load 20 most recent
     );
   }, [firestore, user?.uid]);
 
@@ -86,7 +76,9 @@ export default function Dashboard() {
     if (!firestore || !user?.uid) return null;
     return query(
       collection(firestore, "matches"),
-      where("driverOwnerId", "==", user.uid)
+      where("driverOwnerId", "==", user.uid),
+      orderBy("createdAt", "desc"),
+      limit(20) // OPTIMIZATION: Only load 20 most recent
     );
   }, [firestore, user?.uid]);
   
@@ -282,12 +274,21 @@ export default function Dashboard() {
         <ActiveAgreementsWidget />
         <Card>
           <CardHeader>
-            <CardTitle className="font-headline">Recent Matches</CardTitle>
-            <CardDescription>
-              {recentMatches.length === 0 
-                ? 'No matches made yet.' 
-                : `${recentMatches.length} recent match${recentMatches.length > 1 ? 'es' : ''}`}
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="font-headline">Recent Matches</CardTitle>
+                <CardDescription>
+                  {recentMatches.length === 0 
+                    ? 'No matches made yet.' 
+                    : `${recentMatches.length} recent match${recentMatches.length > 1 ? 'es' : ''}`}
+                </CardDescription>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <Link href="/dashboard/matches">
+                  View All
+                </Link>
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
