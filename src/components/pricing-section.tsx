@@ -9,70 +9,76 @@ import { Badge } from '@/components/ui/badge';
 interface PricingTier {
   name: string;
   price: string;
+  period: string;
   description: string;
   features: string[];
   cta: string;
   ctaVariant?: 'default' | 'outline';
   popular?: boolean;
   href: string;
+  savings?: string;
 }
 
 const pricingTiers: PricingTier[] = [
   {
-    name: 'Starter',
-    price: '$49',
-    description: 'Perfect for small fleets getting started',
-    features: [
-      'Up to 5 drivers',
-      'Up to 20 loads per month',
-      'AI-powered matching',
-      'Document management',
-      'Email support',
-      'Basic compliance tracking',
-    ],
-    cta: 'Start Free Trial',
-    ctaVariant: 'outline',
-    href: '/register',
-  },
-  {
-    name: 'Professional',
-    price: '$99',
-    description: 'For growing fleets that need more power',
-    features: [
-      'Up to 25 drivers',
-      'Unlimited loads',
-      'AI-powered matching',
-      'Document management',
-      'Priority email support',
-      'Advanced compliance tracking',
-      'Automated expiry warnings',
-      'Custom reporting',
-    ],
-    cta: 'Start Free Trial',
-    ctaVariant: 'default',
-    popular: true,
-    href: '/register',
-  },
-  {
-    name: 'Enterprise',
-    price: 'Custom',
-    description: 'For large fleets with complex needs',
+    name: 'Monthly',
+    price: '$49.99',
+    period: '/month',
+    description: 'Flexible month-to-month billing',
     features: [
       'Unlimited drivers',
       'Unlimited loads',
       'AI-powered matching',
       'Document management',
-      'Dedicated account manager',
-      'Advanced compliance tracking',
+      'Compliance tracking',
       'Automated expiry warnings',
-      'Custom reporting',
-      'API access',
-      'White-label options',
-      'SLA guarantee',
+      'Email support',
+      'Cancel anytime',
     ],
-    cta: 'Contact Sales',
+    cta: 'Start Free Trial',
     ctaVariant: 'outline',
-    href: '/dashboard/contact',
+    href: '/register',
+  },
+  {
+    name: '6 Months',
+    price: '$269.99',
+    period: '/6 months',
+    description: 'Save 10% with 6-month commitment',
+    features: [
+      'Everything in Monthly, plus:',
+      'Save 10% ($30 savings)',
+      'Priority support',
+      'Advanced reporting',
+      'Custom integrations',
+      'Dedicated account manager',
+      'Quarterly business reviews',
+      'Early access to new features',
+    ],
+    cta: 'Start Free Trial',
+    ctaVariant: 'default',
+    popular: true,
+    savings: 'Save 10%',
+    href: '/register',
+  },
+  {
+    name: 'Yearly',
+    price: '$499.99',
+    period: '/year',
+    description: 'Best value - Save 16% annually',
+    features: [
+      'Everything in 6 Months, plus:',
+      'Save 16% ($100+ savings)',
+      'Priority + phone support',
+      'White-label options',
+      'API access',
+      'Custom training sessions',
+      'SLA guarantee (99.9% uptime)',
+      'Annual strategy sessions',
+    ],
+    cta: 'Start Free Trial',
+    ctaVariant: 'outline',
+    savings: 'Save 16% - BEST VALUE',
+    href: '/register',
   },
 ];
 
@@ -118,14 +124,20 @@ export function PricingSection() {
                 </div>
               )}
               
+              {tier.savings && !tier.popular && (
+                <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+                  <Badge className="bg-green-600 text-white px-3 py-1">
+                    {tier.savings}
+                  </Badge>
+                </div>
+              )}
+              
               <CardHeader>
                 <CardTitle className="font-headline">{tier.name}</CardTitle>
                 <CardDescription>{tier.description}</CardDescription>
                 <div className="mt-4">
                   <span className="text-4xl font-bold">{tier.price}</span>
-                  {tier.price !== 'Custom' && (
-                    <span className="text-muted-foreground">/month</span>
-                  )}
+                  <span className="text-muted-foreground">{tier.period}</span>
                 </div>
               </CardHeader>
 
