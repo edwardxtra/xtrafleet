@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
@@ -138,7 +139,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     async function checkRole() {
       if (!user || !db) return;
       try {
-        // Check users collection for driver role
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data();
@@ -147,7 +147,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             return;
           }
         }
-        // Check owner_operators for admin flag
         const ownerDoc = await getDoc(doc(db, 'owner_operators', user.uid));
         if (ownerDoc.exists()) {
           const ownerData = ownerDoc.data();
@@ -195,7 +194,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <SidebarInset>
         <header className="flex h-14 items-center justify-between border-b bg-background px-4">
           <SidebarTrigger className="md:hidden" />
-          <div className="ml-auto text-sm text-muted-foreground">{user?.email}</div>
+          <div className="ml-auto flex items-center gap-2">
+            <ThemeToggle />
+            <div className="text-sm text-muted-foreground">{user?.email}</div>
+          </div>
         </header>
         <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
         <Footer />
