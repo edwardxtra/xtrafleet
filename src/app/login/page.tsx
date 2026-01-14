@@ -275,7 +275,7 @@ function LoginContent() {
               <Button type="submit" className="w-full" disabled={loading || !isOnline}>
                 {loading ? (
                   <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin text-primary-foreground" />
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Logging in...
                   </>
                 ) : (
