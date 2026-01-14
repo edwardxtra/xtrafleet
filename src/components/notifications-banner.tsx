@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import Link from "next/link";
 import { useUser, useFirestore } from "@/firebase";
 import { collection, query, where, onSnapshot, updateDoc, doc } from "firebase/firestore";
@@ -21,7 +21,7 @@ interface Notification {
   userId: string;
 }
 
-export function NotificationsBanner() {
+export const NotificationsBanner = memo(function NotificationsBanner() {
   const { user } = useUser();
   const firestore = useFirestore();
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -131,4 +131,4 @@ export function NotificationsBanner() {
       ))}
     </div>
   );
-}
+});
