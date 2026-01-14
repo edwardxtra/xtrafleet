@@ -93,7 +93,7 @@ function LoginContent() {
     }
   
     try {
-      console.log('�� CLIENT: Setting auth persistence');
+      console.log('🔵 CLIENT: Setting auth persistence');
       await setPersistence(auth, browserLocalPersistence);
       
       console.log('🔵 CLIENT: About to sign in');
@@ -275,7 +275,7 @@ function LoginContent() {
               <Button type="submit" className="w-full" disabled={loading || !isOnline}>
                 {loading ? (
                   <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin text-primary-foreground" />
                     Logging in...
                   </>
                 ) : (
@@ -305,7 +305,7 @@ export default function LoginPage() {
   return (
     <Suspense fallback={
       <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     }>
       <LoginContent />
