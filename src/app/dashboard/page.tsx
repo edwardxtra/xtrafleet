@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Activity,
@@ -34,7 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import type { Driver, Load, Match } from '@/lib/data';
 import { showError } from '@/lib/toast-utils';
 import { ActiveAgreementsWidget } from '@/components/active-agreements-widget';
@@ -42,6 +42,7 @@ import { NotificationsBanner } from '@/components/notifications-banner';
 import { useOnlineStatus } from '@/hooks/use-online-status';
 import { QuickActionsWidget } from '@/components/quick-actions-widget';
 import { TrendIndicator } from '@/components/ui/trend-indicator';
+import { OnboardingChecklist } from '@/components/onboarding-checklist';
 
 export default function Dashboard() {
   const { user, isUserLoading } = useUser();
@@ -56,12 +57,22 @@ export default function Dashboard() {
     );
   }, [firestore, user?.uid]);
 
+  const allDriversQuery = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return collection(firestore, `owner_operators/${user.uid}/drivers`);
+  }, [firestore, user?.uid]);
+
   const loadsQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
     return query(
       collection(firestore, `owner_operators/${user.uid}/loads`), 
       where("status", "==", "Pending")
     );
+  }, [firestore, user?.uid]);
+
+  const allLoadsQuery = useMemoFirebase(() => {
+    if (!firestore || !user?.uid) return null;
+    return collection(firestore, `owner_operators/${user.uid}/loads`);
   }, [firestore, user?.uid]);
 
   const matchesQuery = useMemoFirebase(() => {
@@ -85,7 +96,9 @@ export default function Dashboard() {
   }, [firestore, user?.uid]);
   
   const { data: availableDrivers, isLoading: driversLoading, error: driversError } = useCollection<Driver>(driversQuery);
+  const { data: allDrivers } = useCollection<Driver>(allDriversQuery);
   const { data: pendingLoads, isLoading: loadsLoading, error: loadsError } = useCollection<Load>(loadsQuery);
+  const { data: allLoads } = useCollection<Load>(allLoadsQuery);
   const { data: outgoingMatches, isLoading: matchesLoading } = useCollection<Match>(matchesQuery);
   const { data: incomingMatches, isLoading: incomingLoading } = useCollection<Match>(incomingMatchesQuery);
 
@@ -106,6 +119,49 @@ export default function Dashboard() {
 
   const availableDriversCount = availableDrivers?.length ?? 0;
   const pendingLoadsCount = pendingLoads?.length ?? 0;
+
+  // Onboarding checklist items
+  const checklistItems = useMemo(() => {
+    const hasDrivers = (allDrivers?.length ?? 0) > 0;
+    const hasLoads = (allLoads?.length ?? 0) > 0;
+    const hasMatches = allMatches.length > 0;
+    const hasAcceptedMatch = allMatches.some(m => m.status === 'accepted' || m.status === 'tla_pending' || m.status === 'tla_signed');
+
+    return [
+      {
+        id: 'add-driver',
+        title: 'Add your first driver',
+        description: 'Upload CDL, medical card, and insurance documents',
+        completed: hasDrivers,
+        href: '/dashboard/drivers',
+        ctaLabel: 'Add Driver',
+      },
+      {
+        id: 'post-load',
+        title: 'Post your first load',
+        description: 'Create a load posting with origin, destination, and rate',
+        completed: hasLoads,
+        href: '/dashboard/loads',
+        ctaLabel: 'Post Load',
+      },
+      {
+        id: 'find-match',
+        title: 'Find your first match',
+        description: 'Use AI to match drivers with loads',
+        completed: hasMatches,
+        href: '/dashboard/matches',
+        ctaLabel: 'Find Matches',
+      },
+      {
+        id: 'accept-match',
+        title: 'Accept a match',
+        description: 'Review and accept a driver-load match to create a TLA',
+        completed: hasAcceptedMatch,
+        href: '/dashboard/matches',
+        ctaLabel: 'View Matches',
+      },
+    ];
+  }, [allDrivers, allLoads, allMatches]);
 
   const isLoading = isUserLoading || driversLoading || loadsLoading || matchesLoading || incomingLoading;
   const hasError = driversError || loadsError;
@@ -206,6 +262,9 @@ export default function Dashboard() {
           Dashboard
         </h1>
       </div>
+
+      {/* Onboarding Checklist - only show if not fully complete */}
+      <OnboardingChecklist items={checklistItems} />
 
       {/* Quick Actions Widget */}
       <QuickActionsWidget />
