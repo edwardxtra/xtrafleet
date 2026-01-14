@@ -15,8 +15,9 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { HelpCircle, Mail, MessageSquare, Book, ExternalLink } from 'lucide-react';
+import { HelpCircle, Mail, Book } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 const faqs = [
   {
@@ -58,16 +59,18 @@ const helpResources = [
     icon: Mail,
     href: '/dashboard/contact',
   },
-  {
-    title: 'Live Chat',
-    description: 'Chat with support (Mon-Fri 9-5 EST)',
-    icon: MessageSquare,
-    href: '#', // Could integrate live chat
-  },
 ];
 
 export function HelpWidget() {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  const handleResourceClick = (href: string) => {
+    setOpen(false);
+    if (href !== '#') {
+      router.push(href);
+    }
+  };
 
   return (
     <>
@@ -95,14 +98,14 @@ export function HelpWidget() {
             {/* Quick Resources */}
             <div>
               <h3 className="font-semibold mb-3">Quick Resources</h3>
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-2">
                 {helpResources.map((resource) => {
                   const Icon = resource.icon;
                   return (
-                    <Link
+                    <button
                       key={resource.title}
-                      href={resource.href}
-                      className="flex flex-col items-center p-4 border rounded-lg hover:bg-accent transition-colors"
+                      onClick={() => handleResourceClick(resource.href)}
+                      className="flex flex-col items-center p-4 border rounded-lg hover:bg-accent transition-colors text-left w-full"
                     >
                       <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
                         <Icon className="h-5 w-5 text-primary" />
@@ -111,7 +114,7 @@ export function HelpWidget() {
                       <div className="text-xs text-muted-foreground text-center mt-1">
                         {resource.description}
                       </div>
-                    </Link>
+                    </button>
                   );
                 })}
               </div>
@@ -138,14 +141,12 @@ export function HelpWidget() {
             <div className="border-t pt-4">
               <p className="text-sm text-muted-foreground">
                 Can't find what you're looking for?{' '}
-                <Link 
-                  href="/dashboard/contact" 
-                  className="text-primary hover:underline inline-flex items-center gap-1"
-                  onClick={() => setOpen(false)}
+                <button 
+                  onClick={() => handleResourceClick('/dashboard/contact')}
+                  className="text-primary hover:underline"
                 >
                   Contact our support team
-                  <ExternalLink className="h-3 w-3" />
-                </Link>
+                </button>
               </p>
             </div>
           </div>
