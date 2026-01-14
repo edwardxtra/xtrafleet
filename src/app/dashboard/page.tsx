@@ -40,6 +40,7 @@ import { showError } from '@/lib/toast-utils';
 import { ActiveAgreementsWidget } from '@/components/active-agreements-widget';
 import { NotificationsBanner } from '@/components/notifications-banner';
 import { useOnlineStatus } from '@/hooks/use-online-status';
+import { QuickActionsWidget } from '@/components/quick-actions-widget';
 
 export default function Dashboard() {
   const { user, isUserLoading } = useUser();
@@ -68,7 +69,7 @@ export default function Dashboard() {
       collection(firestore, "matches"),
       where("loadOwnerId", "==", user.uid),
       orderBy("createdAt", "desc"),
-      limit(20) // OPTIMIZATION: Only load 20 most recent
+      limit(20)
     );
   }, [firestore, user?.uid]);
 
@@ -78,7 +79,7 @@ export default function Dashboard() {
       collection(firestore, "matches"),
       where("driverOwnerId", "==", user.uid),
       orderBy("createdAt", "desc"),
-      limit(20) // OPTIMIZATION: Only load 20 most recent
+      limit(20)
     );
   }, [firestore, user?.uid]);
   
@@ -146,6 +147,7 @@ export default function Dashboard() {
         <div className="flex items-center">
           <Skeleton className="h-8 w-48" />
         </div>
+        <Skeleton className="h-32" />
         <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
             <Card key={i}>
@@ -203,6 +205,9 @@ export default function Dashboard() {
           Dashboard
         </h1>
       </div>
+
+      {/* Quick Actions Widget */}
+      <QuickActionsWidget />
       
       <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
         <Card>
