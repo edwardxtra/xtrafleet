@@ -274,10 +274,10 @@ function LoginContent() {
               </div>
               <Button type="submit" className="w-full" disabled={loading || !isOnline}>
                 {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Logging in...
-                  </>
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Logging in...</span>
+                  </span>
                 ) : (
                   'Login'
                 )}
