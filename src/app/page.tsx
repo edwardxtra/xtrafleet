@@ -32,9 +32,21 @@ export default function Home() {
       </header>
 
       <main className="flex-1">
-        {/* Hero Section */}
-        <section className="relative h-[70vh] md:h-[80vh] flex items-center justify-center text-center text-white px-4 bg-gradient-to-br from-primary to-primary/80">          
-          <div className="space-y-8 max-w-4xl">
+        {/* Hero Section with Truck Background */}
+        <section className="relative h-[70vh] md:h-[80vh] flex items-center justify-center text-center text-white px-4 overflow-hidden">
+          {/* Background Image */}
+          <div 
+            className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+            style={{
+              backgroundImage: 'url(https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?q=80&w=2070&auto=format&fit=crop)',
+            }}
+          />
+          
+          {/* Dark Overlay for better text readability */}
+          <div className="absolute inset-0 bg-gradient-to-br from-black/70 via-black/60 to-black/70" />
+          
+          {/* Content */}
+          <div className="relative z-10 space-y-8 max-w-4xl">
             <h1 className="text-4xl md:text-6xl font-bold font-headline drop-shadow-lg">
               Find Perfect Drivers for Every Load
               <span className="block text-white/90 text-3xl md:text-5xl mt-2">
@@ -55,7 +67,7 @@ export default function Home() {
             </div>
 
             <div className="pt-4">
-              <Button asChild size="lg" variant="accent" className="text-lg px-8 py-6">
+              <Button asChild size="lg" variant="accent" className="text-lg px-8 py-6 shadow-xl hover:shadow-2xl transition-shadow">
                 <Link href="/register">Get Started Free</Link>
               </Button>
               <p className="text-sm text-white/70 mt-3">No credit card required • 14-day free trial</p>
