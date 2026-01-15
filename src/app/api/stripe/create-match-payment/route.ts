@@ -65,14 +65,33 @@ export async function POST(request: NextRequest) {
     }
     
     const tlaData = tlaDoc.data();
-    console.log('🔵 TLA data:', { 
-      exists: tlaDoc.exists, 
-      lesseeOwnerId: tlaData?.lessee?.ownerId 
-    });
+    console.log('🔵 TLA FULL DATA:', JSON.stringify(tlaData, null, 2));
+    console.log('🔵 Current user ID:', userId);
+    console.log('🔵 TLA lessee:', tlaData?.lessee);
+    console.log('🔵 TLA lessor:', tlaData?.lessor);
+    console.log('🔵 TLA lessee.ownerId:', tlaData?.lessee?.ownerId);
+    console.log('🔵 TLA lessor.ownerId:', tlaData?.lessor?.ownerId);
 
-    if (tlaData?.lessee?.ownerId !== userId) {
-      console.log('❌ User is not the load owner');
-      return NextResponse.json({ error: 'Unauthorized - must be load owner' }, { status: 403 });
+    // Check if user is either the lessee (load owner) OR the lessor (driver owner)
+    // The load owner (lessee) should be the one paying the match fee
+    const isLessee = tlaData?.lessee?.ownerId === userId;
+    const isLessor = tlaData?.lessor?.ownerId === userId;
+    
+    console.log('🔵 Is user lessee (load owner)?', isLessee);
+    console.log('🔵 Is user lessor (driver owner)?', isLessor);
+
+    if (!isLessee) {
+      console.log('❌ User is not the load owner (lessee)');
+      return NextResponse.json({ 
+        error: 'Unauthorized - must be load owner',
+        debug: {
+          userId,
+          lesseeOwnerId: tlaData?.lessee?.ownerId,
+          lessorOwnerId: tlaData?.lessor?.ownerId,
+          isLessee,
+          isLessor
+        }
+      }, { status: 403 });
     }
 
     // Create checkout session for $25 match fee
