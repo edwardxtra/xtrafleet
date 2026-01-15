@@ -20,7 +20,8 @@ import { TLATripControls } from "@/components/tla/TLATripControls";
 import { TLAAgreementDetails } from "@/components/tla/TLAAgreementDetails";
 import { TLACompletedSummary } from "@/components/tla/TLACompletedSummary";
 import { TLAPartiesCard } from "@/components/tla/TLAPartiesCard";
-import { TLAMatchFeeCard, TLAMatchFeePaidCard } from "@/components/tla/TLAMatchFeeCard";
+// ❌ REMOVED: Match fee cards during free trial
+// import { TLAMatchFeeCard, TLAMatchFeePaidCard } from "@/components/tla/TLAMatchFeeCard";
 
 export default function TLAPage() {
   const params = useParams();
@@ -111,7 +112,7 @@ export default function TLAPage() {
           {/* Signatures */}
           <TLASignatureCard tla={tla} />
 
-          {/* Match Fee Payment - Show after fully signed */}
+          {/* ❌ REMOVED: Match Fee Payment during 90-day free trial
           {tla.matchFeePaid ? (
             <TLAMatchFeePaidCard />
           ) : (
@@ -121,10 +122,10 @@ export default function TLAPage() {
               isLoadOwner={roles.isLessee} 
             />
           )}
+          */}
 
-          {/* Trip Controls - Show after TLA is signed AND match fee paid */}
+          {/* Trip Controls - Show after TLA is signed (no payment required during trial) */}
           {(tla.status === "signed" || tla.status === "in_progress") &&
-            tla.matchFeePaid &&
             roles.canControlTrip &&
             user && (
               <TLATripControls
