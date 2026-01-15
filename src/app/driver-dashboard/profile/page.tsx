@@ -33,6 +33,7 @@ import { showSuccess, showError, showWarning } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
 import { ProfileCompletionBanner } from '@/components/profile-completion-banner';
 import { TRAILER_TYPES } from '@/lib/trailer-types';
+import { MultiSelect, type Option } from '@/components/ui/multi-select';
 import {
   Select,
   SelectContent,
@@ -132,6 +133,12 @@ export default function DriverProfile() {
         const driverDoc = await getDoc(doc(db, 'owner_operators', ownerOperatorId, 'drivers', user.uid));
         if (driverDoc.exists()) {
           const driverData = { id: driverDoc.id, ...driverDoc.data() } as Driver;
+          
+          // Migrate legacy vehicleType to vehicleTypes array
+          if (driverData.vehicleType && !driverData.vehicleTypes) {
+            driverData.vehicleTypes = [driverData.vehicleType];
+          }
+          
           setDriver(driverData);
           setEditedDriver(driverData);
         } else {
@@ -184,9 +191,11 @@ export default function DriverProfile() {
       if (editedDriver.location !== undefined) updateData.location = editedDriver.location;
       if (editedDriver.availability !== undefined) updateData.availability = editedDriver.availability;
       
-      // Vehicle type - single selection
-      if (editedDriver.vehicleType) {
-        updateData.vehicleType = editedDriver.vehicleType;
+      // Vehicle types - multi-select array
+      if (editedDriver.vehicleTypes && editedDriver.vehicleTypes.length > 0) {
+        updateData.vehicleTypes = editedDriver.vehicleTypes;
+        // Keep vehicleType for backward compatibility (first selected type)
+        updateData.vehicleType = editedDriver.vehicleTypes[0];
       }
       
       // Optional fields - only add if they have values
@@ -216,6 +225,12 @@ export default function DriverProfile() {
   const handleInputChange = (field: keyof Driver, value: string) => {
     if (editedDriver) {
       setEditedDriver({ ...editedDriver, [field]: value });
+    }
+  };
+
+  const handleVehicleTypesChange = (selected: string[]) => {
+    if (editedDriver) {
+      setEditedDriver({ ...editedDriver, vehicleTypes: selected });
     }
   };
 
@@ -376,13 +391,22 @@ export default function DriverProfile() {
     return 'Green';
   };
 
-  // Get vehicle type for display  
-  const displayVehicleType = () => {
-    if (driver.vehicleType) {
-      return TRAILER_TYPES.find(t => t.value === driver.vehicleType)?.label || driver.vehicleType;
-    }
-    return 'Not specified';
+  // Get vehicle types for display  
+  const displayVehicleTypes = () => {
+    const types = driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []);
+    if (types.length === 0) return 'Not specified';
+    
+    return types.map(typeValue => {
+      const typeLabel = TRAILER_TYPES.find(t => t.value === typeValue)?.label;
+      return typeLabel || typeValue;
+    }).join(', ');
   };
+
+  // Convert TRAILER_TYPES to MultiSelect options format
+  const vehicleTypeOptions: Option[] = TRAILER_TYPES.map(type => ({
+    label: type.label,
+    value: type.value
+  }));
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -463,22 +487,14 @@ export default function DriverProfile() {
                 />
               </div>
               <div>
-                <Label htmlFor="vehicleType">Trailer/Vehicle Type</Label>
-                <Select
-                  value={editedDriver.vehicleType || ''}
-                  onValueChange={(value) => handleInputChange('vehicleType', value)}
-                >
-                  <SelectTrigger id="vehicleType">
-                    <SelectValue placeholder="Select vehicle type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TRAILER_TYPES.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="vehicleTypes">Trailer/Vehicle Types</Label>
+                <MultiSelect
+                  options={vehicleTypeOptions}
+                  selected={editedDriver.vehicleTypes || []}
+                  onChange={handleVehicleTypesChange}
+                  placeholder="Select vehicle types..."
+                />
+                <p className="text-xs text-muted-foreground mt-1">Select all types you operate</p>
               </div>
               <div>
                 <Label htmlFor="availability">Status</Label>
@@ -523,9 +539,9 @@ export default function DriverProfile() {
               <div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                   <Truck className="h-4 w-4" />
-                  <span>Trailer/Vehicle Type</span>
+                  <span>Trailer/Vehicle Types</span>
                 </div>
-                <p className="font-medium">{displayVehicleType()}</p>
+                <p className="font-medium">{displayVehicleTypes()}</p>
               </div>
               <div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
