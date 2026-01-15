@@ -1,0 +1,10 @@
+Complete revert to working state before MultiSelect feature was added.
+
+Changes reverted:
+- Removed MultiSelect component completely
+- Reverted edit-driver-modal.tsx to single dropdown
+- This should restore builds to working state
+
+Next steps:
+- Wait for build to succeed
+- Implement multi-select differently if still needed
