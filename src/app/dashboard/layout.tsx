@@ -31,7 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HelpWidget } from "@/components/help-widget";
-import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare } from "lucide-react";
+import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare, CreditCard } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
 import { Footer } from "@/components/footer";
@@ -95,6 +95,11 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
               <SidebarMenuItem>
                 <SidebarNavLink href="/admin" tooltip="Admin Console">
                   <Shield className="text-red-500" /><span className="text-red-500 font-medium">Admin Console</span>
+                </SidebarNavLink>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarNavLink href="/dashboard/admin/billing" tooltip="Billing & Subscriptions">
+                  <CreditCard className="text-red-500" /><span className="text-red-500 font-medium">Admin Billing</span>
                 </SidebarNavLink>
               </SidebarMenuItem>
             </SidebarMenu>
