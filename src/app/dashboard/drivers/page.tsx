@@ -58,6 +58,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Star, Truck, User, FileText as FileTextIcon, CheckCircle, XCircle, AlertTriangle, MessageSquare } from 'lucide-react';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { showSuccess, showError } from '@/lib/toast-utils';
+import { TRAILER_TYPES } from '@/lib/trailer-types';
 
 const ComplianceItem = ({ 
     label, 
@@ -257,12 +258,27 @@ const DriversTable = ({
     return name?.split(' ').map(n => n[0]).join('') || '';
   };
 
+  // Get vehicle types display text
+  const getVehicleTypesDisplay = (driver: Driver) => {
+    const types = driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []);
+    if (types.length === 0) return '-';
+    
+    const labels = types.map(typeValue => {
+      const typeLabel = TRAILER_TYPES.find(t => t.value === typeValue)?.label;
+      return typeLabel || typeValue;
+    });
+    
+    // Show first type, then "+X more" if there are multiple
+    if (labels.length === 1) return labels[0];
+    return `${labels[0]} +${labels.length - 1}`;
+  };
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
-          <TableHead>Vehicle Type</TableHead>
+          <TableHead>Vehicle Types</TableHead>
           <TableHead>Location</TableHead>
           <TableHead>Availability</TableHead>
           <TableHead>Compliance</TableHead>
@@ -313,7 +329,9 @@ const DriversTable = ({
                     </div>
                   </div>
                 </TableCell>
-                <TableCell>{driver.vehicleType || '-'}</TableCell>
+                <TableCell>
+                  <span className="text-sm">{getVehicleTypesDisplay(driver)}</span>
+                </TableCell>
                 <TableCell>{driver.location || '-'}</TableCell>
                 <TableCell>
                   <Badge variant={getBadgeVariant(driver.availability || 'Off-duty')}>
@@ -469,18 +487,23 @@ export default function DriversPage() {
       return;
     }
 
-    const headers = ['Name', 'Email', 'Vehicle Type', 'Location', 'Availability', 'CDL Number', 'CDL Expiry'];
+    const headers = ['Name', 'Email', 'Vehicle Types', 'Location', 'Availability', 'CDL Number', 'CDL Expiry'];
     const csvContent = [
       headers.join(','),
-      ...filteredDrivers.map(driver => [
-        `"${driver.name || ''}"`,
-        `"${driver.email || ''}"`,
-        `"${driver.vehicleType || ''}"`,
-        `"${driver.location || ''}"`,
-        `"${driver.availability || ''}"`,
-        `"${driver.cdlLicense || ''}"`,
-        `"${driver.cdlExpiry || ''}"`,
-      ].join(','))
+      ...filteredDrivers.map(driver => {
+        const types = driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []);
+        const typeLabels = types.map(t => TRAILER_TYPES.find(tt => tt.value === t)?.label || t).join('; ');
+        
+        return [
+          `"${driver.name || ''}"`,
+          `"${driver.email || ''}"`,
+          `"${typeLabels}"`,
+          `"${driver.location || ''}"`,
+          `"${driver.availability || ''}"`,
+          `"${driver.cdlLicense || ''}"`,
+          `"${driver.cdlExpiry || ''}"`,
+        ].join(',');
+      })
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -525,6 +548,17 @@ export default function DriversPage() {
   const getInitials = (name: string) => {
     return name?.split(' ').map(n => n[0]).join('') || '';
   }
+
+  // Get vehicle types display text for profile
+  const getVehicleTypesDisplay = (driver: Driver) => {
+    const types = driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []);
+    if (types.length === 0) return 'N/A';
+    
+    return types.map(typeValue => {
+      const typeLabel = TRAILER_TYPES.find(t => t.value === typeValue)?.label;
+      return typeLabel || typeValue;
+    }).join(', ');
+  };
 
   if (selectedDriverId) {
     if (isDriverLoading) {
@@ -600,7 +634,7 @@ export default function DriversPage() {
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard title="Availability" value={selectedDriver.availability || 'Off-duty'} icon={User} />
-          <StatCard title="Vehicle Type" value={selectedDriver.vehicleType || 'N/A'} icon={Truck} />
+          <StatCard title="Vehicle Types" value={getVehicleTypesDisplay(selectedDriver)} icon={Truck} />
           <StatCard title="Avg. Rating" value={selectedDriver.rating ? `${selectedDriver.rating.toFixed(1)} / 5.0` : 'N/A'} icon={Star} />
           <StatCard title="Compliance Status" value={complianceStatus} icon={FileTextIcon} />
         </div>
