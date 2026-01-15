@@ -36,9 +36,12 @@ const pricingTiers: PricingTier[] = [
       'Cancel anytime',
     ],
     cta: 'Start Free Trial',
-    ctaVariant: 'outline',
+    ctaVariant: 'default',
     href: '/register',
+    popular: true,
   },
+  // 6-month and yearly plans temporarily removed - may add back later
+  /* 
   {
     name: '6 Months',
     price: '$269.99',
@@ -80,6 +83,7 @@ const pricingTiers: PricingTier[] = [
     savings: 'Save 16% - BEST VALUE',
     href: '/register',
   },
+  */
 ];
 
 export function PricingSection() {
@@ -93,28 +97,26 @@ export function PricingSection() {
               Simple, Transparent Pricing
             </h2>
             <p className="mx-auto max-w-[700px] text-muted-foreground md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed">
-              Choose the plan that fits your fleet. No hidden fees. Cancel anytime.
+              One simple plan that fits your fleet. No hidden fees. Cancel anytime.
             </p>
           </div>
           
           {/* Free Trial Banner */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
-              14-Day Free Trial
+              90-Day Free Trial
             </Badge>
             <span>•</span>
             <span>No credit card required</span>
           </div>
         </div>
 
-        {/* Pricing Cards */}
-        <div className="grid gap-6 lg:grid-cols-3 lg:gap-8 max-w-6xl mx-auto">
+        {/* Pricing Card - Centered Single Plan */}
+        <div className="flex justify-center max-w-6xl mx-auto">
           {pricingTiers.map((tier, index) => (
             <Card 
               key={index} 
-              className={`relative flex flex-col ${
-                tier.popular ? 'border-primary shadow-lg scale-105' : ''
-              }`}
+              className="relative flex flex-col w-full max-w-md border-primary shadow-lg"
             >
               {tier.popular && (
                 <div className="absolute -top-4 left-1/2 -translate-x-1/2">
@@ -124,20 +126,12 @@ export function PricingSection() {
                 </div>
               )}
               
-              {tier.savings && !tier.popular && (
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                  <Badge className="bg-green-600 text-white px-3 py-1">
-                    {tier.savings}
-                  </Badge>
-                </div>
-              )}
-              
-              <CardHeader>
-                <CardTitle className="font-headline">{tier.name}</CardTitle>
+              <CardHeader className="text-center">
+                <CardTitle className="font-headline text-2xl">{tier.name}</CardTitle>
                 <CardDescription>{tier.description}</CardDescription>
                 <div className="mt-4">
-                  <span className="text-4xl font-bold">{tier.price}</span>
-                  <span className="text-muted-foreground">{tier.period}</span>
+                  <span className="text-5xl font-bold">{tier.price}</span>
+                  <span className="text-muted-foreground text-lg">{tier.period}</span>
                 </div>
               </CardHeader>
 
