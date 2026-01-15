@@ -27,7 +27,6 @@ import { showSuccess, showError } from "@/lib/toast-utils";
 import type { Driver } from "@/lib/data";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TRAILER_TYPES } from "@/lib/trailer-types";
-import { MultiSelect } from "@/components/ui/multi-select";
 
 interface EditDriverModalProps {
   open: boolean;
@@ -45,7 +44,7 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
     email: "",
     location: "",
     phoneNumber: "",
-    vehicleTypes: [] as string[],
+    vehicleType: "dry-van" as string,
     availability: "Available" as "Available" | "On-trip" | "Off-duty",
     profileSummary: "",
     cdlLicense: "",
@@ -60,21 +59,12 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
 
   useEffect(() => {
     if (driver) {
-      // Handle both old single vehicleType and new array vehicleTypes
-      let vehicleTypes: string[] = [];
-      if (driver.vehicleTypes && Array.isArray(driver.vehicleTypes)) {
-        vehicleTypes = driver.vehicleTypes;
-      } else if (driver.vehicleType) {
-        // Migrate old single value to array
-        vehicleTypes = [driver.vehicleType];
-      }
-
       setFormData({
         name: driver.name || "",
         email: driver.email || "",
         location: driver.location || "",
         phoneNumber: driver.phoneNumber || driver.phone || "",
-        vehicleTypes: vehicleTypes,
+        vehicleType: driver.vehicleType || "dry-van",
         availability: driver.availability || "Available",
         profileSummary: driver.profileSummary || "",
         cdlLicense: driver.cdlLicense || "",
@@ -93,9 +83,12 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
   const formatDateForFirestore = (dateStr: string) => {
     if (!dateStr || dateStr.trim() === "") return null;
     
+    // Check if it's a valid date
     try {
       const date = new Date(dateStr);
       if (isNaN(date.getTime())) return null;
+      
+      // Return as yyyy-mm-dd format
       return dateStr;
     } catch {
       return null;
@@ -118,14 +111,7 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
       if (formData.email) updateData.email = formData.email;
       if (formData.location) updateData.location = formData.location;
       if (formData.phoneNumber) updateData.phoneNumber = formData.phoneNumber;
-      
-      // Save as array and keep backward compatibility
-      if (formData.vehicleTypes && formData.vehicleTypes.length > 0) {
-        updateData.vehicleTypes = formData.vehicleTypes;
-        // Also save first selection as vehicleType for backward compatibility
-        updateData.vehicleType = formData.vehicleTypes[0];
-      }
-      
+      if (formData.vehicleType) updateData.vehicleType = formData.vehicleType;
       if (formData.availability) updateData.availability = formData.availability;
       if (formData.profileSummary) updateData.profileSummary = formData.profileSummary;
       
@@ -165,11 +151,6 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
       setIsLoading(false);
     }
   };
-
-  const trailerTypeOptions = TRAILER_TYPES.map(type => ({
-    label: type.label,
-    value: type.value
-  }));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -232,13 +213,22 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Trailer/Vehicle Types</Label>
-                  <MultiSelect
-                    options={trailerTypeOptions}
-                    selected={formData.vehicleTypes}
-                    onChange={(values) => setFormData({ ...formData, vehicleTypes: values })}
-                    placeholder="Select trailer types..."
-                  />
+                  <Label>Trailer/Vehicle Type</Label>
+                  <Select
+                    value={formData.vehicleType}
+                    onValueChange={(value) => setFormData({ ...formData, vehicleType: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TRAILER_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Availability</Label>
