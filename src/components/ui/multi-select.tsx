@@ -1,11 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { X } from "lucide-react";
+import { Check, ChevronsUpDown, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 export interface Option {
@@ -49,7 +52,7 @@ export function MultiSelect({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className={cn("w-full justify-between", className)}
+          className={cn("w-full justify-between min-h-10 h-auto", className)}
           onClick={() => setOpen(!open)}
         >
           <div className="flex gap-1 flex-wrap">
@@ -93,42 +96,36 @@ export function MultiSelect({
               <span className="text-muted-foreground">{placeholder}</span>
             )}
           </div>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-full p-0" align="start">
-        <Command>
-          <CommandInput placeholder="Search..." />
-          <CommandEmpty>No option found.</CommandEmpty>
-          <CommandGroup className="max-h-64 overflow-auto">
-            {options.map((option) => (
-              <CommandItem
-                key={option.value}
-                onSelect={() => handleSelect(option.value)}
-                className="cursor-pointer"
+        <div className="max-h-64 overflow-auto p-1">
+          {options.map((option) => (
+            <div
+              key={option.value}
+              onClick={() => handleSelect(option.value)}
+              className={cn(
+                "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                selected.includes(option.value) && "bg-accent"
+              )}
+            >
+              <div
+                className={cn(
+                  "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
+                  selected.includes(option.value)
+                    ? "bg-primary text-primary-foreground"
+                    : "opacity-50"
+                )}
               >
-                <div
-                  className={cn(
-                    "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
-                    selected.includes(option.value)
-                      ? "bg-primary text-primary-foreground"
-                      : "opacity-50 [&_svg]:invisible"
-                  )}
-                >
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                </div>
-                <span>{option.label}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        </Command>
+                {selected.includes(option.value) && (
+                  <Check className="h-4 w-4" />
+                )}
+              </div>
+              <span>{option.label}</span>
+            </div>
+          ))}
+        </div>
       </PopoverContent>
     </Popover>
   );
