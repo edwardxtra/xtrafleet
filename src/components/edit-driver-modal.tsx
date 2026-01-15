@@ -27,6 +27,7 @@ import { showSuccess, showError } from "@/lib/toast-utils";
 import type { Driver } from "@/lib/data";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TRAILER_TYPES } from "@/lib/trailer-types";
+import { MultiSelect, type Option } from "@/components/ui/multi-select";
 
 interface EditDriverModalProps {
   open: boolean;
@@ -45,6 +46,7 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
     location: "",
     phoneNumber: "",
     vehicleType: "dry-van" as string,
+    vehicleTypes: [] as string[],
     availability: "Available" as "Available" | "On-trip" | "Off-duty",
     profileSummary: "",
     cdlLicense: "",
@@ -59,12 +61,16 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
 
   useEffect(() => {
     if (driver) {
+      // Migrate legacy vehicleType to vehicleTypes array
+      const vehicleTypes = driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []);
+      
       setFormData({
         name: driver.name || "",
         email: driver.email || "",
         location: driver.location || "",
         phoneNumber: driver.phoneNumber || driver.phone || "",
         vehicleType: driver.vehicleType || "dry-van",
+        vehicleTypes: vehicleTypes,
         availability: driver.availability || "Available",
         profileSummary: driver.profileSummary || "",
         cdlLicense: driver.cdlLicense || "",
@@ -111,9 +117,15 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
       if (formData.email) updateData.email = formData.email;
       if (formData.location) updateData.location = formData.location;
       if (formData.phoneNumber) updateData.phoneNumber = formData.phoneNumber;
-      if (formData.vehicleType) updateData.vehicleType = formData.vehicleType;
       if (formData.availability) updateData.availability = formData.availability;
       if (formData.profileSummary) updateData.profileSummary = formData.profileSummary;
+      
+      // Vehicle types - multi-select array
+      if (formData.vehicleTypes && formData.vehicleTypes.length > 0) {
+        updateData.vehicleTypes = formData.vehicleTypes;
+        // Keep vehicleType for backward compatibility (first selected type)
+        updateData.vehicleType = formData.vehicleTypes[0];
+      }
       
       // Optional text fields
       if (formData.cdlLicense) updateData.cdlLicense = formData.cdlLicense;
@@ -151,6 +163,12 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
       setIsLoading(false);
     }
   };
+
+  // Convert TRAILER_TYPES to MultiSelect options format
+  const vehicleTypeOptions: Option[] = TRAILER_TYPES.map(type => ({
+    label: type.label,
+    value: type.value
+  }));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -213,22 +231,14 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Trailer/Vehicle Type</Label>
-                  <Select
-                    value={formData.vehicleType}
-                    onValueChange={(value) => setFormData({ ...formData, vehicleType: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TRAILER_TYPES.map((type) => (
-                        <SelectItem key={type.value} value={type.value}>
-                          {type.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Trailer/Vehicle Types</Label>
+                  <MultiSelect
+                    options={vehicleTypeOptions}
+                    selected={formData.vehicleTypes}
+                    onChange={(selected) => setFormData({ ...formData, vehicleTypes: selected })}
+                    placeholder="Select vehicle types..."
+                  />
+                  <p className="text-xs text-muted-foreground">Select all types this driver operates</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Availability</Label>
