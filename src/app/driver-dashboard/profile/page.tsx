@@ -32,20 +32,23 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { showSuccess, showError, showWarning } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
 import { ProfileCompletionBanner } from '@/components/profile-completion-banner';
+import { TRAILER_TYPES } from '@/lib/trailer-types';
+import { MultiSelect } from '@/components/ui/multi-select';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from \"@/components/ui/select\";
 
 interface Driver {
   id: string;
   name: string;
   email: string;
   location: string;
-  vehicleType: string;
+  vehicleType?: string;
+  vehicleTypes?: string[];
   availability: string;
   cdlLicense?: string;
   cdlExpiry?: string;
@@ -84,11 +87,11 @@ export default function DriverProfile() {
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      showSuccess('You\'re back online!');
+      showSuccess('You\\'re back online!');
     };
     const handleOffline = () => {
       setIsOnline(false);
-      showWarning('You\'re offline. Some features may not work.');
+      showWarning('You\\'re offline. Some features may not work.');
     };
 
     window.addEventListener('online', handleOnline);
@@ -164,28 +167,41 @@ export default function DriverProfile() {
     if (!editedDriver || !db || !ownerId || !user) return;
 
     if (!isOnline) {
-      showError('You\'re offline. Please check your connection and try again.');
+      showError('You\\'re offline. Please check your connection and try again.');
       return;
     }
 
     setSaving(true);
     try {
       const driverRef = doc(db, 'owner_operators', ownerId, 'drivers', user.uid);
-      await updateDoc(driverRef, {
-        name: editedDriver.name,
-        location: editedDriver.location,
-        vehicleType: editedDriver.vehicleType,
-        availability: editedDriver.availability,
-        cdlLicense: editedDriver.cdlLicense,
-        cdlExpiry: editedDriver.cdlExpiry,
-        medicalCardExpiry: editedDriver.medicalCardExpiry,
-        insuranceExpiry: editedDriver.insuranceExpiry,
-        motorVehicleRecordNumber: editedDriver.motorVehicleRecordNumber,
-        backgroundCheckDate: editedDriver.backgroundCheckDate,
-        preEmploymentScreeningDate: editedDriver.preEmploymentScreeningDate,
-        drugAndAlcoholScreeningDate: editedDriver.drugAndAlcoholScreeningDate,
+      
+      // Build update object - only include fields that have values
+      const updateData: any = {
         updatedAt: new Date().toISOString(),
-      });
+      };
+      
+      // Basic fields - allow empty strings
+      if (editedDriver.name !== undefined) updateData.name = editedDriver.name;
+      if (editedDriver.location !== undefined) updateData.location = editedDriver.location;
+      if (editedDriver.availability !== undefined) updateData.availability = editedDriver.availability;
+      
+      // Vehicle types - handle both array and backward compatibility
+      if (editedDriver.vehicleTypes && Array.isArray(editedDriver.vehicleTypes) && editedDriver.vehicleTypes.length > 0) {
+        updateData.vehicleTypes = editedDriver.vehicleTypes;
+        updateData.vehicleType = editedDriver.vehicleTypes[0]; // Backward compatibility
+      }
+      
+      // Optional fields - only add if they have values
+      if (editedDriver.cdlLicense) updateData.cdlLicense = editedDriver.cdlLicense;
+      if (editedDriver.cdlExpiry) updateData.cdlExpiry = editedDriver.cdlExpiry;
+      if (editedDriver.medicalCardExpiry) updateData.medicalCardExpiry = editedDriver.medicalCardExpiry;
+      if (editedDriver.insuranceExpiry) updateData.insuranceExpiry = editedDriver.insuranceExpiry;
+      if (editedDriver.motorVehicleRecordNumber) updateData.motorVehicleRecordNumber = editedDriver.motorVehicleRecordNumber;
+      if (editedDriver.backgroundCheckDate) updateData.backgroundCheckDate = editedDriver.backgroundCheckDate;
+      if (editedDriver.preEmploymentScreeningDate) updateData.preEmploymentScreeningDate = editedDriver.preEmploymentScreeningDate;
+      if (editedDriver.drugAndAlcoholScreeningDate) updateData.drugAndAlcoholScreeningDate = editedDriver.drugAndAlcoholScreeningDate;
+
+      await updateDoc(driverRef, updateData);
 
       setDriver(editedDriver);
       setIsEditing(false);
@@ -205,9 +221,15 @@ export default function DriverProfile() {
     }
   };
 
+  const handleVehicleTypesChange = (values: string[]) => {
+    if (editedDriver) {
+      setEditedDriver({ ...editedDriver, vehicleTypes: values });
+    }
+  };
+
   const handleFileUpload = async (docType: string, fieldName: keyof Driver) => {
     if (!isOnline) {
-      showError('You\'re offline. Please check your connection and try again.');
+      showError('You\\'re offline. Please check your connection and try again.');
       return;
     }
 
@@ -238,7 +260,7 @@ export default function DriverProfile() {
         }
         
         const fileExtension = file.name.split('.').pop();
-        const fileName = `${docType.toLowerCase().replace(/\s+/g, '-')}.${fileExtension}`;
+        const fileName = `${docType.toLowerCase().replace(/\\s+/g, '-')}.${fileExtension}`;
         const storagePath = `driver-documents/${ownerId}/${user.uid}/${fileName}`;
         
         const storageRef = ref(storage, storagePath);
@@ -275,19 +297,19 @@ export default function DriverProfile() {
 
   if (isUserLoading || loading) {
     return (
-      <div className="max-w-6xl mx-auto">
-        <Skeleton className="h-40 w-full mb-6" />
-        <Skeleton className="h-64 w-full mb-6" />
-        <Skeleton className="h-96 w-full" />
+      <div className=\"max-w-6xl mx-auto\">
+        <Skeleton className=\"h-40 w-full mb-6\" />
+        <Skeleton className=\"h-64 w-full mb-6\" />
+        <Skeleton className=\"h-96 w-full\" />
       </div>
     );
   }
 
   if (loadError && !driver) {
     return (
-      <div className="max-w-6xl mx-auto">
-        <Alert variant="destructive" className="mb-6">
-          <XCircle className="h-4 w-4" />
+      <div className=\"max-w-6xl mx-auto\">
+        <Alert variant=\"destructive\" className=\"mb-6\">
+          <XCircle className=\"h-4 w-4\" />
           <AlertDescription>{loadError}</AlertDescription>
         </Alert>
         <Button onClick={() => window.location.reload()}>
@@ -299,7 +321,7 @@ export default function DriverProfile() {
 
   if (!driver) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className=\"flex min-h-screen items-center justify-center\">
         <p>Driver profile not found</p>
       </div>
     );
@@ -319,9 +341,9 @@ export default function DriverProfile() {
   const complianceStatus = getComplianceStatusFromItems(complianceItems);
 
   const getStatusIcon = (status: 'Green' | 'Yellow' | 'Red') => {
-    if (status === 'Green') return <CheckCircle className="h-5 w-5 text-green-600" />;
-    if (status === 'Yellow') return <AlertTriangle className="h-5 w-5 text-yellow-600" />;
-    return <XCircle className="h-5 w-5 text-red-600" />;
+    if (status === 'Green') return <CheckCircle className=\"h-5 w-5 text-green-600\" />;
+    if (status === 'Yellow') return <AlertTriangle className=\"h-5 w-5 text-yellow-600\" />;
+    return <XCircle className=\"h-5 w-5 text-red-600\" />;
   };
 
   const getStatusColor = (status: 'Green' | 'Yellow' | 'Red') => {
@@ -362,11 +384,40 @@ export default function DriverProfile() {
     return 'Green';
   };
 
+  // Get vehicle types for display
+  const displayVehicleTypes = () => {
+    if (driver.vehicleTypes && Array.isArray(driver.vehicleTypes) && driver.vehicleTypes.length > 0) {
+      return driver.vehicleTypes.map(vt => 
+        TRAILER_TYPES.find(t => t.value === vt)?.label || vt
+      ).join(', ');
+    }
+    if (driver.vehicleType) {
+      return TRAILER_TYPES.find(t => t.value === driver.vehicleType)?.label || driver.vehicleType;
+    }
+    return 'Not specified';
+  };
+
+  const trailerTypeOptions = TRAILER_TYPES.map(type => ({
+    label: type.label,
+    value: type.value
+  }));
+
+  // Get current vehicle types for editing
+  const getCurrentVehicleTypes = (): string[] => {
+    if (editedDriver?.vehicleTypes && Array.isArray(editedDriver.vehicleTypes)) {
+      return editedDriver.vehicleTypes;
+    }
+    if (editedDriver?.vehicleType) {
+      return [editedDriver.vehicleType];
+    }
+    return [];
+  };
+
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className=\"max-w-6xl mx-auto\">
       {!isOnline && (
-        <Alert variant="destructive" className="mb-4">
-          <WifiOff className="h-4 w-4" />
+        <Alert variant=\"destructive\" className=\"mb-4\">
+          <WifiOff className=\"h-4 w-4\" />
           <AlertDescription>
             You're currently offline. Some features may not work until you're back online.
           </AlertDescription>
@@ -382,27 +433,27 @@ export default function DriverProfile() {
       )}
 
       {/* Profile Information Card */}
-      <Card className="mb-6" data-document-section>
+      <Card className=\"mb-6\" data-document-section>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className=\"flex items-center justify-between\">
             <CardTitle>Profile Information</CardTitle>
             {!isEditing && (
-              <Button onClick={handleEdit} variant="outline" size="sm" disabled={!isOnline}>
-                <Edit className="h-4 w-4 mr-2" />
+              <Button onClick={handleEdit} variant=\"outline\" size=\"sm\" disabled={!isOnline}>
+                <Edit className=\"h-4 w-4 mr-2\" />
                 Edit Profile
               </Button>
             )}
             {isEditing && (
-              <div className="flex gap-2">
-                <Button onClick={handleCancel} variant="outline" size="sm" disabled={saving}>
-                  <X className="h-4 w-4 mr-2" />
+              <div className=\"flex gap-2\">
+                <Button onClick={handleCancel} variant=\"outline\" size=\"sm\" disabled={saving}>
+                  <X className=\"h-4 w-4 mr-2\" />
                   Cancel
                 </Button>
-                <Button onClick={handleSave} size="sm" disabled={saving || !isOnline}>
+                <Button onClick={handleSave} size=\"sm\" disabled={saving || !isOnline}>
                   {saving ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <Loader2 className=\"h-4 w-4 mr-2 animate-spin\" />
                   ) : (
-                    <Save className="h-4 w-4 mr-2" />
+                    <Save className=\"h-4 w-4 mr-2\" />
                   )}
                   Save Changes
                 </Button>
@@ -412,101 +463,92 @@ export default function DriverProfile() {
         </CardHeader>
         <CardContent>
           {isEditing && editedDriver ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className=\"grid grid-cols-1 md:grid-cols-2 gap-6\">
               <div>
-                <Label htmlFor="name">Full Name</Label>
+                <Label htmlFor=\"name\">Full Name</Label>
                 <Input
-                  id="name"
+                  id=\"name\"
                   value={editedDriver.name || ''}
                   onChange={(e) => handleInputChange('name', e.target.value)}
                 />
               </div>
               <div>
-                <Label htmlFor="email">Email Address</Label>
+                <Label htmlFor=\"email\">Email Address</Label>
                 <Input
-                  id="email"
+                  id=\"email\"
                   value={editedDriver.email || ''}
                   disabled
-                  className="bg-gray-50"
+                  className=\"bg-gray-50\"
                 />
-                <p className="text-xs text-muted-foreground mt-1">Email cannot be changed</p>
+                <p className=\"text-xs text-muted-foreground mt-1\">Email cannot be changed</p>
               </div>
               <div>
-                <Label htmlFor="location">Location</Label>
+                <Label htmlFor=\"location\">Location</Label>
                 <Input
-                  id="location"
+                  id=\"location\"
                   value={editedDriver.location || ''}
                   onChange={(e) => handleInputChange('location', e.target.value)}
-                  placeholder="City, State"
+                  placeholder=\"City, State\"
                 />
               </div>
               <div>
-                <Label htmlFor="vehicleType">Vehicle Type</Label>
-                <Select
-                  value={editedDriver.vehicleType || ''}
-                  onValueChange={(value) => handleInputChange('vehicleType', value)}
-                >
-                  <SelectTrigger id="vehicleType">
-                    <SelectValue placeholder="Select vehicle type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Dry Van">Dry Van</SelectItem>
-                    <SelectItem value="Flatbed">Flatbed</SelectItem>
-                    <SelectItem value="Reefer">Reefer</SelectItem>
-                    <SelectItem value="Box Truck">Box Truck</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor=\"vehicleTypes\">Trailer/Vehicle Types</Label>
+                <MultiSelect
+                  options={trailerTypeOptions}
+                  selected={getCurrentVehicleTypes()}
+                  onChange={handleVehicleTypesChange}
+                  placeholder=\"Select trailer types...\"
+                />
               </div>
               <div>
-                <Label htmlFor="availability">Status</Label>
+                <Label htmlFor=\"availability\">Status</Label>
                 <Select
                   value={editedDriver.availability || ''}
                   onValueChange={(value) => handleInputChange('availability', value)}
                 >
-                  <SelectTrigger id="availability">
-                    <SelectValue placeholder="Select status" />
+                  <SelectTrigger id=\"availability\">
+                    <SelectValue placeholder=\"Select status\" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Available">Available</SelectItem>
-                    <SelectItem value="On Assignment">On Assignment</SelectItem>
-                    <SelectItem value="Unavailable">Unavailable</SelectItem>
+                    <SelectItem value=\"Available\">Available</SelectItem>
+                    <SelectItem value=\"On Assignment\">On Assignment</SelectItem>
+                    <SelectItem value=\"Unavailable\">Unavailable</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className=\"grid grid-cols-1 md:grid-cols-2 gap-6\">
               <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <User className="h-4 w-4" />
+                <div className=\"flex items-center gap-2 text-sm text-muted-foreground mb-1\">
+                  <User className=\"h-4 w-4\" />
                   <span>Full Name</span>
                 </div>
-                <p className="font-medium">{driver.name}</p>
+                <p className=\"font-medium\">{driver.name}</p>
               </div>
               <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <Mail className="h-4 w-4" />
+                <div className=\"flex items-center gap-2 text-sm text-muted-foreground mb-1\">
+                  <Mail className=\"h-4 w-4\" />
                   <span>Email Address</span>
                 </div>
-                <p className="font-medium">{driver.email}</p>
+                <p className=\"font-medium\">{driver.email}</p>
               </div>
               <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <MapPin className="h-4 w-4" />
+                <div className=\"flex items-center gap-2 text-sm text-muted-foreground mb-1\">
+                  <MapPin className=\"h-4 w-4\" />
                   <span>Location</span>
                 </div>
-                <p className="font-medium">{driver.location}</p>
+                <p className=\"font-medium\">{driver.location}</p>
               </div>
               <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <Truck className="h-4 w-4" />
-                  <span>Vehicle Type</span>
+                <div className=\"flex items-center gap-2 text-sm text-muted-foreground mb-1\">
+                  <Truck className=\"h-4 w-4\" />
+                  <span>Trailer/Vehicle Types</span>
                 </div>
-                <p className="font-medium">{driver.vehicleType}</p>
+                <p className=\"font-medium\">{displayVehicleTypes()}</p>
               </div>
               <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                <div className=\"flex items-center gap-2 text-sm text-muted-foreground mb-1\">
                   <span>Status</span>
                 </div>
                 <Badge variant={driver.availability === 'Available' ? 'default' : 'secondary'}>
@@ -520,10 +562,10 @@ export default function DriverProfile() {
 
       {complianceStatus !== 'Green' && (
         <Alert className={`mb-6 ${getStatusColor(complianceStatus)}`}>
-          <div className="flex items-start gap-3">
+          <div className=\"flex items-start gap-3\">
             {getStatusIcon(complianceStatus)}
             <div>
-              <h3 className="font-semibold text-lg mb-1">
+              <h3 className=\"font-semibold text-lg mb-1\">
                 {complianceStatus === 'Yellow' && 'Documents Expiring Soon'}
                 {complianceStatus === 'Red' && 'Action Required'}
               </h3>
@@ -536,14 +578,14 @@ export default function DriverProfile() {
         </Alert>
       )}
 
-      <Card className="mb-6">
+      <Card className=\"mb-6\">
         <CardHeader>
           <CardTitle>Compliance Overview</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Overall Status</span>
+          <div className=\"space-y-3\">
+            <div className=\"flex items-center justify-between\">
+              <span className=\"text-sm font-medium\">Overall Status</span>
               <Badge 
                 variant={complianceStatus === 'Green' ? 'default' : complianceStatus === 'Yellow' ? 'secondary' : 'destructive'} 
                 className={complianceStatus === 'Green' ? 'bg-green-600 hover:bg-green-700' : ''}
@@ -551,26 +593,26 @@ export default function DriverProfile() {
                 {complianceStatus}
               </Badge>
             </div>
-            <div className="border-t pt-3">
-              <p className="text-sm text-gray-600 mb-2">Quick Stats</p>
-              <div className="grid grid-cols-3 gap-4 text-center">
+            <div className=\"border-t pt-3\">
+              <p className=\"text-sm text-gray-600 mb-2\">Quick Stats</p>
+              <div className=\"grid grid-cols-3 gap-4 text-center\">
                 <div>
-                  <p className="text-2xl font-bold text-green-600">
+                  <p className=\"text-2xl font-bold text-green-600\">
                     {complianceItems.filter(item => getItemStatus(item) === 'Green').length}
                   </p>
-                  <p className="text-xs text-gray-600">Valid</p>
+                  <p className=\"text-xs text-gray-600\">Valid</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-yellow-600">
+                  <p className=\"text-2xl font-bold text-yellow-600\">
                     {complianceItems.filter(item => getItemStatus(item) === 'Yellow').length}
                   </p>
-                  <p className="text-xs text-gray-600">Expiring</p>
+                  <p className=\"text-xs text-gray-600\">Expiring</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-red-600">
+                  <p className=\"text-2xl font-bold text-red-600\">
                     {complianceItems.filter(item => getItemStatus(item) === 'Red').length}
                   </p>
-                  <p className="text-xs text-gray-600">Issues</p>
+                  <p className=\"text-xs text-gray-600\">Issues</p>
                 </div>
               </div>
             </div>
@@ -584,186 +626,186 @@ export default function DriverProfile() {
         </CardHeader>
         <CardContent>
           {isEditing && editedDriver ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className=\"space-y-4\">
+              <div className=\"grid grid-cols-1 md:grid-cols-2 gap-4\">
                 <div>
-                  <Label htmlFor="cdlLicense">CDL License Number</Label>
-                  <div className="flex gap-2">
+                  <Label htmlFor=\"cdlLicense\">CDL License Number</Label>
+                  <div className=\"flex gap-2\">
                     <Input
-                      id="cdlLicense"
+                      id=\"cdlLicense\"
                       value={editedDriver.cdlLicense || ''}
                       onChange={(e) => handleInputChange('cdlLicense', e.target.value)}
                     />
                     <Button 
-                      variant="outline" 
-                      size="sm" 
+                      variant=\"outline\" 
+                      size=\"sm\" 
                       onClick={() => handleFileUpload('CDL License', 'cdlLicenseUrl')}
                       disabled={uploadingDoc === 'CDL License' || !isOnline}
                     >
                       {uploadingDoc === 'CDL License' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className=\"h-4 w-4 animate-spin\" />
                       ) : (
-                        <Upload className="h-4 w-4" />
+                        <Upload className=\"h-4 w-4\" />
                       )}
                     </Button>
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="cdlExpiry">CDL Expiry</Label>
-                  <div className="flex gap-2">
+                  <Label htmlFor=\"cdlExpiry\">CDL Expiry</Label>
+                  <div className=\"flex gap-2\">
                     <Input
-                      id="cdlExpiry"
-                      type="date"
+                      id=\"cdlExpiry\"
+                      type=\"date\"
                       value={editedDriver.cdlExpiry || ''}
                       onChange={(e) => handleInputChange('cdlExpiry', e.target.value)}
                     />
                     <Button 
-                      variant="outline" 
-                      size="sm" 
+                      variant=\"outline\" 
+                      size=\"sm\" 
                       onClick={() => handleFileUpload('CDL Document', 'cdlDocumentUrl')}
                       disabled={uploadingDoc === 'CDL Document' || !isOnline}
                     >
                       {uploadingDoc === 'CDL Document' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className=\"h-4 w-4 animate-spin\" />
                       ) : (
-                        <Upload className="h-4 w-4" />
+                        <Upload className=\"h-4 w-4\" />
                       )}
                     </Button>
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="medicalCardExpiry">Medical Card Expiry</Label>
-                  <div className="flex gap-2">
+                  <Label htmlFor=\"medicalCardExpiry\">Medical Card Expiry</Label>
+                  <div className=\"flex gap-2\">
                     <Input
-                      id="medicalCardExpiry"
-                      type="date"
+                      id=\"medicalCardExpiry\"
+                      type=\"date\"
                       value={editedDriver.medicalCardExpiry || ''}
                       onChange={(e) => handleInputChange('medicalCardExpiry', e.target.value)}
                     />
                     <Button 
-                      variant="outline" 
-                      size="sm" 
+                      variant=\"outline\" 
+                      size=\"sm\" 
                       onClick={() => handleFileUpload('Medical Card', 'medicalCardUrl')}
                       disabled={uploadingDoc === 'Medical Card' || !isOnline}
                     >
                       {uploadingDoc === 'Medical Card' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className=\"h-4 w-4 animate-spin\" />
                       ) : (
-                        <Upload className="h-4 w-4" />
+                        <Upload className=\"h-4 w-4\" />
                       )}
                     </Button>
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="insuranceExpiry">Insurance Expiry</Label>
-                  <div className="flex gap-2">
+                  <Label htmlFor=\"insuranceExpiry\">Insurance Expiry</Label>
+                  <div className=\"flex gap-2\">
                     <Input
-                      id="insuranceExpiry"
-                      type="date"
+                      id=\"insuranceExpiry\"
+                      type=\"date\"
                       value={editedDriver.insuranceExpiry || ''}
                       onChange={(e) => handleInputChange('insuranceExpiry', e.target.value)}
                     />
                     <Button 
-                      variant="outline" 
-                      size="sm" 
+                      variant=\"outline\" 
+                      size=\"sm\" 
                       onClick={() => handleFileUpload('Insurance', 'insuranceUrl')}
                       disabled={uploadingDoc === 'Insurance' || !isOnline}
                     >
                       {uploadingDoc === 'Insurance' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className=\"h-4 w-4 animate-spin\" />
                       ) : (
-                        <Upload className="h-4 w-4" />
+                        <Upload className=\"h-4 w-4\" />
                       )}
                     </Button>
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="motorVehicleRecordNumber">Motor Vehicle Record Number</Label>
-                  <div className="flex gap-2">
+                  <Label htmlFor=\"motorVehicleRecordNumber\">Motor Vehicle Record Number</Label>
+                  <div className=\"flex gap-2\">
                     <Input
-                      id="motorVehicleRecordNumber"
+                      id=\"motorVehicleRecordNumber\"
                       value={editedDriver.motorVehicleRecordNumber || ''}
                       onChange={(e) => handleInputChange('motorVehicleRecordNumber', e.target.value)}
                     />
                     <Button 
-                      variant="outline" 
-                      size="sm" 
+                      variant=\"outline\" 
+                      size=\"sm\" 
                       onClick={() => handleFileUpload('MVR', 'mvrUrl')}
                       disabled={uploadingDoc === 'MVR' || !isOnline}
                     >
                       {uploadingDoc === 'MVR' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className=\"h-4 w-4 animate-spin\" />
                       ) : (
-                        <Upload className="h-4 w-4" />
+                        <Upload className=\"h-4 w-4\" />
                       )}
                     </Button>
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="backgroundCheckDate">Background Check Date</Label>
-                  <div className="flex gap-2">
+                  <Label htmlFor=\"backgroundCheckDate\">Background Check Date</Label>
+                  <div className=\"flex gap-2\">
                     <Input
-                      id="backgroundCheckDate"
-                      type="date"
+                      id=\"backgroundCheckDate\"
+                      type=\"date\"
                       value={editedDriver.backgroundCheckDate || ''}
                       onChange={(e) => handleInputChange('backgroundCheckDate', e.target.value)}
                     />
                     <Button 
-                      variant="outline" 
-                      size="sm" 
+                      variant=\"outline\" 
+                      size=\"sm\" 
                       onClick={() => handleFileUpload('Background Check', 'backgroundCheckUrl')}
                       disabled={uploadingDoc === 'Background Check' || !isOnline}
                     >
                       {uploadingDoc === 'Background Check' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className=\"h-4 w-4 animate-spin\" />
                       ) : (
-                        <Upload className="h-4 w-4" />
+                        <Upload className=\"h-4 w-4\" />
                       )}
                     </Button>
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="preEmploymentScreeningDate">Pre-Employment Screening Date</Label>
-                  <div className="flex gap-2">
+                  <Label htmlFor=\"preEmploymentScreeningDate\">Pre-Employment Screening Date</Label>
+                  <div className=\"flex gap-2\">
                     <Input
-                      id="preEmploymentScreeningDate"
-                      type="date"
+                      id=\"preEmploymentScreeningDate\"
+                      type=\"date\"
                       value={editedDriver.preEmploymentScreeningDate || ''}
                       onChange={(e) => handleInputChange('preEmploymentScreeningDate', e.target.value)}
                     />
                     <Button 
-                      variant="outline" 
-                      size="sm" 
+                      variant=\"outline\" 
+                      size=\"sm\" 
                       onClick={() => handleFileUpload('Pre-Employment Screening', 'preEmploymentScreeningUrl')}
                       disabled={uploadingDoc === 'Pre-Employment Screening' || !isOnline}
                     >
                       {uploadingDoc === 'Pre-Employment Screening' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className=\"h-4 w-4 animate-spin\" />
                       ) : (
-                        <Upload className="h-4 w-4" />
+                        <Upload className=\"h-4 w-4\" />
                       )}
                     </Button>
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="drugAndAlcoholScreeningDate">Drug & Alcohol Screening Date</Label>
-                  <div className="flex gap-2">
+                  <Label htmlFor=\"drugAndAlcoholScreeningDate\">Drug & Alcohol Screening Date</Label>
+                  <div className=\"flex gap-2\">
                     <Input
-                      id="drugAndAlcoholScreeningDate"
-                      type="date"
+                      id=\"drugAndAlcoholScreeningDate\"
+                      type=\"date\"
                       value={editedDriver.drugAndAlcoholScreeningDate || ''}
                       onChange={(e) => handleInputChange('drugAndAlcoholScreeningDate', e.target.value)}
                     />
                     <Button 
-                      variant="outline" 
-                      size="sm" 
+                      variant=\"outline\" 
+                      size=\"sm\" 
                       onClick={() => handleFileUpload('Drug & Alcohol Screening', 'drugAndAlcoholScreeningUrl')}
                       disabled={uploadingDoc === 'Drug & Alcohol Screening' || !isOnline}
                     >
                       {uploadingDoc === 'Drug & Alcohol Screening' ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className=\"h-4 w-4 animate-spin\" />
                       ) : (
-                        <Upload className="h-4 w-4" />
+                        <Upload className=\"h-4 w-4\" />
                       )}
                     </Button>
                   </div>
@@ -771,30 +813,30 @@ export default function DriverProfile() {
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className=\"space-y-4\">
               {complianceItems.map((item, index) => {
                 const status = getItemStatus(item);
                 return (
-                  <div key={index} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center gap-3 flex-1">
+                  <div key={index} className=\"flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors\">
+                    <div className=\"flex items-center gap-3 flex-1\">
                       {getStatusIcon(status)}
-                      <div className="flex-1">
-                        <p className="font-medium">{item.label}</p>
+                      <div className=\"flex-1\">
+                        <p className=\"font-medium\">{item.label}</p>
                         {item.value && item.type === 'expiry' && (
-                          <p className="text-sm text-gray-600">
+                          <p className=\"text-sm text-gray-600\">
                             Expires: {format(parseISO(item.value), 'MMM dd, yyyy')}
                           </p>
                         )}
                         {item.value && item.type === 'screening' && (
-                          <p className="text-sm text-gray-600">
+                          <p className=\"text-sm text-gray-600\">
                             Completed: {format(parseISO(item.value), 'MMM dd, yyyy')}
                           </p>
                         )}
                         {item.value && item.type === 'field' && (
-                          <p className="text-sm text-gray-600">Provided</p>
+                          <p className=\"text-sm text-gray-600\">Provided</p>
                         )}
                         {!item.value && (
-                          <p className="text-sm text-red-600">Missing</p>
+                          <p className=\"text-sm text-red-600\">Missing</p>
                         )}
                       </div>
                     </div>
