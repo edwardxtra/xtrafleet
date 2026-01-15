@@ -72,31 +72,70 @@ export async function POST(request: NextRequest) {
     console.log('🔵 TLA lessee.ownerId:', tlaData?.lessee?.ownerId);
     console.log('🔵 TLA lessor.ownerId:', tlaData?.lessor?.ownerId);
 
-    // FIXED: Check if user is the LESSOR (load owner who created the load)
-    // In Trip Lease Agreements:
-    // - LESSOR = Load owner (provides the load/work) - THIS IS WHO PAYS
-    // - LESSEE = Driver's company (accepts the load/work)
-    const isLessor = tlaData?.lessor?.ownerId === userId;
+    // CORRECT: Check if user is the LESSEE (load owner/hiring carrier who pays)
+    // In XtraFleet TLAs:
+    // - LESSEE = Load owner/hiring carrier (the one posting loads) - PAYS THE FEE
+    // - LESSOR = Driver provider (owns the driver/equipment)
     const isLessee = tlaData?.lessee?.ownerId === userId;
+    const isLessor = tlaData?.lessor?.ownerId === userId;
     
-    console.log('🔵 Is user lessor (load owner - who should pay)?', isLessor);
-    console.log('🔵 Is user lessee (driver owner)?', isLessee);
+    console.log('🔵 Is user lessee (load owner - who should pay)?', isLessee);
+    console.log('🔵 Is user lessor (driver provider)?', isLessor);
 
-    if (!isLessor) {
-      console.log('❌ User is not the load owner (lessor)');
-      return NextResponse.json({ 
-        error: 'Unauthorized - must be load owner',
-        debug: {
-          userId,
-          lesseeOwnerId: tlaData?.lessee?.ownerId,
-          lessorOwnerId: tlaData?.lessor?.ownerId,
-          isLessee,
-          isLessor
+    // ALSO check if the lessee company name matches the user's owner_operator company
+    // This is a fallback in case ownerId isn't set properly
+    if (!isLessee) {
+      console.log('❌ User is not the load owner (lessee)');
+      
+      // Try to get more info about why this failed
+      console.log('🔵 Fetching owner_operator doc for current user...');
+      const ownerDoc = await adminDb.collection('owner_operators').doc(userId).get();
+      if (ownerDoc.exists) {
+        const ownerData = ownerDoc.data();
+        console.log('🔵 Current user owner data:', {
+          companyName: ownerData?.companyName,
+          contactEmail: ownerData?.contactEmail
+        });
+        console.log('🔵 TLA lessee company:', tlaData?.lessee?.companyName);
+        
+        // Check if company names match (case-insensitive)
+        const companyMatch = ownerData?.companyName && tlaData?.lessee?.companyName &&
+          ownerData.companyName.toLowerCase() === tlaData.lessee.companyName.toLowerCase();
+        
+        if (companyMatch) {
+          console.log('✅ Company names match - allowing payment');
+          // Fall through to payment creation
+        } else {
+          return NextResponse.json({ 
+            error: 'Unauthorized - must be load owner',
+            debug: {
+              userId,
+              userCompany: ownerData?.companyName,
+              lesseeOwnerId: tlaData?.lessee?.ownerId,
+              lesseeCompany: tlaData?.lessee?.companyName,
+              lessorOwnerId: tlaData?.lessor?.ownerId,
+              lessorCompany: tlaData?.lessor?.companyName,
+              isLessee,
+              isLessor
+            }
+          }, { status: 403 });
         }
-      }, { status: 403 });
+      } else {
+        return NextResponse.json({ 
+          error: 'Unauthorized - must be load owner',
+          debug: {
+            userId,
+            lesseeOwnerId: tlaData?.lessee?.ownerId,
+            lessorOwnerId: tlaData?.lessor?.ownerId,
+            isLessee,
+            isLessor,
+            ownerDocExists: false
+          }
+        }, { status: 403 });
+      }
+    } else {
+      console.log('✅ User authorized as load owner (lessee)');
     }
-
-    console.log('✅ User authorized as load owner (lessor)');
 
     // Create checkout session for $25 match fee
     console.log('🔵 Creating Stripe checkout session...');
