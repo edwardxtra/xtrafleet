@@ -26,6 +26,7 @@ import { doc, updateDoc } from "firebase/firestore";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import type { Driver } from "@/lib/data";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TRAILER_TYPES } from "@/lib/trailer-types";
 
 interface EditDriverModalProps {
   open: boolean;
@@ -43,7 +44,7 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
     email: "",
     location: "",
     phoneNumber: "",
-    vehicleType: "Dry Van" as "Dry Van" | "Reefer" | "Flatbed",
+    vehicleType: "dry-van" as string,
     availability: "Available" as "Available" | "On-trip" | "Off-duty",
     profileSummary: "",
     cdlLicense: "",
@@ -63,7 +64,7 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
         email: driver.email || "",
         location: driver.location || "",
         phoneNumber: driver.phoneNumber || driver.phone || "",
-        vehicleType: driver.vehicleType || "Dry Van",
+        vehicleType: driver.vehicleType || "dry-van",
         availability: driver.availability || "Available",
         profileSummary: driver.profileSummary || "",
         cdlLicense: driver.cdlLicense || "",
@@ -212,20 +213,20 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Vehicle Type</Label>
+                  <Label>Trailer/Vehicle Type</Label>
                   <Select
                     value={formData.vehicleType}
-                    onValueChange={(value: "Dry Van" | "Reefer" | "Flatbed") =>
-                      setFormData({ ...formData, vehicleType: value })
-                    }
+                    onValueChange={(value) => setFormData({ ...formData, vehicleType: value })}
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Dry Van">Dry Van</SelectItem>
-                      <SelectItem value="Reefer">Reefer</SelectItem>
-                      <SelectItem value="Flatbed">Flatbed</SelectItem>
+                      {TRAILER_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

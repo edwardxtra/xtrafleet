@@ -6,6 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -20,6 +27,7 @@ import { useAuth, useFirestore } from "@/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import type { Load } from "@/lib/data";
+import { TRAILER_TYPES } from "@/lib/trailer-types";
 
 interface EditLoadModalProps {
   open: boolean;
@@ -39,6 +47,7 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
     price: "",
     cargo: "",
     weight: "",
+    requiredTrailerType: "dry-van",
     description: "",
   });
 
@@ -50,6 +59,7 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
         price: load.price?.toString() || "",
         cargo: load.cargo || "",
         weight: load.weight?.toString() || "",
+        requiredTrailerType: load.requiredTrailerType || "dry-van",
         description: load.description || "",
       });
       if (load.pickupDate) {
@@ -79,6 +89,7 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
         price: Number(formData.price),
         cargo: formData.cargo,
         weight: Number(formData.weight),
+        requiredTrailerType: formData.requiredTrailerType,
         description: formData.description,
         pickupDate: pickupDateTime.toISOString(),
       });
@@ -165,6 +176,25 @@ export function EditLoadModal({ open, onOpenChange, load, onSuccess }: EditLoadM
               placeholder="e.g., 40000"
               required
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Required Trailer Type</Label>
+            <Select
+              value={formData.requiredTrailerType}
+              onValueChange={(value) => setFormData({ ...formData, requiredTrailerType: value })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TRAILER_TYPES.map((type) => (
+                  <SelectItem key={type.value} value={type.value}>
+                    {type.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">

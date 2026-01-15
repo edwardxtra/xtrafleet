@@ -7,6 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   SheetContent,
   SheetHeader,
   SheetTitle,
@@ -18,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { DateTimePicker } from "@/components/ui/datetime-picker";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/firebase";
+import { TRAILER_TYPES } from "@/lib/trailer-types";
 
 export function AddLoadForm() {
   const { toast } = useToast();
@@ -25,6 +33,7 @@ export function AddLoadForm() {
   const auth = useAuth();
   const [isPending, startTransition] = useTransition();
   const [pickupDateTime, setPickupDateTime] = useState<Date | undefined>();
+  const [requiredTrailerType, setRequiredTrailerType] = useState<string>("dry-van");
   const formRef = useRef<HTMLFormElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -58,6 +67,7 @@ export function AddLoadForm() {
         pickupDate: pickupDateTime.toISOString(),
         cargo: formData.get('cargoType'),
         weight: Number(formData.get('weight')),
+        requiredTrailerType: requiredTrailerType,
         additionalDetails: formData.get('additionalDetails'),
     };
 
@@ -85,6 +95,7 @@ export function AddLoadForm() {
         });
         formRef.current?.reset();
         setPickupDateTime(undefined);
+        setRequiredTrailerType("dry-van");
         closeRef.current?.click();
         router.refresh();
 
@@ -135,6 +146,21 @@ export function AddLoadForm() {
         <div className="space-y-2">
             <Label htmlFor="weight">Weight (lbs)</Label>
             <Input id="weight" name="weight" type="number" placeholder="e.g., 40000" required />
+        </div>
+        <div className="space-y-2">
+          <Label>Required Trailer Type</Label>
+          <Select value={requiredTrailerType} onValueChange={setRequiredTrailerType}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TRAILER_TYPES.map((type) => (
+                <SelectItem key={type.value} value={type.value}>
+                  {type.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
           <Label>Pickup Date & Time</Label>
