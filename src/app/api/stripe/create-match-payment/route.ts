@@ -72,16 +72,18 @@ export async function POST(request: NextRequest) {
     console.log('🔵 TLA lessee.ownerId:', tlaData?.lessee?.ownerId);
     console.log('🔵 TLA lessor.ownerId:', tlaData?.lessor?.ownerId);
 
-    // Check if user is either the lessee (load owner) OR the lessor (driver owner)
-    // The load owner (lessee) should be the one paying the match fee
-    const isLessee = tlaData?.lessee?.ownerId === userId;
+    // FIXED: Check if user is the LESSOR (load owner who created the load)
+    // In Trip Lease Agreements:
+    // - LESSOR = Load owner (provides the load/work) - THIS IS WHO PAYS
+    // - LESSEE = Driver's company (accepts the load/work)
     const isLessor = tlaData?.lessor?.ownerId === userId;
+    const isLessee = tlaData?.lessee?.ownerId === userId;
     
-    console.log('🔵 Is user lessee (load owner)?', isLessee);
-    console.log('🔵 Is user lessor (driver owner)?', isLessor);
+    console.log('🔵 Is user lessor (load owner - who should pay)?', isLessor);
+    console.log('🔵 Is user lessee (driver owner)?', isLessee);
 
-    if (!isLessee) {
-      console.log('❌ User is not the load owner (lessee)');
+    if (!isLessor) {
+      console.log('❌ User is not the load owner (lessor)');
       return NextResponse.json({ 
         error: 'Unauthorized - must be load owner',
         debug: {
@@ -93,6 +95,8 @@ export async function POST(request: NextRequest) {
         }
       }, { status: 403 });
     }
+
+    console.log('✅ User authorized as load owner (lessor)');
 
     // Create checkout session for $25 match fee
     console.log('🔵 Creating Stripe checkout session...');
@@ -121,6 +125,7 @@ export async function POST(request: NextRequest) {
     });
 
     console.log('✅ Stripe session created:', session.id);
+    console.log('✅ Checkout URL:', session.url);
     return NextResponse.json({ url: session.url });
     
   } catch (error: any) {
