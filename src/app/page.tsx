@@ -34,11 +34,11 @@ export default function Home() {
       <main className="flex-1">
         {/* Hero Section with American Truck Background */}
         <section className="relative h-[70vh] md:h-[80vh] flex items-center justify-center text-center text-white px-4 overflow-hidden">
-          {/* Background Image - American Semi Truck */}
+          {/* Background Image - Classic American Peterbilt Truck */}
           <div 
             className="absolute inset-0 bg-cover bg-center bg-no-repeat"
             style={{
-              backgroundImage: 'url(https://images.unsplash.com/photo-1519003722824-194d4455a60c?q=80&w=2076&auto=format&fit=crop)',
+              backgroundImage: 'url(https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?q=80&w=2070&auto=format&fit=crop)',
             }}
           />
           
