@@ -10,9 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Search, CreditCard, DollarSign, Users, TrendingUp, AlertCircle } from "lucide-react";
 import Link from "next/link";
-import { useUser } from "@/firebase";
+import { useUser, useFirestore } from "@/firebase";
 import { collection, getDocs, query, where } from "firebase/firestore";
-import { db } from "@/firebase";
 
 interface CustomerBilling {
   id: string;
@@ -28,6 +27,7 @@ interface CustomerBilling {
 
 export default function AdminBillingPage() {
   const { user } = useUser();
+  const db = useFirestore();
   const [customers, setCustomers] = useState<CustomerBilling[]>([]);
   const [filteredCustomers, setFilteredCustomers] = useState<CustomerBilling[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,14 +41,18 @@ export default function AdminBillingPage() {
   const pastDueCustomers = customers.filter(c => c.subscriptionStatus === 'past_due').length;
 
   useEffect(() => {
-    fetchCustomers();
-  }, []);
+    if (db) {
+      fetchCustomers();
+    }
+  }, [db]);
 
   useEffect(() => {
     filterCustomers();
   }, [searchQuery, statusFilter, customers]);
 
   const fetchCustomers = async () => {
+    if (!db) return;
+    
     try {
       setIsLoading(true);
       
