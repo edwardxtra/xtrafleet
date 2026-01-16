@@ -1,12 +1,29 @@
 import Stripe from 'stripe';
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('STRIPE_SECRET_KEY is not set in environment variables');
+// Lazy initialization - only create Stripe instance when actually used
+// This prevents build-time errors when env vars aren't set
+let _stripe: Stripe | null = null;
+
+function getStripe(): Stripe {
+  if (!_stripe) {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      throw new Error('STRIPE_SECRET_KEY is not set in environment variables');
+    }
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2024-12-18.acacia',
+      typescript: true,
+    });
+  }
+  return _stripe;
 }
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2024-12-18.acacia',
-  typescript: true,
+// Export a proxy that lazily initializes Stripe
+export const stripe = new Proxy({} as Stripe, {
+  get: (target, prop) => {
+    const stripeInstance = getStripe();
+    const value = (stripeInstance as any)[prop];
+    return typeof value === 'function' ? value.bind(stripeInstance) : value;
+  }
 });
 
 // Price IDs - these will be set after creating products in Stripe
