@@ -24,9 +24,8 @@ import {
   Building
 } from "lucide-react";
 import Link from "next/link";
-import { useUser } from "@/firebase";
+import { useUser, useFirestore } from "@/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { db } from "@/firebase";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -64,6 +63,7 @@ export default function CustomerBillingPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { user } = useUser();
+  const db = useFirestore();
   const customerId = params.customerId as string;
 
   const [customer, setCustomer] = useState<CustomerData | null>(null);
@@ -86,10 +86,14 @@ export default function CustomerBillingPage() {
   const [newStatus, setNewStatus] = useState('');
 
   useEffect(() => {
-    fetchCustomer();
-  }, [customerId]);
+    if (db) {
+      fetchCustomer();
+    }
+  }, [customerId, db]);
 
   const fetchCustomer = async () => {
+    if (!db) return;
+    
     try {
       setIsLoading(true);
       const customerRef = doc(db, "owner_operators", customerId);
@@ -124,7 +128,7 @@ export default function CustomerBillingPage() {
   };
 
   const handleApplyDiscount = async () => {
-    if (!customer || !discountValue) return;
+    if (!customer || !discountValue || !db) return;
 
     try {
       setIsUpdating(true);
@@ -158,7 +162,7 @@ export default function CustomerBillingPage() {
   };
 
   const handleRemoveDiscount = async () => {
-    if (!customer) return;
+    if (!customer || !db) return;
 
     try {
       setIsUpdating(true);
@@ -191,7 +195,7 @@ export default function CustomerBillingPage() {
   };
 
   const handleUpdateStatus = async () => {
-    if (!customer || !newStatus) return;
+    if (!customer || !newStatus || !db) return;
 
     try {
       setIsUpdating(true);
@@ -222,7 +226,7 @@ export default function CustomerBillingPage() {
   };
 
   const handleRemovePaymentMethod = async () => {
-    if (!customer) return;
+    if (!customer || !db) return;
 
     try {
       setIsUpdating(true);
