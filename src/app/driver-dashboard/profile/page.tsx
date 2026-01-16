@@ -33,7 +33,6 @@ import { showSuccess, showError, showWarning } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
 import { ProfileCompletionBanner } from '@/components/profile-completion-banner';
 import { TRAILER_TYPES } from '@/lib/trailer-types';
-import { MultiSelect, type Option } from '@/components/ui/multi-select';
 import {
   Select,
   SelectContent,
@@ -188,10 +187,7 @@ export default function DriverProfile() {
         name: editedDriver.name || '',
         location: editedDriver.location || '',
         availability: editedDriver.availability || 'Available',
-        vehicleTypes: editedDriver.vehicleTypes || [],
-        vehicleType: editedDriver.vehicleTypes && editedDriver.vehicleTypes.length > 0 
-          ? editedDriver.vehicleTypes[0] 
-          : (editedDriver.vehicleType || ''),
+        vehicleType: editedDriver.vehicleType || '',
         cdlLicense: editedDriver.cdlLicense || '',
         cdlExpiry: editedDriver.cdlExpiry || '',
         cdlLicenseUrl: editedDriver.cdlLicenseUrl || '',
@@ -232,12 +228,6 @@ export default function DriverProfile() {
   const handleInputChange = (field: keyof Driver, value: string) => {
     if (editedDriver) {
       setEditedDriver({ ...editedDriver, [field]: value });
-    }
-  };
-
-  const handleVehicleTypesChange = (selected: string[]) => {
-    if (editedDriver) {
-      setEditedDriver({ ...editedDriver, vehicleTypes: selected });
     }
   };
 
@@ -397,20 +387,11 @@ export default function DriverProfile() {
     return 'Green';
   };
 
-  const displayVehicleTypes = () => {
-    const types = driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []);
-    if (types.length === 0) return 'Not specified';
-    
-    return types.map(typeValue => {
-      const typeLabel = TRAILER_TYPES.find(t => t.value === typeValue)?.label;
-      return typeLabel || typeValue;
-    }).join(', ');
+  const displayVehicleType = () => {
+    if (!driver.vehicleType) return 'Not specified';
+    const typeLabel = TRAILER_TYPES.find(t => t.value === driver.vehicleType)?.label;
+    return typeLabel || driver.vehicleType;
   };
-
-  const vehicleTypeOptions: Option[] = TRAILER_TYPES.map(type => ({
-    label: type.label,
-    value: type.value
-  }));
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -490,14 +471,22 @@ export default function DriverProfile() {
                 />
               </div>
               <div>
-                <Label htmlFor="vehicleTypes">Trailer/Vehicle Types</Label>
-                <MultiSelect
-                  options={vehicleTypeOptions}
-                  selected={editedDriver.vehicleTypes || []}
-                  onChange={handleVehicleTypesChange}
-                  placeholder="Select vehicle types..."
-                />
-                <p className="text-xs text-muted-foreground mt-1">Select all types you operate</p>
+                <Label htmlFor="vehicleType">Trailer/Vehicle Type</Label>
+                <Select
+                  value={editedDriver.vehicleType || ''}
+                  onValueChange={(value) => handleInputChange('vehicleType', value)}
+                >
+                  <SelectTrigger id="vehicleType">
+                    <SelectValue placeholder="Select vehicle type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRAILER_TYPES.map((type) => (
+                      <SelectItem key={type.value} value={type.value}>
+                        {type.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="availability">Status</Label>
@@ -542,9 +531,9 @@ export default function DriverProfile() {
               <div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                   <Truck className="h-4 w-4" />
-                  <span>Trailer/Vehicle Types</span>
+                  <span>Trailer/Vehicle Type</span>
                 </div>
-                <p className="font-medium">{displayVehicleTypes()}</p>
+                <p className="font-medium">{displayVehicleType()}</p>
               </div>
               <div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
