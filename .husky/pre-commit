@@ -23,12 +23,23 @@ fi
 # Validate package.json is valid JSON
 echo "Validating package.json..."
 if [ -f "package.json" ]; then
-    if ! cat package.json | python3 -m json.tool > /dev/null 2>&1; then
-        echo -e "${RED}❌ COMMIT BLOCKED: package.json is not valid JSON!${NC}"
-        echo ""
-        echo "Run this to see the error:"
-        echo "  cat package.json | python3 -m json.tool"
-        exit 1
+    # Try node first, fall back to python3
+    if command -v node &> /dev/null; then
+        if ! node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf-8'))" 2>/dev/null; then
+            echo -e "${RED}❌ COMMIT BLOCKED: package.json is not valid JSON!${NC}"
+            echo ""
+            echo "Run this to see the error:"
+            echo "  node -e \"JSON.parse(require('fs').readFileSync('package.json', 'utf-8'))\""
+            exit 1
+        fi
+    elif command -v python3 &> /dev/null; then
+        if ! cat package.json | python3 -m json.tool > /dev/null 2>&1; then
+            echo -e "${RED}❌ COMMIT BLOCKED: package.json is not valid JSON!${NC}"
+            echo ""
+            echo "Run this to see the error:"
+            echo "  cat package.json | python3 -m json.tool"
+            exit 1
+        fi
     fi
 fi
 
