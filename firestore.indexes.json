@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "matches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "driverOwnerId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "tlas",
       "queryScope": "COLLECTION",
       "fields": [
