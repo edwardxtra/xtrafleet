@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
   try {
     // Dynamic imports to prevent build-time initialization
     const Stripe = (await import('stripe')).default;
-    const { adminDb } = await import('@/firebase-admin');
+    const { adminDb } = await import('@/lib/firebase-admin');
     
     if (!process.env.STRIPE_SECRET_KEY) {
       throw new Error('STRIPE_SECRET_KEY is not set');
