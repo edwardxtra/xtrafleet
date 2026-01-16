@@ -28,7 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from "@/components/logo";
-import { Home, Users, Truck, LogOut, Loader2, FileText, Link2, Shield, ClipboardList, Package, Settings } from "lucide-react";
+import { Home, Users, Truck, LogOut, Loader2, FileText, Link2, Shield, ClipboardList, Package, Settings, CreditCard } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
@@ -71,6 +71,9 @@ function AdminSidebarNav({ onSignOutClick }: { onSignOutClick: () => void }) {
           </SidebarMenuItem>
           <SidebarMenuItem>
             <AdminSidebarNavLink href="/admin/audit" tooltip="Audit Log"><ClipboardList /><span>Audit Log</span></AdminSidebarNavLink>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <AdminSidebarNavLink href="/admin/billing" tooltip="Users & Billing"><CreditCard /><span>Users & Billing</span></AdminSidebarNavLink>
           </SidebarMenuItem>
         </SidebarMenu>
         <Separator className="my-2" />
