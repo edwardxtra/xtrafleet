@@ -213,6 +213,11 @@ export default function MessagesPage() {
           <CardTitle className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
             Messages
+            {conversations.length > 0 && (
+              <Badge variant="secondary" className="ml-auto">
+                {conversations.length}
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -220,7 +225,7 @@ export default function MessagesPage() {
             {conversations.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 text-center p-4">
                 <MessageSquare className="h-12 w-12 text-muted-foreground mb-2" />
-                <p className="text-muted-foreground">No conversations yet</p>
+                <p className="text-muted-foreground font-medium">No conversations yet</p>
                 <p className="text-sm text-muted-foreground mt-1">
                   Messages will appear here when you match with other operators
                 </p>
@@ -358,7 +363,7 @@ export default function MessagesPage() {
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-              <p className="text-muted-foreground">Select a conversation to start messaging</p>
+              <p className="text-muted-foreground font-medium">Select a conversation to start messaging</p>
             </div>
           </div>
         )}
