@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
-import { stripe } from '@/lib/stripe';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// Lazy import stripe to avoid build-time errors
+async function getStripe() {
+  const { stripe } = await import('@/lib/stripe');
+  return stripe;
+}
 
 export async function POST(request: NextRequest) {
   console.log('🔵 =====Match payment API called=====');
@@ -139,6 +144,7 @@ export async function POST(request: NextRequest) {
 
     // Create checkout session for $25 match fee
     console.log('🔵 Creating Stripe checkout session...');
+    const stripe = await getStripe();
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
