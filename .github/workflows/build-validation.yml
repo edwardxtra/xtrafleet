@@ -1,0 +1,44 @@
+name: Build Validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Check for merge conflict markers
+      run: |
+        echo "Checking for merge conflict markers..."
+        if grep -r "^<<<<<<< \|^=======\$\|^>>>>>>> " --include="*.js" --include="*.ts" --include="*.tsx" --include="*.jsx" --include="*.json" .; then
+          echo "ERROR: Merge conflict markers found!"
+          exit 1
+        fi
+        echo "No merge conflict markers found"
+        
+    - name: Validate package.json
+      run: |
+        echo "Validating package.json..."
+        cat package.json | python3 -m json.tool > /dev/null
+        echo "package.json is valid JSON"
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run build
+      run: npm run build
+      env:
+        CI: true
