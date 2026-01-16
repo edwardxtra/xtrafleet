@@ -98,7 +98,7 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
                 </SidebarNavLink>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarNavLink href="/dashboard/admin/billing" tooltip="Billing & Subscriptions">
+                <SidebarNavLink href="/admin/billing" tooltip="Billing & Subscriptions">
                   <CreditCard className="text-red-500" /><span className="text-red-500 font-medium">Admin Billing</span>
                 </SidebarNavLink>
               </SidebarMenuItem>

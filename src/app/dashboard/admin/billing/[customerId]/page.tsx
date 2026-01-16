@@ -319,7 +319,7 @@ export default function CustomerBillingPage() {
       <div className="flex items-center justify-between">
         <div>
           <Button variant="ghost" size="sm" asChild className="mb-2">
-            <Link href="/dashboard/admin/billing">
+            <Link href="/admin/billing">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Customers
             </Link>

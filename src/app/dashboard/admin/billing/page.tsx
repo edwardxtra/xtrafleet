@@ -312,7 +312,7 @@ export default function AdminBillingPage() {
                             size="sm"
                             asChild
                           >
-                            <Link href={`/dashboard/admin/billing/${customer.id}`}>
+                            <Link href={`/admin/billing/${customer.id}`}>
                               Manage
                             </Link>
                           </Button>
