@@ -24,6 +24,8 @@ export default function MessagesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const [userHasScrolled, setUserHasScrolled] = useState(false);
 
   // Load conversations
   useEffect(() => {
@@ -65,6 +67,8 @@ export default function MessagesPage() {
       return;
     }
 
+    setUserHasScrolled(false); // Reset scroll flag when conversation changes
+
     const messagesRef = collection(firestore, `conversations/${selectedConversation.id}/messages`);
     const q = query(messagesRef);
 
@@ -87,7 +91,7 @@ export default function MessagesPage() {
     return () => unsubscribe();
   }, [firestore, selectedConversation]);
 
-  // CRITICAL FIX: Mark messages as read when messages change or conversation is selected
+  // Mark messages as read
   useEffect(() => {
     if (!firestore || !selectedConversation || !user?.uid || messages.length === 0) return;
 
@@ -98,8 +102,6 @@ export default function MessagesPage() {
 
       if (unreadMessages.length === 0) return;
 
-      console.log(`Marking ${unreadMessages.length} messages as read`);
-
       const batch = writeBatch(firestore);
 
       unreadMessages.forEach((msg) => {
@@ -107,7 +109,6 @@ export default function MessagesPage() {
         batch.update(msgRef, { read: true });
       });
 
-      // Update unread count in conversation
       const conversationRef = doc(firestore, `conversations/${selectedConversation.id}`);
       batch.update(conversationRef, {
         [`unreadCount.${user.uid}`]: 0
@@ -115,13 +116,11 @@ export default function MessagesPage() {
 
       try {
         await batch.commit();
-        console.log('✅ Messages marked as read');
       } catch (error) {
         console.error("Error marking messages as read:", error);
       }
     };
 
-    // Small delay to ensure we have the latest messages
     const timer = setTimeout(() => {
       markMessagesAsRead();
     }, 500);
@@ -129,16 +128,29 @@ export default function MessagesPage() {
     return () => clearTimeout(timer);
   }, [firestore, selectedConversation, user?.uid, messages]);
 
-  // Scroll to bottom when messages change
+  // Bug #11 Fix: Only auto-scroll when user hasn't manually scrolled or when they send a message
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (!userHasScrolled && messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, userHasScrolled]);
+
+  // Detect manual scrolling
+  const handleScroll = () => {
+    if (scrollAreaRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollAreaRef.current;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+      setUserHasScrolled(!isAtBottom);
+    }
+  };
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageText.trim() || !selectedConversation || !firestore || !user?.uid) return;
 
     setIsSending(true);
+    setUserHasScrolled(false); // Auto-scroll when user sends a message
+    
     try {
       const messagesRef = collection(firestore, `conversations/${selectedConversation.id}/messages`);
       
@@ -150,7 +162,6 @@ export default function MessagesPage() {
         read: false,
       });
 
-      // Update conversation's last message
       const conversationRef = doc(firestore, `conversations/${selectedConversation.id}`);
       const otherParticipantId = selectedConversation.participants.find(id => id !== user.uid);
       
@@ -259,7 +270,8 @@ export default function MessagesPage() {
                       </div>
                     </button>
                   );
-                })}\n              </div>
+                })}
+              </div>
             )}
           </ScrollArea>
         </CardContent>
@@ -288,7 +300,11 @@ export default function MessagesPage() {
               </div>
             </CardHeader>
 
-            <ScrollArea className="flex-1 p-4">
+            <ScrollArea 
+              className="flex-1 p-4" 
+              ref={scrollAreaRef}
+              onScroll={handleScroll}
+            >
               <div className="space-y-4">
                 {messages.map((message) => {
                   const isOwnMessage = message.senderId === user?.uid;
