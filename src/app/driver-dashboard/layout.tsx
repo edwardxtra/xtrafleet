@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useUser, useAuth, useFirestore } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { useTheme } from 'next-themes';
 import {
   SidebarProvider,
   Sidebar,
@@ -29,9 +30,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from '@/components/logo';
-import { Home, User, History, LogOut, Settings, Loader2 } from 'lucide-react';
+import { Home, User, History, LogOut, Settings, Loader2, Moon, Sun } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
-// Custom link component that closes sidebar on mobile when clicked
 function SidebarNavLink({ 
   href, 
   children, 
@@ -60,7 +61,6 @@ function SidebarNavLink({
   );
 }
 
-// Sidebar content needs to be inside SidebarProvider to access useSidebar
 function SidebarNav({ onSignOutClick }: { onSignOutClick: () => void }) {
   const { setOpenMobile, isMobile } = useSidebar();
 
@@ -116,6 +116,34 @@ function SidebarNav({ onSignOutClick }: { onSignOutClick: () => void }) {
         </SidebarMenu>
       </SidebarFooter>
     </>
+  );
+}
+
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return <Button variant="ghost" size="icon"><Moon className="h-5 w-5" /></Button>;
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+    >
+      {theme === 'dark' ? (
+        <Sun className="h-5 w-5" />
+      ) : (
+        <Moon className="h-5 w-5" />
+      )}
+    </Button>
   );
 }
 
@@ -197,10 +225,11 @@ export default function DriverDashboardLayout({
 
       <SidebarInset>
         <header className="flex h-14 items-center justify-between border-b bg-background px-4">
-          <SidebarTrigger className="md:hidden" />
-          <div className="ml-4">
+          <div className="flex items-center gap-2">
+            <SidebarTrigger className="md:hidden" />
             <h1 className="text-lg font-semibold">Driver Dashboard</h1>
           </div>
+          <ThemeToggle />
         </header>
 
         <main className="flex-1 overflow-auto p-4 md:p-6">
@@ -208,7 +237,6 @@ export default function DriverDashboardLayout({
         </main>
       </SidebarInset>
 
-      {/* Logout Confirmation Dialog */}
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
