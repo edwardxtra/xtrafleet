@@ -26,6 +26,7 @@ export default function MessagesPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
+  const [hasLoadedInitially, setHasLoadedInitially] = useState(false);
 
   // Load conversations
   useEffect(() => {
@@ -68,6 +69,7 @@ export default function MessagesPage() {
     }
 
     setUserHasScrolled(false); // Reset scroll flag when conversation changes
+    setHasLoadedInitially(false); // Reset initial load flag
 
     const messagesRef = collection(firestore, `conversations/${selectedConversation.id}/messages`);
     const q = query(messagesRef);
@@ -81,6 +83,11 @@ export default function MessagesPage() {
         });
         msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         setMessages(msgs);
+        
+        // Mark as loaded after first snapshot
+        if (!hasLoadedInitially) {
+          setHasLoadedInitially(true);
+        }
       },
       (error) => {
         console.error("Error loading messages:", error);
@@ -128,12 +135,13 @@ export default function MessagesPage() {
     return () => clearTimeout(timer);
   }, [firestore, selectedConversation, user?.uid, messages]);
 
-  // Bug #11 Fix: Only auto-scroll when user hasn't manually scrolled or when they send a message
+  // Bug #11 Fix: Only auto-scroll on initial load or when user sends a message
   useEffect(() => {
-    if (!userHasScrolled && messages.length > 0) {
+    // Only scroll if: (1) haven't loaded initially yet, OR (2) user hasn't manually scrolled
+    if (messages.length > 0 && (!hasLoadedInitially || !userHasScrolled)) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, userHasScrolled]);
+  }, [messages, hasLoadedInitially, userHasScrolled]);
 
   // Detect manual scrolling
   const handleScroll = () => {
