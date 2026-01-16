@@ -25,8 +25,9 @@ import {
 } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, DollarSign, CreditCard, Receipt, RefreshCw, Download, AlertCircle } from 'lucide-react';
+import { Loader2, DollarSign, CreditCard, Receipt, RefreshCw, Download, AlertCircle, FileDown } from 'lucide-react';
 import { RefundModal } from './refund-modal';
+import { exportOwnerOperatorBilling } from '@/lib/billing-export';
 import { toast } from 'sonner';
 
 interface OwnerOperator {
@@ -177,6 +178,11 @@ export function BillingDetailModal({ open, onOpenChange, ownerOperator }: Billin
   const handleRefund = (payment: Payment) => {
     setSelectedPayment(payment);
     setShowRefundModal(true);
+  };
+
+  const handleExportBilling = () => {
+    exportOwnerOperatorBilling(payments, ownerOperator);
+    toast.success('Billing history exported successfully');
   };
 
   const totalRevenue = payments
@@ -369,8 +375,21 @@ export function BillingDetailModal({ open, onOpenChange, ownerOperator }: Billin
             <TabsContent value="payments" className="space-y-4 mt-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Payment History</CardTitle>
-                  <CardDescription>All transactions for this user</CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Payment History</CardTitle>
+                      <CardDescription>All transactions for this user</CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportBilling}
+                      disabled={payments.length === 0}
+                    >
+                      <FileDown className="h-4 w-4 mr-2" />
+                      Export CSV
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {loading ? (
