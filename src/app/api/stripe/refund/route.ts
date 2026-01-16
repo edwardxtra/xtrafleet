@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
-import { adminDb } from '@/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-12-18.acacia',
-});
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    // Dynamic imports to prevent build-time initialization
+    const Stripe = (await import('stripe')).default;
+    const { adminDb } = await import('@/firebase-admin');
+    
+    if (!process.env.STRIPE_SECRET_KEY) {
+      throw new Error('STRIPE_SECRET_KEY is not set');
+    }
+    
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2024-12-18.acacia',
+    });
+    
     const { paymentId, reason, details, ownerOperatorId } = await request.json();
 
     if (!paymentId || !reason || !details || !ownerOperatorId) {
