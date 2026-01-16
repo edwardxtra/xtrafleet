@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo "🔍 Running pre-commit checks..."
+
+# Check for merge conflict markers in staged files
+echo "Checking for merge conflict markers..."
+if git diff --cached --name-only | xargs grep -l "^<<<<<<< \|^=======$\|^>>>>>>> " 2>/dev/null; then
+    echo -e "${RED}❌ COMMIT BLOCKED: Merge conflict markers found!${NC}"
+    echo -e "${YELLOW}Files with conflicts:${NC}"
+    git diff --cached --name-only | xargs grep -l "^<<<<<<< \|^=======$\|^>>>>>>> " 2>/dev/null
+    echo ""
+    echo "Please resolve all conflicts before committing."
+    echo "Look for lines with: <<<<<<<, =======, >>>>>>>"
+    exit 1
+fi
+
+# Validate package.json is valid JSON
+echo "Validating package.json..."
+if [ -f "package.json" ]; then
+    if ! cat package.json | python3 -m json.tool > /dev/null 2>&1; then
+        echo -e "${RED}❌ COMMIT BLOCKED: package.json is not valid JSON!${NC}"
+        echo ""
+        echo "Run this to see the error:"
+        echo "  cat package.json | python3 -m json.tool"
+        exit 1
+    fi
+fi
+
+# Check if package.json and package-lock.json are in sync
+echo "Checking package.json and package-lock.json sync..."
+if [ -f "package.json" ] && [ -f "package-lock.json" ]; then
+    # Simple check: ensure both are staged together if either is modified
+    PACKAGE_JSON_STAGED=$(git diff --cached --name-only | grep "^package.json$")
+    PACKAGE_LOCK_STAGED=$(git diff --cached --name-only | grep "^package-lock.json$")
+    
+    if [ -n "$PACKAGE_JSON_STAGED" ] && [ -z "$PACKAGE_LOCK_STAGED" ]; then
+        echo -e "${YELLOW}⚠️  WARNING: package.json modified but package-lock.json not staged${NC}"
+        echo "This might cause build issues. Consider running:"
+        echo "  npm install"
+        echo "  git add package-lock.json"
+        echo ""
+        read -p "Continue anyway? (y/N) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+fi
+
+# Check for common debug code that shouldn't be committed
+echo "Checking for debug code..."
+FORBIDDEN_PATTERNS=(
+    "console.log"
+    "debugger;"
+    "TODO:"
+    "FIXME:"
+)
+
+for pattern in "${FORBIDDEN_PATTERNS[@]}"; do
+    if git diff --cached | grep -q "$pattern"; then
+        echo -e "${YELLOW}⚠️  WARNING: Found '$pattern' in staged changes${NC}"
+    fi
+done
+
+echo -e "${GREEN}✅ Pre-commit checks passed!${NC}"
+exit 0
