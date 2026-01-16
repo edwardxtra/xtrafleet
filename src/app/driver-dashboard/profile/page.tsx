@@ -4,7 +4,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useFirestore, useStorage } from '@/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -83,7 +83,6 @@ export default function DriverProfile() {
   const [isOnline, setIsOnline] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Network status detection
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -169,6 +168,7 @@ export default function DriverProfile() {
     setEditedDriver(driver);
   };
 
+  // BUG #2 FIX: Use setDoc with merge instead of updateDoc
   const handleSave = async () => {
     if (!editedDriver || !db || !ownerId || !user) return;
 
@@ -181,36 +181,43 @@ export default function DriverProfile() {
     try {
       const driverRef = doc(db, 'owner_operators', ownerId, 'drivers', user.uid);
       
-      // Build update object - only include fields that have values
+      // Build complete driver object
       const updateData: any = {
+        id: user.uid,
+        email: editedDriver.email || user.email,
+        name: editedDriver.name || '',
+        location: editedDriver.location || '',
+        availability: editedDriver.availability || 'Available',
+        vehicleTypes: editedDriver.vehicleTypes || [],
+        vehicleType: editedDriver.vehicleTypes && editedDriver.vehicleTypes.length > 0 
+          ? editedDriver.vehicleTypes[0] 
+          : (editedDriver.vehicleType || ''),
+        cdlLicense: editedDriver.cdlLicense || '',
+        cdlExpiry: editedDriver.cdlExpiry || '',
+        cdlLicenseUrl: editedDriver.cdlLicenseUrl || '',
+        cdlDocumentUrl: editedDriver.cdlDocumentUrl || '',
+        medicalCardExpiry: editedDriver.medicalCardExpiry || '',
+        medicalCardUrl: editedDriver.medicalCardUrl || '',
+        insuranceExpiry: editedDriver.insuranceExpiry || '',
+        insuranceUrl: editedDriver.insuranceUrl || '',
+        motorVehicleRecordNumber: editedDriver.motorVehicleRecordNumber || '',
+        mvrUrl: editedDriver.mvrUrl || '',
+        backgroundCheckDate: editedDriver.backgroundCheckDate || '',
+        backgroundCheckUrl: editedDriver.backgroundCheckUrl || '',
+        preEmploymentScreeningDate: editedDriver.preEmploymentScreeningDate || '',
+        preEmploymentScreeningUrl: editedDriver.preEmploymentScreeningUrl || '',
+        drugAndAlcoholScreeningDate: editedDriver.drugAndAlcoholScreeningDate || '',
+        drugAndAlcoholScreeningUrl: editedDriver.drugAndAlcoholScreeningUrl || '',
         updatedAt: new Date().toISOString(),
       };
-      
-      // Basic fields - allow empty strings
-      if (editedDriver.name !== undefined) updateData.name = editedDriver.name;
-      if (editedDriver.location !== undefined) updateData.location = editedDriver.location;
-      if (editedDriver.availability !== undefined) updateData.availability = editedDriver.availability;
-      
-      // Vehicle types - multi-select array
-      if (editedDriver.vehicleTypes && editedDriver.vehicleTypes.length > 0) {
-        updateData.vehicleTypes = editedDriver.vehicleTypes;
-        // Keep vehicleType for backward compatibility (first selected type)
-        updateData.vehicleType = editedDriver.vehicleTypes[0];
-      }
-      
-      // Optional fields - only add if they have values
-      if (editedDriver.cdlLicense) updateData.cdlLicense = editedDriver.cdlLicense;
-      if (editedDriver.cdlExpiry) updateData.cdlExpiry = editedDriver.cdlExpiry;
-      if (editedDriver.medicalCardExpiry) updateData.medicalCardExpiry = editedDriver.medicalCardExpiry;
-      if (editedDriver.insuranceExpiry) updateData.insuranceExpiry = editedDriver.insuranceExpiry;
-      if (editedDriver.motorVehicleRecordNumber) updateData.motorVehicleRecordNumber = editedDriver.motorVehicleRecordNumber;
-      if (editedDriver.backgroundCheckDate) updateData.backgroundCheckDate = editedDriver.backgroundCheckDate;
-      if (editedDriver.preEmploymentScreeningDate) updateData.preEmploymentScreeningDate = editedDriver.preEmploymentScreeningDate;
-      if (editedDriver.drugAndAlcoholScreeningDate) updateData.drugAndAlcoholScreeningDate = editedDriver.drugAndAlcoholScreeningDate;
 
-      await updateDoc(driverRef, updateData);
+      // Use setDoc with merge to ensure document is created/updated
+      await setDoc(driverRef, updateData, { merge: true });
 
-      setDriver(editedDriver);
+      // Update local state
+      const updatedDriver = { ...editedDriver, ...updateData };
+      setDriver(updatedDriver);
+      setEditedDriver(updatedDriver);
       setIsEditing(false);
       showSuccess('Your profile has been updated successfully.');
     } catch (error) {
@@ -276,16 +283,15 @@ export default function DriverProfile() {
         const downloadURL = await getDownloadURL(storageRef);
         
         const driverRef = doc(db, 'owner_operators', ownerId, 'drivers', user.uid);
-        await updateDoc(driverRef, {
+        await setDoc(driverRef, {
           [fieldName]: downloadURL,
           updatedAt: new Date().toISOString(),
-        });
+        }, { merge: true });
         
         if (editedDriver) {
-          setEditedDriver({ ...editedDriver, [fieldName]: downloadURL });
-        }
-        if (driver) {
-          setDriver({ ...driver, [fieldName]: downloadURL });
+          const updated = { ...editedDriver, [fieldName]: downloadURL };
+          setEditedDriver(updated);
+          setDriver(updated);
         }
         
         showSuccess(`${docType} uploaded successfully!`);
@@ -354,9 +360,9 @@ export default function DriverProfile() {
   };
 
   const getStatusColor = (status: 'Green' | 'Yellow' | 'Red') => {
-    if (status === 'Green') return 'bg-green-50 border-green-200';
-    if (status === 'Yellow') return 'bg-yellow-50 border-yellow-200';
-    return 'bg-red-50 border-red-200';
+    if (status === 'Green') return 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800';
+    if (status === 'Yellow') return 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950 dark:border-yellow-800';
+    return 'bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800';
   };
 
   const getItemStatus = (item: ComplianceItem): 'Green' | 'Yellow' | 'Red' => {
@@ -391,7 +397,6 @@ export default function DriverProfile() {
     return 'Green';
   };
 
-  // Get vehicle types for display  
   const displayVehicleTypes = () => {
     const types = driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []);
     if (types.length === 0) return 'Not specified';
@@ -402,7 +407,6 @@ export default function DriverProfile() {
     }).join(', ');
   };
 
-  // Convert TRAILER_TYPES to MultiSelect options format
   const vehicleTypeOptions: Option[] = TRAILER_TYPES.map(type => ({
     label: type.label,
     value: type.value
@@ -427,7 +431,6 @@ export default function DriverProfile() {
         />
       )}
 
-      {/* Profile Information Card */}
       <Card className="mb-6" data-document-section>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -473,7 +476,7 @@ export default function DriverProfile() {
                   id="email"
                   value={editedDriver.email || ''}
                   disabled
-                  className="bg-gray-50"
+                  className="bg-gray-50 dark:bg-gray-900"
                 />
                 <p className="text-xs text-muted-foreground mt-1">Email cannot be changed</p>
               </div>
@@ -590,25 +593,25 @@ export default function DriverProfile() {
               </Badge>
             </div>
             <div className="border-t pt-3">
-              <p className="text-sm text-gray-600 mb-2">Quick Stats</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Quick Stats</p>
               <div className="grid grid-cols-3 gap-4 text-center">
                 <div>
-                  <p className="text-2xl font-bold text-green-600">
+                  <p className="text-2xl font-bold text-green-600 dark:text-green-500">
                     {complianceItems.filter(item => getItemStatus(item) === 'Green').length}
                   </p>
-                  <p className="text-xs text-gray-600">Valid</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Valid</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-yellow-600">
+                  <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-500">
                     {complianceItems.filter(item => getItemStatus(item) === 'Yellow').length}
                   </p>
-                  <p className="text-xs text-gray-600">Expiring</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Expiring</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-red-600">
+                  <p className="text-2xl font-bold text-red-600 dark:text-red-500">
                     {complianceItems.filter(item => getItemStatus(item) === 'Red').length}
                   </p>
-                  <p className="text-xs text-gray-600">Issues</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Issues</p>
                 </div>
               </div>
             </div>
@@ -813,26 +816,26 @@ export default function DriverProfile() {
               {complianceItems.map((item, index) => {
                 const status = getItemStatus(item);
                 return (
-                  <div key={index} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                  <div key={index} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors">
                     <div className="flex items-center gap-3 flex-1">
                       {getStatusIcon(status)}
                       <div className="flex-1">
                         <p className="font-medium">{item.label}</p>
                         {item.value && item.type === 'expiry' && (
-                          <p className="text-sm text-gray-600">
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
                             Expires: {format(parseISO(item.value), 'MMM dd, yyyy')}
                           </p>
                         )}
                         {item.value && item.type === 'screening' && (
-                          <p className="text-sm text-gray-600">
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
                             Completed: {format(parseISO(item.value), 'MMM dd, yyyy')}
                           </p>
                         )}
                         {item.value && item.type === 'field' && (
-                          <p className="text-sm text-gray-600">Provided</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">Provided</p>
                         )}
                         {!item.value && (
-                          <p className="text-sm text-red-600">Missing</p>
+                          <p className="text-sm text-red-600 dark:text-red-500">Missing</p>
                         )}
                       </div>
                     </div>
