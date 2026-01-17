@@ -69,7 +69,7 @@ export default function Home() {
               <Button asChild size="lg" variant="accent" className="text-lg px-8 py-6 shadow-xl hover:shadow-2xl transition-shadow">
                 <Link href="/register">Get Started Free</Link>
               </Button>
-              <p className="text-sm text-white/70 mt-3">No credit card required • 14-day free trial</p>
+              <p className="text-sm text-white/70 mt-3">No credit card required • 90-day free trial</p>
             </div>
           </div>
         </section>
