@@ -3,7 +3,6 @@ import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import Link from "next/link";
 import { CheckCircle, Clock, Shield } from "lucide-react";
-import { TestimonialsSection } from "@/components/testimonials-section";
 import { PricingSection } from "@/components/pricing-section";
 
 function StatCard({ number, label }: { number: string; label: string }) {
@@ -113,9 +112,6 @@ export default function Home() {
             </div>
           </div>
         </section>
-
-        {/* Testimonials Section */}
-        <TestimonialsSection />
 
         {/* Pricing Section */}
         <PricingSection />
