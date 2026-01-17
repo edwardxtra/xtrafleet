@@ -20,7 +20,7 @@ export function Logo({
     >
       {variant === "full" ? (
         <Image
-          src="/images/xtrafleet-logo.png"
+          src="/images/xtrafleet-logo.svg"
           alt="XtraFleet"
           width={200}
           height={50}
@@ -29,7 +29,7 @@ export function Logo({
         />
       ) : (
         <Image
-          src="/images/xtrafleet-logomark.png"
+          src="/images/xtrafleet-icon.svg"
           alt="XtraFleet"
           width={40}
           height={40}
