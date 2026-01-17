@@ -8,8 +8,8 @@ export const metadata: Metadata = {
   description: 'Compliance-first driver management for owner-operators',
   manifest: '/manifest.json',
   icons: {
-    icon: '/icons/icon.svg',
-    apple: '/icons/icon-192x192.svg',
+    icon: '/images/xtrafleet-logomark.png',
+    apple: '/images/xtrafleet-logomark.png',
   },
   appleWebApp: {
     capable: true,
@@ -24,16 +24,18 @@ export const metadata: Metadata = {
     siteName: 'XtraFleet',
     title: 'XtraFleet - Driver Management Platform',
     description: 'Compliance-first driver management for owner-operators',
+    images: ['/images/xtrafleet-logo.png'],
   },
   twitter: {
     card: 'summary',
     title: 'XtraFleet - Driver Management Platform',
     description: 'Compliance-first driver management for owner-operators',
+    images: ['/images/xtrafleet-logo.png'],
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#4F46E5',
+  themeColor: '#1A9BAA',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -53,12 +55,12 @@ export default async function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
         
         {/* PWA Meta Tags */}
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.svg" />
+        <link rel="apple-touch-icon" href="/images/xtrafleet-logomark.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="XtraFleet" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="msapplication-TileColor" content="#4F46E5" />
+        <meta name="msapplication-TileColor" content="#1A9BAA" />
         <meta name="msapplication-tap-highlight" content="no" />
         
         {/* Dark mode script - runs before render to prevent flash */}
