@@ -1,0 +1,1 @@
+data:image/jpeg;base64,$(cat /tmp/logo.b64)
