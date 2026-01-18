@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAuthenticatedUser, initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
-import admin from 'firebase-admin';
 import { handleError } from '@/lib/api-utils';
 import { Resend } from 'resend';
 
@@ -86,13 +85,13 @@ export async function POST(req: NextRequest) {
 
     console.log(`[API /add-new-driver POST] Creating invitation token: ${invitationToken}`);
 
-    // Save invitation to Firestore
+    // Save invitation to Firestore - FIXED: Use firestore instance methods
     await firestore.collection('driver_invitations').doc(invitationToken).set({
       email: email,
       ownerId: ownerOperatorId,
       ownerCompanyName: companyName,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+      createdAt: firestore.FieldValue.serverTimestamp(),
+      expiresAt: firestore.Timestamp.fromDate(expiresAt),
       status: 'pending',
     });
 
