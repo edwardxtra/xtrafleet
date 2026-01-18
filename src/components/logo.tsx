@@ -24,7 +24,7 @@ export function Logo({
           alt="XtraFleet"
           width={1200}
           height={250}
-          className="h-8 w-auto"
+          className="h-10 w-auto"
           priority
         />
       ) : (
@@ -33,7 +33,7 @@ export function Logo({
           alt="XtraFleet"
           width={800}
           height={800}
-          className="h-8 w-8"
+          className="h-10 w-10"
           priority
         />
       )}
