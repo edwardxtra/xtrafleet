@@ -36,6 +36,16 @@ jobs:
         env:
           CI: true
 
+      - name: Validate Firebase service account secret
+        run: |
+          if [ -z "${{ secrets.FIREBASE_SERVICE_ACCOUNT_STUDIO_5112915880_E9CA2 }}" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT_STUDIO_5112915880_E9CA2 secret is not set!"
+            echo "Please add the Firebase service account JSON to GitHub Secrets."
+            echo "See: https://github.com/FirebaseExtended/action-hosting-deploy#setup"
+            exit 1
+          fi
+          echo "Firebase service account secret is configured"
+
       - name: Deploy preview to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0.9.0
         with:
