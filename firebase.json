@@ -11,8 +11,7 @@
     ],
     "cleanUrls": true,
     "frameworksBackend": {
-      "region": "us-central1",
-      "runtime": "nodejs20"
+      "region": "us-central1"
     }
   },
   "storage": {
