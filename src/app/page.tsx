@@ -69,7 +69,7 @@ export default function Home() {
               <Button asChild size="lg" variant="accent" className="text-lg px-8 py-6 shadow-xl hover:shadow-2xl transition-shadow">
                 <Link href="/register">Get Started Free</Link>
               </Button>
-              <p className="text-sm text-white/70 mt-3">No credit card required • 90-day free trial</p>
+              <p className="text-sm text-white/70 mt-3">No credit card required • 90-Day Free Trial</p>
             </div>
           </div>
         </section>
@@ -120,6 +120,7 @@ export default function Home() {
       <footer className="py-6 px-6 md:px-10 border-t bg-muted">
         <div className="container mx-auto text-center text-muted-foreground text-sm">
           &copy; {new Date().getFullYear()} XtraFleet. All rights reserved.
+          <span className="ml-2 opacity-50">• v1.0.1 • Deployed {new Date().toLocaleDateString()}</span>
         </div>
       </footer>
     </div>
