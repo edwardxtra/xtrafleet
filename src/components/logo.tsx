@@ -15,10 +15,10 @@ function LogoFull({ className }: { className?: string }) {
         {/* Blue top chevron - brand color */}
         <path d="M115 110 L20 15 L55 15 L115 75 L175 15 L210 15 L115 110 Z" fill="#1E9BD7"/>
         {/* Bottom chevron - adapts to theme */}
-        <path d="M115 130 L20 225 L55 225 L115 165 L175 225 L210 225 L115 130 Z" fill="currentColor"/>
+        <path d="M115 130 L20 225 L55 225 L115 165 L175 225 L210 225 L115 130 Z" className="fill-gray-900 dark:fill-white"/>
       </g>
       {/* "traFleet" text - adapts to theme */}
-      <text x="220" y="170" fontFamily="Arial, Helvetica, sans-serif" fontSize="140" fontWeight="700" fill="currentColor" letterSpacing="-3">
+      <text x="220" y="170" fontFamily="Arial, Helvetica, sans-serif" fontSize="140" fontWeight="700" className="fill-gray-900 dark:fill-white" letterSpacing="-3">
         traFleet
       </text>
     </svg>
@@ -37,7 +37,7 @@ function LogoIcon({ className }: { className?: string }) {
       {/* Blue top chevron - brand color */}
       <path d="M400 380 L100 80 L180 80 L400 300 L620 80 L700 80 L400 380 Z" fill="#1E9BD7"/>
       {/* Bottom chevron - adapts to theme */}
-      <path d="M400 420 L100 720 L180 720 L400 500 L620 720 L700 720 L400 420 Z" fill="currentColor"/>
+      <path d="M400 420 L100 720 L180 720 L400 500 L620 720 L700 720 L400 420 Z" className="fill-gray-900 dark:fill-white"/>
     </svg>
   );
 }
@@ -54,7 +54,7 @@ export function Logo({
   const content = (
     <div
       className={cn(
-        "flex items-center transition-opacity hover:opacity-80 text-gray-900 dark:text-white",
+        "flex items-center transition-opacity hover:opacity-80",
         className
       )}
     >
