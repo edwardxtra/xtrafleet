@@ -8,12 +8,7 @@ env:
   - variable: NEXT_PUBLIC_APP_URL
     value: https://xtrafleet.com
 
-  # Firebase Admin SDK - Option 1: Full service account JSON (recommended)
-  # Create a secret named FIREBASE_SERVICE_ACCOUNT with the entire JSON content
-  - variable: FIREBASE_SERVICE_ACCOUNT
-    secret: FIREBASE_SERVICE_ACCOUNT
-
-  # Firebase Admin SDK - Option 2: Individual variables (fallback)
+  # Firebase Admin SDK - Individual variables
   - variable: FB_PROJECT_ID
     value: studio-5112915880-e9ca2
   - variable: FB_CLIENT_EMAIL
@@ -37,4 +32,3 @@ env:
     value: price_1SpDhVJkUn3hXOyqHesWbtho
   - variable: NEXT_PUBLIC_STRIPE_PRICE_ANNUAL
     value: price_1SpDi9JkUn3hXOyqHPI4bF5H
-
