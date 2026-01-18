@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import admin from 'firebase-admin';
 import { initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
+import { handleError } from '@/lib/api-utils';
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,8 +14,17 @@ export async function GET(request: NextRequest) {
     }
 
     // Initialize Firebase Admin
-    await initializeFirebaseAdmin();
-    const db = admin.firestore();
+    const adminApp = await initializeFirebaseAdmin();
+    if (!adminApp) {
+      console.error('[validate-invitation] Firebase Admin not initialized');
+      return handleError(
+        new Error('Firebase Admin not initialized'),
+        'Server configuration error. Please contact support.',
+        500
+      );
+    }
+
+    const db = adminApp.firestore();
 
     // Get invitation from Firestore
     const invitationDoc = await db.collection('driver_invitations').doc(token).get();
@@ -59,10 +68,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Validate invitation error:', error);
-    return NextResponse.json(
-      { error: 'Failed to validate invitation' },
-      { status: 500 }
-    );
+    console.error('[validate-invitation] Error:', error);
+    return handleError(error, 'Failed to validate invitation');
   }
 }
