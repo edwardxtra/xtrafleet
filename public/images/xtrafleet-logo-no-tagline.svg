@@ -5,12 +5,12 @@
   <g transform="translate(0, 10)">
     <!-- Blue top chevron (pointing down) -->
     <path d="M115 110 L20 15 L55 15 L115 75 L175 15 L210 15 L115 110 Z" fill="#1E9BD7"/>
-    <!-- Dark gray bottom chevron (pointing up) -->
-    <path d="M115 130 L20 225 L55 225 L115 165 L175 225 L210 225 L115 130 Z" fill="#333333"/>
+    <!-- White bottom chevron (pointing up) - visible in dark mode -->
+    <path d="M115 130 L20 225 L55 225 L115 165 L175 225 L210 225 L115 130 Z" fill="#FFFFFF"/>
   </g>
 
   <!-- "traFleet" text -->
-  <text x="220" y="170" font-family="Arial, Helvetica, sans-serif" font-size="140" font-weight="700" fill="#333333" letter-spacing="-3">
+  <text x="220" y="170" font-family="Arial, Helvetica, sans-serif" font-size="140" font-weight="700" fill="#FFFFFF" letter-spacing="-3">
     traFleet
   </text>
 </svg>

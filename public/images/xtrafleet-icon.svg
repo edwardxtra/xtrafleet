@@ -2,6 +2,6 @@
   <!-- XtraFleet X Logomark -->
   <!-- Blue top chevron (pointing down) -->
   <path d="M400 380 L100 80 L180 80 L400 300 L620 80 L700 80 L400 380 Z" fill="#1E9BD7"/>
-  <!-- Dark gray bottom chevron (pointing up) -->
-  <path d="M400 420 L100 720 L180 720 L400 500 L620 720 L700 720 L400 420 Z" fill="#333333"/>
+  <!-- White bottom chevron (pointing up) - visible in dark mode -->
+  <path d="M400 420 L100 720 L180 720 L400 500 L620 720 L700 720 L400 420 Z" fill="#FFFFFF"/>
 </svg>
