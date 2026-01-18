@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import admin from 'firebase-admin';
 import { initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
+import { handleError } from '@/lib/api-utils';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,9 +15,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await initializeFirebaseAdmin();
-    const auth = admin.auth();
-    const db = admin.firestore();
+    const adminApp = await initializeFirebaseAdmin();
+    if (!adminApp) {
+      console.error('[create-driver-account] Firebase Admin not initialized');
+      return handleError(
+        new Error('Firebase Admin not initialized'),
+        'Server configuration error. Please contact support.',
+        500
+      );
+    }
+
+    const auth = adminApp.auth();
+    const db = adminApp.firestore();
 
     // Create Firebase Auth user
     console.log('🔵 Creating Firebase user:', email);
@@ -34,12 +43,12 @@ export async function POST(request: NextRequest) {
     
     await driverDocRef.set({
       ...profileData,
-      id: userRecord.uid, // ADD THIS LINE - drivers list page needs it
+      id: userRecord.uid,
       ownerId: ownerId,
       email: email,
       status: 'active',
-      availability: 'Available', // ADD THIS LINE - set default availability
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      availability: 'Available',
+      createdAt: db.FieldValue.serverTimestamp(),
       userId: userRecord.uid,
     });
 
@@ -50,14 +59,14 @@ export async function POST(request: NextRequest) {
       email: email,
       ownerId: ownerId,
       driverId: userRecord.uid,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: db.FieldValue.serverTimestamp(),
     });
     console.log('✅ User role document created');
 
     // Mark invitation as used
     await db.collection('driver_invitations').doc(token).update({
       status: 'used',
-      usedAt: admin.firestore.FieldValue.serverTimestamp(),
+      usedAt: db.FieldValue.serverTimestamp(),
       driverId: userRecord.uid,
     });
 
@@ -70,9 +79,6 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('❌ Create driver account error:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to create account' },
-      { status: 500 }
-    );
+    return handleError(error, 'Failed to create account');
   }
 }
