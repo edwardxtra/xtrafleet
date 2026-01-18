@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
 import { handleError } from '@/lib/api-utils';
+import { FieldValue } from 'firebase-admin/firestore';
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
       email: email,
       status: 'active',
       availability: 'Available',
-      createdAt: db.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
       userId: userRecord.uid,
     });
 
@@ -59,14 +60,14 @@ export async function POST(request: NextRequest) {
       email: email,
       ownerId: ownerId,
       driverId: userRecord.uid,
-      createdAt: db.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     });
     console.log('✅ User role document created');
 
     // Mark invitation as used
     await db.collection('driver_invitations').doc(token).update({
       status: 'used',
-      usedAt: db.FieldValue.serverTimestamp(),
+      usedAt: FieldValue.serverTimestamp(),
       driverId: userRecord.uid,
     });
 
