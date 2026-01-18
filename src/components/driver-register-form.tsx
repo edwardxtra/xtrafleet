@@ -24,8 +24,6 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { useAuth } from "@/firebase";
 
 // Simplified schema - just the essentials to create account
 const quickProfileSchema = z.object({
@@ -49,7 +47,6 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
-  const auth = useAuth();
 
   const form = useForm<QuickProfileValues>({
     resolver: zodResolver(quickProfileSchema),
@@ -88,18 +85,13 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
         throw new Error(data.error || 'Failed to create account');
       }
 
-      // Auto-login the user
-      if (auth) {
-        await signInWithEmailAndPassword(auth, invitationEmail, password);
-      }
-
       toast({
         title: "Welcome to XtraFleet! 🎉",
-        description: "Your account has been created. Complete your profile to start receiving loads.",
+        description: "Your account has been created. Redirecting to login...",
       });
 
-      // Redirect directly to dashboard
-      router.push('/dashboard');
+      // Redirect to login page with email pre-filled
+      router.push(`/login?email=${encodeURIComponent(invitationEmail)}&message=Account created successfully. Please log in.`);
 
     } catch (error: any) {
       console.error('Failed to create driver profile:', error);
