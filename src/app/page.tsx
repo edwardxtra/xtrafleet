@@ -121,6 +121,7 @@ export default function Home() {
         <div className="container mx-auto text-center text-muted-foreground text-sm">
           &copy; {new Date().getFullYear()} XtraFleet. All rights reserved.
           <span className="ml-2 opacity-50">• v1.0.1 • Deployed {new Date().toLocaleDateString()}</span>
+          <span className="ml-2 text-green-600 font-semibold">• 🔍 PREVIEW ENVIRONMENT</span>
         </div>
       </footer>
     </div>
