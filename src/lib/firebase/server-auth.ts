@@ -2,6 +2,8 @@ import { cookies } from 'next/headers';
 import admin from 'firebase-admin';
 import type { DecodedIdToken, App } from 'firebase-admin/auth';
 
+const APP_NAME = 'xtrafleet-admin';
+
 /**
  * Initialize Firebase Admin SDK with comprehensive error handling.
  * Tries FIREBASE_SERVICE_ACCOUNT (full JSON) first, then falls back to individual vars.
@@ -9,8 +11,11 @@ import type { DecodedIdToken, App } from 'firebase-admin/auth';
  */
 export async function initializeFirebaseAdmin(): Promise<App | null> {
   // Return existing app if already initialized
-  if (admin.apps.length > 0) {
-    return admin.app();
+  try {
+    const existingApp = admin.app(APP_NAME);
+    return existingApp;
+  } catch (e) {
+    // App doesn't exist yet, continue to initialize
   }
 
   // Option 1: Try full service account JSON (recommended - avoids newline issues)
@@ -21,7 +26,7 @@ export async function initializeFirebaseAdmin(): Promise<App | null> {
       const app = admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
         databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`,
-      });
+      }, APP_NAME);
       console.log('✓ Firebase Admin SDK initialized with service account JSON');
       return app;
     } catch (error: any) {
@@ -61,7 +66,7 @@ export async function initializeFirebaseAdmin(): Promise<App | null> {
         privateKey: privateKey,
       }),
       databaseURL: `https://${process.env.FB_PROJECT_ID}.firebaseio.com`,
-    });
+    }, APP_NAME);
 
     console.log('✓ Firebase Admin SDK initialized with individual env vars');
     return app;
