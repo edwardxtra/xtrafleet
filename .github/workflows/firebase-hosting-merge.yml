@@ -38,6 +38,34 @@ jobs:
         env:
           CI: true
 
+      - name: Validate Firebase service account secret
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STUDIO_5112915880_E9CA2 }}
+        run: |
+          if [ -z "$FIREBASE_SA" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT_STUDIO_5112915880_E9CA2 secret is not set!"
+            exit 1
+          fi
+
+          # Check if it's valid JSON
+          echo "$FIREBASE_SA" | jq empty 2>/dev/null
+          if [ $? -ne 0 ]; then
+            echo "::error::Service account secret is not valid JSON!"
+            echo "First 3 chars (masked): $(echo "$FIREBASE_SA" | head -c 3 | sed 's/./*/g')"
+            echo "Length: ${#FIREBASE_SA} characters"
+            echo "Starts with '{': $(echo "$FIREBASE_SA" | head -c 1)"
+            echo "Please re-copy the entire JSON from the downloaded service account file."
+            exit 1
+          fi
+
+          # Verify it has required fields
+          if ! echo "$FIREBASE_SA" | jq -e '.project_id' > /dev/null 2>&1; then
+            echo "::error::Service account JSON is missing 'project_id' field!"
+            exit 1
+          fi
+
+          echo "Service account secret is valid JSON with project_id: $(echo "$FIREBASE_SA" | jq -r '.project_id')"
+
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0.9.0
         with:
@@ -46,4 +74,4 @@ jobs:
           channelId: live
           projectId: studio-5112915880-e9ca2
         env:
-         FIREBASE_CLI_EXPERIMENTS: webframeworks
+          FIREBASE_CLI_EXPERIMENTS: webframeworks
