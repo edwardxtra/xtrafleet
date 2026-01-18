@@ -16,9 +16,32 @@ function initializeAdmin() {
   try {
     console.log('🔵 Attempting Firebase Admin initialization...');
     console.log('🔵 Current apps count:', admin.apps.length);
-    console.log('🔵 Has FIREBASE_SERVICE_ACCOUNT:', !!process.env.FIREBASE_SERVICE_ACCOUNT);
     
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    // Check for individual environment variables (used in production)
+    const projectId = process.env.FB_PROJECT_ID;
+    const clientEmail = process.env.FB_CLIENT_EMAIL;
+    const privateKey = process.env.FB_PRIVATE_KEY;
+    
+    console.log('🔵 Environment check:');
+    console.log('  - FB_PROJECT_ID:', !!projectId);
+    console.log('  - FB_CLIENT_EMAIL:', !!clientEmail);
+    console.log('  - FB_PRIVATE_KEY:', !!privateKey);
+    
+    if (projectId && clientEmail && privateKey) {
+      console.log('🔵 Using individual environment variables');
+      
+      // Replace escaped newlines in private key
+      const formattedPrivateKey = privateKey.replace(/\\n/g, '\n');
+      
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId,
+          clientEmail,
+          privateKey: formattedPrivateKey,
+        }),
+      });
+      console.log('✅ Firebase Admin initialized with individual credentials');
+    } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
       console.log('🔵 Using FIREBASE_SERVICE_ACCOUNT from env');
       const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
       admin.initializeApp({
@@ -26,7 +49,7 @@ function initializeAdmin() {
       });
       console.log('✅ Firebase Admin initialized with service account');
     } else {
-      console.log('⚠️ No FIREBASE_SERVICE_ACCOUNT, using default credentials');
+      console.log('⚠️ No credentials found, using default credentials');
       // This will use Application Default Credentials (ADC)
       admin.initializeApp();
       console.log('✅ Firebase Admin initialized with default credentials');
