@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 384">
-  <rect width="384" height="384" rx="56" fill="#4F46E5"/>
-  <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold" font-size="168" fill="white">XF</text>
+  <rect width="384" height="384" rx="60" fill="white"/>
+  <path d="M192 184 L72 64 L100 64 L192 156 L284 64 L312 64 L192 184 Z" fill="#1E9BD7"/>
+  <path d="M192 200 L72 320 L100 320 L192 228 L284 320 L312 320 L192 200 Z" fill="#333333"/>
 </svg>

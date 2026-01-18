@@ -8,8 +8,8 @@ export const metadata: Metadata = {
   description: 'Compliance-first driver management for owner-operators',
   manifest: '/manifest.json',
   icons: {
-    icon: '/images/xtrafleet-logomark.png',
-    apple: '/images/xtrafleet-logomark.png',
+    icon: '/icons/icon.svg',
+    apple: '/icons/icon-192x192.svg',
   },
   appleWebApp: {
     capable: true,
@@ -24,18 +24,18 @@ export const metadata: Metadata = {
     siteName: 'XtraFleet',
     title: 'XtraFleet - Driver Management Platform',
     description: 'Compliance-first driver management for owner-operators',
-    images: ['/images/xtrafleet-logo.png'],
+    images: ['/images/xtrafleet-logo.svg'],
   },
   twitter: {
     card: 'summary',
     title: 'XtraFleet - Driver Management Platform',
     description: 'Compliance-first driver management for owner-operators',
-    images: ['/images/xtrafleet-logo.png'],
+    images: ['/images/xtrafleet-logo.svg'],
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#1A9BAA',
+  themeColor: '#1E9BD7',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -55,12 +55,12 @@ export default async function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
         
         {/* PWA Meta Tags */}
-        <link rel="apple-touch-icon" href="/images/xtrafleet-logomark.png" />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.svg" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="XtraFleet" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="msapplication-TileColor" content="#1A9BAA" />
+        <meta name="msapplication-TileColor" content="#1E9BD7" />
         <meta name="msapplication-tap-highlight" content="no" />
         
         {/* Dark mode script - runs before render to prevent flash */}
