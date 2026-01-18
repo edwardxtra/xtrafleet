@@ -1,4 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="80" fill="#4F46E5"/>
-  <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold" font-size="220" fill="white">XF</text>
+  <rect width="512" height="512" rx="80" fill="white"/>
+  <!-- XtraFleet X Logomark -->
+  <!-- Blue top chevron (pointing down) -->
+  <path d="M256 245 L96 85 L136 85 L256 205 L376 85 L416 85 L256 245 Z" fill="#1E9BD7"/>
+  <!-- Dark gray bottom chevron (pointing up) -->
+  <path d="M256 267 L96 427 L136 427 L256 307 L376 427 L416 427 L256 267 Z" fill="#333333"/>
 </svg>

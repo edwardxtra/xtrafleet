@@ -19,7 +19,7 @@ function emailTemplate(content: string): string {
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
         <div style="background-color: white; border-radius: 8px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
           <div style="text-align: center; margin-bottom: 32px;">
-            <img src="${APP_URL}/images/xtrafleet-logo.png" alt="XtraFleet" style="height: 40px; width: auto;" />
+            <img src="${APP_URL}/images/xtrafleet-logo-no-tagline.svg" alt="XtraFleet" style="height: 40px; width: auto;" />
           </div>
           ${content}
         </div>
@@ -33,7 +33,7 @@ function emailTemplate(content: string): string {
 }
 
 function buttonStyle(): string {
-  return 'display: inline-block; padding: 14px 28px; background-color: #1A9BAA; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;';
+  return 'display: inline-block; padding: 14px 28px; background-color: #1E9BD7; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;';
 }
 
 function secondaryButtonStyle(): string {
@@ -94,7 +94,7 @@ export async function sendOwnerRegistrationEmail(email: string, companyName: str
       </a>
     </div>
     
-    <p style="color: #6b7280; font-size: 14px;">Need help getting started? Check out our <a href="${APP_URL}/help" style="color: #1A9BAA;">Getting Started Guide</a>.</p>
+    <p style="color: #6b7280; font-size: 14px;">Need help getting started? Check out our <a href="${APP_URL}/help" style="color: #1E9BD7;">Getting Started Guide</a>.</p>
   `);
 
   return sendEmail(email, subject, html);
