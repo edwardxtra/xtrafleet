@@ -7,15 +7,23 @@ runConfig:
 env:
   - variable: NEXT_PUBLIC_APP_URL
     value: https://xtrafleet.com
+
+  # Firebase Admin SDK - Option 1: Full service account JSON (recommended)
+  # Create a secret named FIREBASE_SERVICE_ACCOUNT with the entire JSON content
+  - variable: FIREBASE_SERVICE_ACCOUNT
+    secret: FIREBASE_SERVICE_ACCOUNT
+
+  # Firebase Admin SDK - Option 2: Individual variables (fallback)
   - variable: FB_PROJECT_ID
     value: studio-5112915880-e9ca2
   - variable: FB_CLIENT_EMAIL
     value: firebase-adminsdk-fbsvc@studio-5112915880-e9ca2.iam.gserviceaccount.com
   - variable: FB_PRIVATE_KEY
     secret: FB_PRIVATE_KEY
+
   - variable: RESEND_API_KEY
     secret: RESEND_API_KEY
-  
+
   # Stripe Configuration
   - variable: STRIPE_SECRET_KEY
     secret: STRIPE_SECRET_KEY

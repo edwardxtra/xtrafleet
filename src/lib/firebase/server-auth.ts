@@ -4,6 +4,7 @@ import type { DecodedIdToken, App } from 'firebase-admin/auth';
 
 /**
  * Initialize Firebase Admin SDK with comprehensive error handling.
+ * Tries FIREBASE_SERVICE_ACCOUNT (full JSON) first, then falls back to individual vars.
  * Returns null if initialization fails - callers MUST check this.
  */
 export async function initializeFirebaseAdmin(): Promise<App | null> {
@@ -12,28 +13,47 @@ export async function initializeFirebaseAdmin(): Promise<App | null> {
     return admin.app();
   }
 
+  // Option 1: Try full service account JSON (recommended - avoids newline issues)
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      console.log('🔵 Attempting Firebase Admin init with FIREBASE_SERVICE_ACCOUNT...');
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      const app = admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`,
+      });
+      console.log('✓ Firebase Admin SDK initialized with service account JSON');
+      return app;
+    } catch (error: any) {
+      console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT:', error.message);
+      // Fall through to try individual variables
+    }
+  }
+
+  // Option 2: Try individual environment variables (legacy)
   const privateKey = process.env.FB_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
-  // CRITICAL: Detailed logging of environment variables
   if (!process.env.FB_PROJECT_ID || !process.env.FB_CLIENT_EMAIL || !privateKey) {
     console.error('╔══════════════════════════════════════════════════════════════╗');
     console.error('║ CRITICAL ERROR: Firebase Admin SDK Cannot Initialize        ║');
     console.error('╠══════════════════════════════════════════════════════════════╣');
     console.error('║ Missing Required Environment Variables:                      ║');
-    console.error(`║ FB_PROJECT_ID:    ${process.env.FB_PROJECT_ID ? '✓ SET' : '✗ MISSING'}                                   ║`);
-    console.error(`║ FB_CLIENT_EMAIL:  ${process.env.FB_CLIENT_EMAIL ? '✓ SET' : '✗ MISSING'}                                   ║`);
-    console.error(`║ FB_PRIVATE_KEY:   ${privateKey ? '✓ SET' : '✗ MISSING'}                                   ║`);
+    console.error(`║ FIREBASE_SERVICE_ACCOUNT: ${process.env.FIREBASE_SERVICE_ACCOUNT ? '✓ SET' : '✗ MISSING'}                        ║`);
+    console.error(`║ FB_PROJECT_ID:            ${process.env.FB_PROJECT_ID ? '✓ SET' : '✗ MISSING'}                        ║`);
+    console.error(`║ FB_CLIENT_EMAIL:          ${process.env.FB_CLIENT_EMAIL ? '✓ SET' : '✗ MISSING'}                        ║`);
+    console.error(`║ FB_PRIVATE_KEY:           ${privateKey ? '✓ SET' : '✗ MISSING'}                        ║`);
     console.error('╠══════════════════════════════════════════════════════════════╣');
-    console.error('║ ACTION REQUIRED:                                             ║');
-    console.error('║ 1. Go to Firebase Console → App Hosting                     ║');
-    console.error('║ 2. Navigate to Secrets                                       ║');
-    console.error('║ 3. Add FB_PRIVATE_KEY secret                                 ║');
+    console.error('║ RECOMMENDED FIX:                                             ║');
+    console.error('║ 1. Go to Google Cloud Console → Secret Manager              ║');
+    console.error('║ 2. Create secret: FIREBASE_SERVICE_ACCOUNT                   ║');
+    console.error('║ 3. Paste the ENTIRE service account JSON file content       ║');
     console.error('║ 4. Redeploy the application                                  ║');
     console.error('╚══════════════════════════════════════════════════════════════╝');
     return null;
   }
-    
+
   try {
+    console.log('🔵 Attempting Firebase Admin init with individual env vars...');
     const app = admin.initializeApp({
       credential: admin.credential.cert({
         projectId: process.env.FB_PROJECT_ID,
@@ -42,8 +62,8 @@ export async function initializeFirebaseAdmin(): Promise<App | null> {
       }),
       databaseURL: `https://${process.env.FB_PROJECT_ID}.firebaseio.com`,
     });
-    
-    console.log('✓ Firebase Admin SDK initialized successfully');
+
+    console.log('✓ Firebase Admin SDK initialized with individual env vars');
     return app;
   } catch (error: any) {
     console.error('╔══════════════════════════════════════════════════════════════╗');
