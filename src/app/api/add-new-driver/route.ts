@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getAuthenticatedUser, initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
 import { handleError } from '@/lib/api-utils';
 import { Resend } from 'resend';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 const resend = process.env.RESEND_API_KEY 
   ? new Resend(process.env.RESEND_API_KEY)
@@ -85,13 +86,13 @@ export async function POST(req: NextRequest) {
 
     console.log(`[API /add-new-driver POST] Creating invitation token: ${invitationToken}`);
 
-    // Save invitation to Firestore - FIXED: Use firestore instance methods
+    // Save invitation to Firestore - FIXED: Import FieldValue and Timestamp from firebase-admin/firestore
     await firestore.collection('driver_invitations').doc(invitationToken).set({
       email: email,
       ownerId: ownerOperatorId,
       ownerCompanyName: companyName,
-      createdAt: firestore.FieldValue.serverTimestamp(),
-      expiresAt: firestore.Timestamp.fromDate(expiresAt),
+      createdAt: FieldValue.serverTimestamp(),
+      expiresAt: Timestamp.fromDate(expiresAt),
       status: 'pending',
     });
 
