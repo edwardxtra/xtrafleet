@@ -1,39 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
-import { handleError } from '@/lib/api-utils';
+import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
+import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
+import { withCors } from '@/lib/api-cors';
 
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest) {
   try {
     const token = request.nextUrl.searchParams.get('token');
 
     if (!token) {
-      return NextResponse.json(
-        { error: 'Token is required' },
-        { status: 400 }
-      );
+      throw new Error('Missing token');
     }
 
-    // Initialize Firebase Admin
-    const adminApp = await initializeFirebaseAdmin();
-    if (!adminApp) {
-      console.error('[validate-invitation] Firebase Admin not initialized');
-      return handleError(
-        new Error('Firebase Admin not initialized'),
-        'Server configuration error. Please contact support.',
-        500
-      );
-    }
-
-    const db = adminApp.firestore();
+    // Get Firebase Admin
+    const { db } = await getFirebaseAdmin();
 
     // Get invitation from Firestore
     const invitationDoc = await db.collection('driver_invitations').doc(token).get();
 
     if (!invitationDoc.exists) {
-      return NextResponse.json(
-        { error: 'Invalid invitation token' },
-        { status: 404 }
-      );
+      throw new Error('Invalid token');
     }
 
     const invitation = invitationDoc.data();
@@ -43,21 +28,15 @@ export async function GET(request: NextRequest) {
     const expiresAt = invitation?.expiresAt?.toDate();
 
     if (expiresAt && expiresAt < now) {
-      return NextResponse.json(
-        { error: 'This invitation has expired' },
-        { status: 400 }
-      );
+      throw new Error('Invitation expired');
     }
 
     // Check if already used
     if (invitation?.status !== 'pending') {
-      return NextResponse.json(
-        { error: 'This invitation has already been used' },
-        { status: 400 }
-      );
+      throw new Error('Invitation already used');
     }
 
-    return NextResponse.json({
+    return handleApiSuccess({
       success: true,
       invitation: {
         email: invitation?.email,
@@ -67,8 +46,32 @@ export async function GET(request: NextRequest) {
       },
     });
 
-  } catch (error: any) {
-    console.error('[validate-invitation] Error:', error);
-    return handleError(error, 'Failed to validate invitation');
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    if (errorMessage === 'Missing token') {
+      return handleApiError('missingFields', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'GET /api/validate-invitation'
+      });
+    }
+    
+    if (errorMessage === 'Invalid token') {
+      return handleApiError('notFound', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'GET /api/validate-invitation'
+      });
+    }
+    
+    if (errorMessage === 'Invitation expired' || errorMessage === 'Invitation already used') {
+      return handleApiError('validation', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'GET /api/validate-invitation'
+      });
+    }
+    
+    return handleApiError('server', error instanceof Error ? error : new Error(errorMessage), {
+      endpoint: 'GET /api/validate-invitation'
+    });
   }
 }
+
+// Export with CORS protection
+export const GET = withCors(handleGet);
