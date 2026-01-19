@@ -1,8 +1,9 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAuthenticatedUser, initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
-import { handleError } from '@/lib/api-utils';
+import { getAuthenticatedUser } from '@/lib/firebase/server-auth';
+import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
+import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
+import { withCors } from '@/lib/api-cors';
 
 const loadUpdateSchema = z.object({
   origin: z.string().min(1, 'Origin is required').optional(),
@@ -16,84 +17,114 @@ const loadUpdateSchema = z.object({
   requiredQualifications: z.array(z.string()).optional(),
 }).partial();
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const adminApp = initializeFirebaseAdmin();
-  if (!adminApp) {
-    return handleError(new Error('Server misconfigured'), 'Server configuration error. Cannot connect to backend services.', 500);
-  }
-
+async function handleGet(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await getAuthenticatedUser(req as any);
     if (!user) {
-      return handleError(new Error('Unauthorized'), 'Unauthorized', 401);
+      throw new Error('Unauthorized');
     }
 
-    const firestore = adminApp.firestore();
+    const { db } = await getFirebaseAdmin();
     const loadId = params.id;
-    const docRef = firestore.doc(`owner_operators/${user.uid}/loads/${loadId}`);
+    const docRef = db.doc(`owner_operators/${user.uid}/loads/${loadId}`);
     const docSnap = await docRef.get();
 
     if (!docSnap.exists) {
-      return handleError(new Error('Load not found'), 'Load not found', 404);
+      throw new Error('Not found');
     }
 
-    return NextResponse.json({ id: docSnap.id, ...docSnap.data() }, { status: 200 });
+    return handleApiSuccess({ id: docSnap.id, ...docSnap.data() });
   } catch (error) {
-    return handleError(error, 'Failed to fetch load');
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    if (errorMessage === 'Unauthorized') {
+      return handleApiError('unauthorized', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'GET /api/loads/[id]'
+      });
+    }
+    
+    if (errorMessage === 'Not found') {
+      return handleApiError('notFound', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'GET /api/loads/[id]'
+      });
+    }
+    
+    return handleApiError('server', error instanceof Error ? error : new Error(errorMessage), {
+      endpoint: 'GET /api/loads/[id]'
+    });
   }
 }
 
-
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const adminApp = initializeFirebaseAdmin();
-  if (!adminApp) {
-    return handleError(new Error('Server misconfigured'), 'Server configuration error. Cannot connect to backend services.', 500);
-  }
-  
+async function handlePut(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await getAuthenticatedUser(req as any);
     if (!user) {
-      return handleError(new Error('Unauthorized'), 'Unauthorized', 401);
+      throw new Error('Unauthorized');
     }
 
-    const firestore = adminApp.firestore();
+    const { db } = await getFirebaseAdmin();
     const loadId = params.id;
-    const docRef = firestore.doc(`owner_operators/${user.uid}/loads/${loadId}`);
+    const docRef = db.doc(`owner_operators/${user.uid}/loads/${loadId}`);
     const body = await req.json();
     
     const validation = loadUpdateSchema.safeParse(body);
     if (!validation.success) {
-      const fieldErrors = validation.error.flatten().fieldErrors;
-      const errorMessage = Object.values(fieldErrors).flat().join(', ');
-      return NextResponse.json({ error: errorMessage, fieldErrors }, { status: 400 });
+      const errorMessage = Object.values(validation.error.flatten().fieldErrors).flat().join(', ');
+      throw new Error(errorMessage);
     }
 
     await docRef.update(validation.data);
-    return NextResponse.json({ message: 'Load updated successfully' }, { status: 200 });
+    return handleApiSuccess({ message: 'Load updated successfully' });
   } catch (error) {
-    return handleError(error, 'Failed to update load');
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    if (errorMessage === 'Unauthorized') {
+      return handleApiError('unauthorized', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'PUT /api/loads/[id]'
+      });
+    }
+    
+    if (errorMessage.includes('required') || errorMessage.includes('positive')) {
+      return handleApiError('validation', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'PUT /api/loads/[id]'
+      });
+    }
+    
+    return handleApiError('server', error instanceof Error ? error : new Error(errorMessage), {
+      endpoint: 'PUT /api/loads/[id]'
+    });
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const adminApp = initializeFirebaseAdmin();
-  if (!adminApp) {
-    return handleError(new Error('Server misconfigured'), 'Server configuration error. Cannot connect to backend services.', 500);
-  }
-
+async function handleDelete(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await getAuthenticatedUser(req as any);
     if (!user) {
-      return handleError(new Error('Unauthorized'), 'Unauthorized', 401);
+      throw new Error('Unauthorized');
     }
 
-    const firestore = adminApp.firestore();
+    const { db } = await getFirebaseAdmin();
     const loadId = params.id;
-    const docRef = firestore.doc(`owner_operators/${user.uid}/loads/${loadId}`);
+    const docRef = db.doc(`owner_operators/${user.uid}/loads/${loadId}`);
     await docRef.delete();
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {
-    return handleError(error, 'Failed to delete load');
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    if (errorMessage === 'Unauthorized') {
+      return handleApiError('unauthorized', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'DELETE /api/loads/[id]'
+      });
+    }
+    
+    return handleApiError('server', error instanceof Error ? error : new Error(errorMessage), {
+      endpoint: 'DELETE /api/loads/[id]'
+    });
   }
 }
+
+// Export with CORS protection
+export const GET = withCors(handleGet);
+export const PUT = withCors(handlePut);
+export const DELETE = withCors(handleDelete);
