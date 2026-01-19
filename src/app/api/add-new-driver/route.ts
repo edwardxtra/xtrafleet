@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAuthenticatedUser } from '@/lib/firebase/server-auth';
 import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
@@ -20,15 +19,16 @@ async function handlePost(req: NextRequest) {
     console.log('[Invite Driver] Request received');
     
     // Get Firebase Admin
-    const { db } = await getFirebaseAdmin();
+    const { auth, db } = await getFirebaseAdmin();
     
-    // Authenticate user
-    const ownerUser = await getAuthenticatedUser(req as any);
-    
-    if (!ownerUser) {
+    // Get token from cookie
+    const token = req.cookies.get('fb-id-token');
+    if (!token) {
       throw new Error('Unauthorized');
     }
 
+    // Verify token
+    const ownerUser = await auth.verifyIdToken(token.value);
     console.log('[Invite Driver] User authenticated:', ownerUser.uid);
 
     // Parse and validate request body

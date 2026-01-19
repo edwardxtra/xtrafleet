@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/firebase/server-auth';
 import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
@@ -9,12 +8,18 @@ import { withCors } from '@/lib/api-cors';
 
 async function handleGet(req: NextRequest) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) {
+    // Get Firebase Admin
+    const { auth, db } = await getFirebaseAdmin();
+    
+    // Get token from cookie
+    const token = req.cookies.get('fb-id-token');
+    if (!token) {
       throw new Error('Unauthorized');
     }
 
-    const { db } = await getFirebaseAdmin();
+    // Verify token
+    const user = await auth.verifyIdToken(token.value);
+
     const driversCollection = db.collection(`owner_operators/${user.uid}/drivers`);
     // Only display active drivers in the main list
     const querySnapshot = await driversCollection.where('status', '==', 'active').get();

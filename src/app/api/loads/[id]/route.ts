@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAuthenticatedUser } from '@/lib/firebase/server-auth';
 import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
@@ -19,12 +18,18 @@ const loadUpdateSchema = z.object({
 
 async function handleGet(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const user = await getAuthenticatedUser(req as any);
-    if (!user) {
+    // Get Firebase Admin
+    const { auth, db } = await getFirebaseAdmin();
+    
+    // Get token from cookie
+    const token = req.cookies.get('fb-id-token');
+    if (!token) {
       throw new Error('Unauthorized');
     }
 
-    const { db } = await getFirebaseAdmin();
+    // Verify token
+    const user = await auth.verifyIdToken(token.value);
+
     const loadId = params.id;
     const docRef = db.doc(`owner_operators/${user.uid}/loads/${loadId}`);
     const docSnap = await docRef.get();
@@ -57,12 +62,18 @@ async function handleGet(req: NextRequest, { params }: { params: { id: string } 
 
 async function handlePut(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const user = await getAuthenticatedUser(req as any);
-    if (!user) {
+    // Get Firebase Admin
+    const { auth, db } = await getFirebaseAdmin();
+    
+    // Get token from cookie
+    const token = req.cookies.get('fb-id-token');
+    if (!token) {
       throw new Error('Unauthorized');
     }
 
-    const { db } = await getFirebaseAdmin();
+    // Verify token
+    const user = await auth.verifyIdToken(token.value);
+
     const loadId = params.id;
     const docRef = db.doc(`owner_operators/${user.uid}/loads/${loadId}`);
     const body = await req.json();
@@ -98,12 +109,18 @@ async function handlePut(req: NextRequest, { params }: { params: { id: string } 
 
 async function handleDelete(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const user = await getAuthenticatedUser(req as any);
-    if (!user) {
+    // Get Firebase Admin
+    const { auth, db } = await getFirebaseAdmin();
+    
+    // Get token from cookie
+    const token = req.cookies.get('fb-id-token');
+    if (!token) {
       throw new Error('Unauthorized');
     }
 
-    const { db } = await getFirebaseAdmin();
+    // Verify token
+    const user = await auth.verifyIdToken(token.value);
+
     const loadId = params.id;
     const docRef = db.doc(`owner_operators/${user.uid}/loads/${loadId}`);
     await docRef.delete();
