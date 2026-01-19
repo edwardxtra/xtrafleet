@@ -53,7 +53,7 @@ export default function Home() {
               </span>
             </h1>
             <p className="text-lg md:text-xl max-w-3xl mx-auto drop-shadow-md">
-              Stop wasting time on paperwork and phone calls. XtraFleet's AI matches 
+              Stop wasting time on paperwork and phone calls. XtraFleet matches 
               your loads with qualified drivers instantly—
               <strong className="text-white font-semibold"> saving you 10+ hours per week.</strong>
             </p>
@@ -88,8 +88,8 @@ export default function Home() {
                     <CheckCircle className="h-6 w-6 text-primary" />
                   </div>
                 </div>
-                <h3 className="text-xl font-semibold font-headline mb-2">AI-Powered Matching</h3>
-                <p className="text-muted-foreground">Our smart algorithms find the most profitable loads based on your drivers, equipment, and location.</p>
+                <h3 className="text-xl font-semibold font-headline mb-2">Smart Matching</h3>
+                <p className="text-muted-foreground">Our advanced algorithms find the most profitable loads based on your drivers' equipment, location, and availability.</p>
               </div>
               <div className="p-6 border rounded-lg bg-card hover:shadow-lg transition-shadow">
                 <div className="flex justify-center mb-4">
