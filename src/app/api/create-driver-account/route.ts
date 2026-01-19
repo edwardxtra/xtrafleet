@@ -1,43 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
-import { handleError } from '@/lib/api-utils';
+import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
+import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
+import { withCors } from '@/lib/api-cors';
 import { FieldValue } from 'firebase-admin/firestore';
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   try {
     const { email, password, token, ownerId, profileData } = await request.json();
 
-    console.log('🔵 Create driver account - Received:', { email, token, ownerId });
+    console.log('[Create Driver] Request received:', { email, token, ownerId });
 
+    // Validate required fields
     if (!email || !password || !token || !ownerId) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+      throw new Error('Missing required fields');
     }
 
-    const adminApp = await initializeFirebaseAdmin();
-    if (!adminApp) {
-      console.error('[create-driver-account] Firebase Admin not initialized');
-      return handleError(
-        new Error('Firebase Admin not initialized'),
-        'Server configuration error. Please contact support.',
-        500
-      );
-    }
-
-    const auth = adminApp.auth();
-    const db = adminApp.firestore();
+    // Get Firebase Admin
+    const { auth, db } = await getFirebaseAdmin();
 
     // Create Firebase Auth user
-    console.log('🔵 Creating Firebase user:', email);
+    console.log('[Create Driver] Creating Firebase user:', email);
     const userRecord = await auth.createUser({
       email: email,
       password: password,
       emailVerified: false,
     });
 
-    console.log('✅ Firebase user created:', userRecord.uid);
+    console.log('[Create Driver] User created:', userRecord.uid);
 
     // Save driver profile to Firestore
     const driverDocRef = db.collection('owner_operators').doc(ownerId).collection('drivers').doc(userRecord.uid);
@@ -53,8 +42,9 @@ export async function POST(request: NextRequest) {
       userId: userRecord.uid,
     });
 
-    console.log('✅ Driver profile saved to Firestore');
+    console.log('[Create Driver] Profile saved to Firestore');
 
+    // Create user role document
     await db.collection('users').doc(userRecord.uid).set({
       role: 'driver',
       email: email,
@@ -62,7 +52,8 @@ export async function POST(request: NextRequest) {
       driverId: userRecord.uid,
       createdAt: FieldValue.serverTimestamp(),
     });
-    console.log('✅ User role document created');
+    
+    console.log('[Create Driver] User role document created');
 
     // Mark invitation as used
     await db.collection('driver_invitations').doc(token).update({
@@ -71,15 +62,35 @@ export async function POST(request: NextRequest) {
       driverId: userRecord.uid,
     });
 
-    console.log('✅ Invitation marked as used');
+    console.log('[Create Driver] Invitation marked as used');
 
-    return NextResponse.json({
+    return handleApiSuccess({
       success: true,
       driverId: userRecord.uid,
     });
 
-  } catch (error: any) {
-    console.error('❌ Create driver account error:', error);
-    return handleError(error, 'Failed to create account');
+  } catch (error) {
+    // Determine error type
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    if (errorMessage.includes('Missing required fields')) {
+      return handleApiError('missingFields', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'POST /api/create-driver-account'
+      });
+    }
+    
+    if (errorMessage.includes('email-already-exists') || errorMessage.includes('already in use')) {
+      return handleApiError('conflict', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'POST /api/create-driver-account'
+      });
+    }
+    
+    // Generic server error
+    return handleApiError('server', error instanceof Error ? error : new Error(errorMessage), {
+      endpoint: 'POST /api/create-driver-account'
+    });
   }
 }
+
+// Export with CORS protection
+export const POST = withCors(handlePost);
