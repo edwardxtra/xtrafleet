@@ -19,14 +19,16 @@ import { useUser, useAuth, useFirestore } from "@/firebase";
 import { Suspense, useState, FormEvent } from "react";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
-import { Loader2, LogOut, LayoutDashboard, Building2, Truck } from "lucide-react";
+import { Loader2, LogOut, LayoutDashboard, Building2, Truck, Check, X } from "lucide-react";
 import { showSuccess, showError } from "@/lib/toast-utils";
+import { passwordSchema } from "@/lib/password-validation";
 
 function RegisterContent() {
   const searchParams = useSearchParams();
   const [error, setError] = useState(searchParams.get('error'));
   const [loading, setLoading] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [passwordValue, setPasswordValue] = useState('');
   const router = useRouter();
   const { user, isUserLoading } = useUser();
   const auth = useAuth();
@@ -60,6 +62,16 @@ function RegisterContent() {
     if (!email || !password || !companyName) {
       setError("Company name, email, and password are required.");
       showError("Company name, email, and password are required.");
+      setLoading(false);
+      return;
+    }
+
+    // Validate password with enhanced requirements
+    const passwordValidation = passwordSchema.safeParse(password);
+    if (!passwordValidation.success) {
+      const errorMessage = passwordValidation.error.errors[0].message;
+      setError(errorMessage);
+      showError(errorMessage);
       setLoading(false);
       return;
     }
@@ -118,7 +130,7 @@ function RegisterContent() {
       if (e.code === 'auth/email-already-in-use') {
         errorMessage = 'This email is already in use. Try logging in instead.';
       } else if (e.code === 'auth/weak-password') {
-        errorMessage = 'Password needs to be at least 6 characters long.';
+        errorMessage = 'Password does not meet security requirements.';
       } else if (e.code === 'auth/invalid-email') {
         errorMessage = 'Please enter a valid email address.';
       }
@@ -128,6 +140,14 @@ function RegisterContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Check which password requirements are met
+  const passwordChecks = {
+    length: passwordValue.length >= 8,
+    uppercase: /[A-Z]/.test(passwordValue),
+    lowercase: /[a-z]/.test(passwordValue),
+    number: /[0-9]/.test(passwordValue),
   };
 
   if (isUserLoading) {
@@ -254,8 +274,33 @@ function RegisterContent() {
                   required 
                   disabled={loading}
                   autoComplete="new-password"
+                  value={passwordValue}
+                  onChange={(e) => setPasswordValue(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">Must be at least 6 characters</p>
+                
+                {/* Password Requirements Checklist */}
+                {passwordValue && (
+                  <div className="mt-2 space-y-1">
+                    <p className="text-xs text-muted-foreground mb-1">Password must have:</p>
+                    {[
+                      { label: "At least 8 characters", met: passwordChecks.length },
+                      { label: "One uppercase letter", met: passwordChecks.uppercase },
+                      { label: "One lowercase letter", met: passwordChecks.lowercase },
+                      { label: "One number", met: passwordChecks.number },
+                    ].map((req, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs">
+                        {req.met ? (
+                          <Check className="h-3 w-3 text-green-600" />
+                        ) : (
+                          <X className="h-3 w-3 text-muted-foreground" />
+                        )}
+                        <span className={req.met ? "text-green-600" : "text-muted-foreground"}>
+                          {req.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (
