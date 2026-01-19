@@ -23,16 +23,17 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, Check, X } from "lucide-react";
+import { passwordSchema, passwordRequirements } from "@/lib/password-validation";
 
-// Simplified schema - just the essentials to create account
+// Simplified schema with enhanced password validation
 const quickProfileSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   phoneNumber: z.string().min(1, "Phone number is required"),
   location: z.string().min(1, "Your current city/state is required"),
   vehicleType: z.enum(['Dry Van', 'Reefer', 'Flatbed']),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: passwordSchema, // Enhanced password validation
 });
 
 type QuickProfileValues = z.infer<typeof quickProfileSchema>;
@@ -52,6 +53,8 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
     resolver: zodResolver(quickProfileSchema),
     mode: "onChange",
   });
+
+  const passwordValue = form.watch("password") || "";
 
   const onSubmit = async (values: QuickProfileValues) => {
     setIsSubmitting(true);
@@ -105,6 +108,14 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
     }
   };
 
+  // Check which password requirements are met
+  const passwordChecks = {
+    length: passwordValue.length >= 8,
+    uppercase: /[A-Z]/.test(passwordValue),
+    lowercase: /[a-z]/.test(passwordValue),
+    number: /[0-9]/.test(passwordValue),
+  };
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -128,6 +139,28 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
                   <Input type="password" placeholder="••••••••" {...field} />
                 </FormControl>
                 <FormMessage />
+                
+                {/* Password Requirements Checklist */}
+                <div className="mt-2 space-y-1">
+                  <p className="text-xs text-muted-foreground mb-1">Password must have:</p>
+                  {[
+                    { label: "At least 8 characters", met: passwordChecks.length },
+                    { label: "One uppercase letter", met: passwordChecks.uppercase },
+                    { label: "One lowercase letter", met: passwordChecks.lowercase },
+                    { label: "One number", met: passwordChecks.number },
+                  ].map((req, idx) => (
+                    <div key={idx} className="flex items-center gap-2 text-xs">
+                      {req.met ? (
+                        <Check className="h-3 w-3 text-green-600" />
+                      ) : (
+                        <X className="h-3 w-3 text-muted-foreground" />
+                      )}
+                      <span className={req.met ? "text-green-600" : "text-muted-foreground"}>
+                        {req.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </FormItem>
             )}
           />
