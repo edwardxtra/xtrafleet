@@ -1,8 +1,27 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // SECURITY FIX: Restrict file access by ownership and add file validation
+    
+    // Owner operator documents (only owner can access)
+    match /owner_operators/{ownerId}/documents/{allPaths=**} {
+      allow read, write: if request.auth.uid == ownerId
+                         && request.resource.size < 10 * 1024 * 1024 // 10MB limit
+                         && request.resource.contentType.matches('image/.*|application/pdf');
+    }
+    
+    // Driver documents (owner OR driver can access)
+    match /owner_operators/{ownerId}/drivers/{driverId}/{allPaths=**} {
+      allow read: if request.auth.uid == ownerId || request.auth.uid == driverId;
+      allow write: if request.auth.uid == driverId
+                   && request.resource.size < 10 * 1024 * 1024 // 10MB limit
+                   && request.resource.contentType.matches('image/.*|application/pdf');
+      allow delete: if request.auth.uid == ownerId; // Owner can delete driver files
+    }
+    
+    // Deny all other paths by default
     match /{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

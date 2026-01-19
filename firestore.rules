@@ -21,18 +21,26 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // SECURITY FIX: Restrict driver invitation access
     match /driver_invitations/{invitationId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      // Allow reading specific invitation (for validation)
+      allow get: if true; // Token-based validation, checked server-side
+      // Only allow owner to list their own invitations
+      allow list: if isSignedIn() && 
+                     request.query.where[0][0] == 'ownerId' &&
+                     request.query.where[0][2] == request.auth.uid;
+      // Only owner can create invitations
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.ownerId;
+      // Only owner can update/delete their invitations
+      allow update, delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
     }
 
     match /owner_operators/{ownerOperatorId} {
       allow get: if isSignedIn();
-      // Allow list for signed in users - admin check happens in app
       allow list: if isSignedIn();
       allow create: if isSignedIn() && isOwner(ownerOperatorId);
-      // Allow update for owner or any signed in user (admin check in app)
-      allow update: if isSignedIn();
+      // SECURITY FIX: Only owner can update their own profile
+      allow update: if isSignedIn() && isOwner(ownerOperatorId);
       allow delete: if isSignedIn() && isOwner(ownerOperatorId);
 
       match /drivers/{driverId} {
@@ -46,8 +54,16 @@ service cloud.firestore {
       match /loads/{loadId} {
         allow read: if isSignedIn();
         allow list: if isSignedIn();
-        // Allow any signed-in user to write loads (for match acceptance)
-        allow write: if isSignedIn();
+        // SECURITY FIX: Add ownership checks for load operations
+        allow create: if isSignedIn() && isOwner(ownerOperatorId);
+        allow update: if isSignedIn() && (
+          isOwner(ownerOperatorId) || // Owner can always update
+          // Driver can update if already accepted (for status updates)
+          (resource.data.acceptedBy == request.auth.uid &&
+           request.resource.data.price == resource.data.price && // Can't change price
+           request.resource.data.cargo == resource.data.cargo) // Can't change cargo
+        );
+        allow delete: if isSignedIn() && isOwner(ownerOperatorId);
       }
 
       match /subscriptions/{subscriptionId} {
@@ -99,22 +115,18 @@ service cloud.firestore {
 
     // Notifications collection
     match /notifications/{notificationId} {
-      // Users can read their own notifications
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      // Anyone can create notifications (for system-generated notifications)
-      allow create: if isSignedIn();
-      // Users can only update their own notifications (to mark as read)
+      // SECURITY FIX: Users can only create notifications for themselves
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
-      // No deletion allowed
       allow delete: if false;
     }
 
-    // Audit logs collection
+    // SECURITY FIX: Audit logs - users can only read their own
     match /audit_logs/{logId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow create: if isSignedIn();
-      allow update: if false;
-      allow delete: if false;
+      allow update, delete: if false;
     }
   }
 }

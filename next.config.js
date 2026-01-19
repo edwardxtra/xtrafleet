@@ -31,7 +31,15 @@ const nextConfig = {
   },
   experimental: {
     serverActions: {
-      allowedOrigins: ['*']
+      // SECURITY FIX: Restrict server actions to specific domains
+      allowedOrigins: [
+        'https://xtrafleet.com',
+        'https://xtrafleet-prd--studio-5112915880-e9ca2.us-central1.hosted.app',
+        ...(process.env.NODE_ENV === 'development' 
+          ? ['http://localhost:3000', 'http://localhost:9002'] 
+          : []
+        ),
+      ]
     }
   }
 };
