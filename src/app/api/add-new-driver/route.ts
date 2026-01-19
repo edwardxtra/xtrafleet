@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
+import { getFirebaseAdmin, FieldValue, Timestamp } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
 import { Resend } from 'resend';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 const resend = process.env.RESEND_API_KEY 
   ? new Resend(process.env.RESEND_API_KEY)
