@@ -13,6 +13,23 @@ const inviteSchema = z.object({
   email: z.string().email('Invalid email address'),
 });
 
+/**
+ * Verify token - handles both ID tokens and session cookies
+ */
+async function verifyToken(auth: any, tokenValue: string) {
+  // Try verifying as session cookie first (most common for logged-in users)
+  try {
+    return await auth.verifySessionCookie(tokenValue, true);
+  } catch (sessionError) {
+    // If that fails, try as regular ID token
+    try {
+      return await auth.verifyIdToken(tokenValue);
+    } catch (idTokenError) {
+      throw new Error('Invalid authentication token');
+    }
+  }
+}
+
 async function handlePost(req: NextRequest) {
   try {
     console.log('[Invite Driver] Request received');
@@ -26,8 +43,8 @@ async function handlePost(req: NextRequest) {
       throw new Error('Unauthorized');
     }
 
-    // Verify token
-    const ownerUser = await auth.verifyIdToken(token.value);
+    // Verify token (handles both session cookies and ID tokens)
+    const ownerUser = await verifyToken(auth, token.value);
     console.log('[Invite Driver] User authenticated:', ownerUser.uid);
 
     // Parse and validate request body
@@ -129,7 +146,7 @@ async function handlePost(req: NextRequest) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     
     // Categorize errors
-    if (errorMessage === 'Unauthorized') {
+    if (errorMessage === 'Unauthorized' || errorMessage === 'Invalid authentication token') {
       return handleApiError('unauthorized', error instanceof Error ? error : new Error(errorMessage), {
         endpoint: 'POST /api/add-new-driver'
       });
