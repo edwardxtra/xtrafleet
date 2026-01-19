@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAuthenticatedUser, initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
-import { handleError } from '@/lib/api-utils';
+import { getAuthenticatedUser } from '@/lib/firebase/server-auth';
+import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
+import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
+import { withCors } from '@/lib/api-cors';
 import { Resend } from 'resend';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
@@ -13,69 +15,50 @@ const inviteSchema = z.object({
   email: z.string().email('Invalid email address'),
 });
 
-export async function POST(req: NextRequest) {
+async function handlePost(req: NextRequest) {
   try {
-    console.log('[API /add-new-driver POST] Request received');
+    console.log('[Invite Driver] Request received');
     
-    const adminApp = await initializeFirebaseAdmin();
-    if (!adminApp) {
-      console.error('[API /add-new-driver POST] Firebase Admin initialization failed');
-      return handleError(
-        new Error('Firebase Admin not initialized'), 
-        'Server configuration error. Please contact support if this persists.', 
-        500
-      );
-    }
-
-    const firestore = adminApp.firestore();
+    // Get Firebase Admin
+    const { db } = await getFirebaseAdmin();
     
+    // Authenticate user
     const ownerUser = await getAuthenticatedUser(req as any);
     
     if (!ownerUser) {
-      console.warn('[API /add-new-driver POST] User authentication failed');
-      return handleError(new Error('Unauthorized'), 'You must be logged in to invite a driver.', 401);
+      throw new Error('Unauthorized');
     }
 
-    console.log(`[API /add-new-driver POST] User authenticated: ${ownerUser.uid}`);
+    console.log('[Invite Driver] User authenticated:', ownerUser.uid);
 
-    let body;
-    try {
-      body = await req.json();
-      console.log('[API /add-new-driver POST] Request body parsed successfully');
-    } catch (parseError: any) {
-      console.error('[API /add-new-driver POST] Failed to parse request body:', parseError);
-      return handleError(parseError, 'Invalid request body. Please check your data and try again.', 400);
-    }
-
+    // Parse and validate request body
+    const body = await req.json();
     const validation = inviteSchema.safeParse(body);
 
     if (!validation.success) {
-      const fieldErrors = validation.error.flatten().fieldErrors;
-      const errorMessage = Object.values(fieldErrors).flat().join(', ');
-      console.warn('[API /add-new-driver POST] Validation failed:', errorMessage);
-      return NextResponse.json({ error: errorMessage, fieldErrors }, { status: 400 });
+      const errorMessage = Object.values(validation.error.flatten().fieldErrors).flat().join(', ');
+      throw new Error(errorMessage);
     }
 
     const { email } = validation.data;
     const ownerOperatorId = ownerUser.uid;
 
-    console.log(`[API /add-new-driver POST] Checking for existing invitation to: ${email}`);
+    console.log('[Invite Driver] Checking for existing invitation:', email);
 
-    // Check if invitation already exists for this email
-    const existingInvite = await firestore.collection('driver_invitations')
+    // Check if invitation already exists
+    const existingInvite = await db.collection('driver_invitations')
       .where('email', '==', email)
       .where('status', '==', 'pending')
       .limit(1)
       .get();
     
     if (!existingInvite.empty) {
-      console.warn(`[API /add-new-driver POST] Invitation already exists for: ${email}`);
-      return handleError(new Error('Already invited'), 'An invitation has already been sent to this email.', 409);
+      throw new Error('Invitation already sent');
     }
 
     // Get owner info
-    console.log(`[API /add-new-driver POST] Fetching owner info for: ${ownerOperatorId}`);
-    const ownerDoc = await firestore.doc('owner_operators/' + ownerOperatorId).get();
+    console.log('[Invite Driver] Fetching owner info:', ownerOperatorId);
+    const ownerDoc = await db.doc('owner_operators/' + ownerOperatorId).get();
     const ownerData = ownerDoc.data();
     const companyName = ownerData?.legalName || ownerData?.companyName || 'A fleet';
 
@@ -84,10 +67,10 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    console.log(`[API /add-new-driver POST] Creating invitation token: ${invitationToken}`);
+    console.log('[Invite Driver] Creating invitation token');
 
-    // Save invitation to Firestore - FIXED: Import FieldValue and Timestamp from firebase-admin/firestore
-    await firestore.collection('driver_invitations').doc(invitationToken).set({
+    // Save invitation to Firestore
+    await db.collection('driver_invitations').doc(invitationToken).set({
       email: email,
       ownerId: ownerOperatorId,
       ownerCompanyName: companyName,
@@ -96,7 +79,7 @@ export async function POST(req: NextRequest) {
       status: 'pending',
     });
 
-    console.log(`[API /add-new-driver POST] ✓ Invitation saved to Firestore`);
+    console.log('[Invite Driver] Invitation saved to Firestore');
 
     // Build invitation link
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://xtrafleet.com';
@@ -104,47 +87,79 @@ export async function POST(req: NextRequest) {
 
     // Send invitation email
     if (!resend) {
-      console.warn('[API /add-new-driver POST] Resend not configured. Invitation link:', inviteLink);
-      return NextResponse.json({ 
+      console.warn('[Invite Driver] Email service not configured');
+      return handleApiSuccess({ 
         id: invitationToken, 
         message: 'Invitation created (email service not configured).',
         inviteLink: inviteLink 
-      }, { status: 201 });
+      }, 201);
     }
 
-    console.log(`[API /add-new-driver POST] Sending invitation email to: ${email}`);
+    console.log('[Invite Driver] Sending email to:', email);
 
     const { error: emailError } = await resend.emails.send({
       from: 'XtraFleet <noreply@xtrafleet.com>',
       to: [email],
       subject: 'Invitation to Join ' + companyName + ' on XtraFleet',
-      html: '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">' +
-        '<h1 style="color: #4F46E5;">You\'re Invited to XtraFleet!</h1>' +
-        '<p><strong>' + companyName + '</strong> has invited you to join their fleet on XtraFleet.</p>' +
-        '<p>Click the button below to create your driver profile:</p>' +
-        '<div style="text-align: center; margin: 30px 0;">' +
-        '<a href="' + inviteLink + '" style="display: inline-block; padding: 14px 28px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">Create Your Profile</a>' +
-        '</div>' +
-        '<p style="color: #666; font-size: 14px;">This invitation expires in 7 days.</p>' +
-        '<p style="color: #666; font-size: 12px;">Or copy this link: ' + inviteLink + '</p>' +
-        '</body></html>',
+      html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h1 style="color: #4F46E5;">You're Invited to XtraFleet!</h1>
+        <p><strong>${companyName}</strong> has invited you to join their fleet on XtraFleet.</p>
+        <p>Click the button below to create your driver profile:</p>
+        <div style="text-align: center; margin: 30px 0;">
+        <a href="${inviteLink}" style="display: inline-block; padding: 14px 28px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">Create Your Profile</a>
+        </div>
+        <p style="color: #666; font-size: 14px;">This invitation expires in 7 days.</p>
+        <p style="color: #666; font-size: 12px;">Or copy this link: ${inviteLink}</p>
+        </body></html>`,
     });
 
     if (emailError) {
-      console.error('[API /add-new-driver POST] Failed to send invitation email:', emailError);
-      await firestore.collection('driver_invitations').doc(invitationToken).delete();
-      return handleError(new Error('Email failed'), 'Failed to send invitation email. Please try again.', 500);
+      console.error('[Invite Driver] Email failed:', emailError);
+      await db.collection('driver_invitations').doc(invitationToken).delete();
+      throw new Error('Email send failed');
     }
 
-    console.log(`[API /add-new-driver POST] ✓ Invitation sent successfully to: ${email}`);
+    console.log('[Invite Driver] Invitation sent successfully');
     
-    return NextResponse.json({ 
+    return handleApiSuccess({ 
       id: invitationToken, 
       message: 'Invitation sent successfully!' 
-    }, { status: 201 });
+    }, 201);
 
-  } catch (error: any) {
-    console.error('[API /add-new-driver POST] Unexpected error:', error);
-    return handleError(error, 'Failed to send invitation. Please try again.');
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Categorize errors
+    if (errorMessage === 'Unauthorized') {
+      return handleApiError('unauthorized', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'POST /api/add-new-driver'
+      });
+    }
+    
+    if (errorMessage.includes('Invalid email') || errorMessage.includes('email address')) {
+      return handleApiError('validation', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'POST /api/add-new-driver'
+      });
+    }
+    
+    if (errorMessage === 'Invitation already sent') {
+      return handleApiError('conflict', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'POST /api/add-new-driver'
+      });
+    }
+    
+    if (errorMessage === 'Email send failed') {
+      return handleApiError('network', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'POST /api/add-new-driver'
+      });
+    }
+    
+    // Generic server error
+    return handleApiError('server', error instanceof Error ? error : new Error(errorMessage), {
+      endpoint: 'POST /api/add-new-driver'
+    });
   }
 }
+
+// Export with CORS protection
+export const POST = withCors(handlePost);
