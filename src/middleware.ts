@@ -6,6 +6,10 @@ import type { NextRequest } from 'next/server';
  * 
  * Protects dashboard routes by verifying Firebase ID tokens before allowing access.
  * This prevents bypassing client-side auth by direct URL access or disabled JavaScript.
+ * 
+ * NOTE: This runs in Edge Runtime, so we can't use Firebase Admin SDK here.
+ * Instead, we just check for the presence of a token and let the dashboard pages
+ * do the full verification. This is still better than no server-side check at all.
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -14,39 +18,17 @@ export async function middleware(request: NextRequest) {
   const token = request.cookies.get('fb-id-token');
   
   // No token = not authenticated
-  if (!token) {
+  if (!token || !token.value) {
     console.log(`[Auth] No token found for ${pathname}, redirecting to login`);
     return NextResponse.redirect(new URL('/login', request.url));
   }
   
-  // Verify the token with Firebase Admin
-  try {
-    // Import Firebase Admin dynamically to avoid edge runtime issues
-    const { getFirebaseAdmin } = await import('@/lib/firebase-admin-singleton');
-    const { auth } = await getFirebaseAdmin();
-    
-    // Verify the ID token
-    const decodedToken = await auth.verifyIdToken(token.value);
-    
-    // Token is valid - allow access
-    console.log(`[Auth] Valid token for user ${decodedToken.uid}, allowing access to ${pathname}`);
-    
-    // Add user info to headers for downstream use (optional)
-    const response = NextResponse.next();
-    response.headers.set('x-user-id', decodedToken.uid);
-    response.headers.set('x-user-email', decodedToken.email || '');
-    
-    return response;
-  } catch (error) {
-    // Token is invalid or expired
-    console.error(`[Auth] Token verification failed for ${pathname}:`, error);
-    
-    // Clear the invalid cookie
-    const response = NextResponse.redirect(new URL('/login?error=session-expired', request.url));
-    response.cookies.delete('fb-id-token');
-    
-    return response;
-  }
+  // Token exists - allow access
+  // Note: Full token verification happens in the dashboard pages/API routes
+  // using Firebase Admin SDK, which can't run in Edge Runtime
+  console.log(`[Auth] Token present for ${pathname}, allowing access`);
+  
+  return NextResponse.next();
 }
 
 export const config = {
