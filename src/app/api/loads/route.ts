@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAuthenticatedUser } from '@/lib/firebase/server-auth';
 import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
@@ -21,16 +20,18 @@ async function handlePost(req: NextRequest) {
   try {
     console.log('[Loads] POST request received');
     
-    // Authenticate user
-    const user = await getAuthenticatedUser(req as any);
-    if (!user) {
+    // Get Firebase Admin
+    const { auth, db } = await getFirebaseAdmin();
+    
+    // Get token from cookie
+    const token = req.cookies.get('fb-id-token');
+    if (!token) {
       throw new Error('Unauthorized');
     }
 
-    console.log('[Loads] User authenticated:', user.uid);
-
-    // Get Firestore
-    const { db } = await getFirebaseAdmin();
+    // Verify token
+    const decodedToken = await auth.verifyIdToken(token.value);
+    console.log('[Loads] User authenticated:', decodedToken.uid);
     
     // Parse and validate request body
     const body = await req.json();
@@ -41,10 +42,10 @@ async function handlePost(req: NextRequest) {
       throw new Error(errorMessage);
     }
     
-    const newLoadData = { ...validation.data, ownerOperatorId: user.uid };
+    const newLoadData = { ...validation.data, ownerOperatorId: decodedToken.uid };
     
-    console.log('[Loads] Creating load for user:', user.uid);
-    const docRef = await db.collection(`owner_operators/${user.uid}/loads`).add(newLoadData);
+    console.log('[Loads] Creating load for user:', decodedToken.uid);
+    const docRef = await db.collection(`owner_operators/${decodedToken.uid}/loads`).add(newLoadData);
     console.log('[Loads] Load created:', docRef.id);
 
     return handleApiSuccess({ id: docRef.id, ...newLoadData }, 201);
@@ -74,17 +75,21 @@ async function handleGet(req: NextRequest) {
   try {
     console.log('[Loads] GET request received');
     
-    // Authenticate user
-    const user = await getAuthenticatedUser(req as any);
-    if (!user) {
+    // Get Firebase Admin
+    const { auth, db } = await getFirebaseAdmin();
+    
+    // Get token from cookie
+    const token = req.cookies.get('fb-id-token');
+    if (!token) {
       throw new Error('Unauthorized');
     }
 
-    console.log('[Loads] User authenticated:', user.uid);
+    // Verify token
+    const decodedToken = await auth.verifyIdToken(token.value);
+    console.log('[Loads] User authenticated:', decodedToken.uid);
         
-    // Get Firestore
-    const { db } = await getFirebaseAdmin();
-    const loadsCollection = db.collection(`owner_operators/${user.uid}/loads`);
+    // Get loads
+    const loadsCollection = db.collection(`owner_operators/${decodedToken.uid}/loads`);
     const querySnapshot = await loadsCollection.get();
     const loads = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
