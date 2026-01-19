@@ -1,124 +1,84 @@
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import admin from 'firebase-admin';
+import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
+import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
+import { withCors } from '@/lib/api-cors';
 
-const APP_NAME = 'xtrafleet-admin';
+/**
+ * Session duration: 7 days
+ * After this, users need to log in again
+ */
+const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// Initialize Firebase Admin - tries full JSON first, then individual vars
-function getFirebaseAdmin() {
-  console.log('🔵 Getting Firebase Admin, current apps:', admin.apps.map(a => a?.name).join(', ') || 'none');
-
-  try {
-    const existingApp = admin.app(APP_NAME);
-    console.log('🔵 Found existing app:', APP_NAME);
-    return existingApp;
-  } catch (e) {
-    console.log('🔵 App not found, creating new one...');
-  }
-
-  // Option 1: Try full service account JSON (recommended - avoids newline issues)
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    try {
-      console.log('🔵 Trying FIREBASE_SERVICE_ACCOUNT...');
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-      const app = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-      }, APP_NAME);
-      console.log('✅ Firebase Admin initialized with service account JSON');
-      return app;
-    } catch (error: any) {
-      console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT:', error.message);
-      // Fall through to try individual variables
-    }
-  }
-
-  // Option 2: Try individual environment variables (legacy)
-  console.log('🔵 Trying individual env vars...');
-  console.log('🔵 FB_PROJECT_ID:', process.env.FB_PROJECT_ID || 'NOT SET');
-  console.log('🔵 FB_CLIENT_EMAIL:', process.env.FB_CLIENT_EMAIL || 'NOT SET');
-  console.log('🔵 FB_PRIVATE_KEY length:', process.env.FB_PRIVATE_KEY?.length || 0);
-
-  const privateKey = process.env.FB_PRIVATE_KEY?.replace(/\\n/g, '\n');
-
-  if (!process.env.FB_PROJECT_ID || !process.env.FB_CLIENT_EMAIL || !privateKey) {
-    console.error('❌ Missing environment variables!');
-    console.error('❌ Create FIREBASE_SERVICE_ACCOUNT secret with full JSON to fix this');
-    throw new Error("Firebase server-side environment variables are not set.");
-  }
-
-  try {
-    const app = admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FB_PROJECT_ID,
-        clientEmail: process.env.FB_CLIENT_EMAIL,
-        privateKey: privateKey,
-      }),
-    }, APP_NAME);
-    console.log('✅ Firebase Admin initialized with individual env vars');
-    return app;
-  } catch (initError) {
-    console.error('❌ Firebase Admin initialization error:', initError);
-    throw initError;
-  }
-}
-
-export async function POST(request: NextRequest) {
-  console.log('🔵 ===== SESSION API ROUTE HIT =====');
-  console.log('🔵 Request URL:', request.url);
-  console.log('🔵 Host header:', request.headers.get('host'));
-  
+/**
+ * Create a session cookie from Firebase ID token
+ */
+async function handlePost(request: NextRequest) {
   try {
     const { token } = await request.json();
     
-    console.log('🔵 Token received:', token ? 'YES' : 'NO');
-    
     if (!token) {
-      console.log('🔵 No token provided, deleting cookie');
-      const response = NextResponse.json({ success: true });
+      // No token = delete cookie (logout)
+      const response = handleApiSuccess({ success: true });
       response.cookies.delete('fb-id-token');
       return response;
     }
     
     // Verify the token is valid
-    try {
-      const app = getFirebaseAdmin();
-      const decodedToken = await admin.auth(app).verifyIdToken(token);
-      console.log('✅ Token verified for user:', decodedToken.uid);
-    } catch (verifyError) {
-      console.error('❌ Token verification failed:', verifyError);
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Invalid token' 
-      }, { status: 401 });
-    }
+    const { auth } = await getFirebaseAdmin();
+    const decodedToken = await auth.verifyIdToken(token);
     
-    // Create response with cookie
-    const response = NextResponse.json({ success: true });
+    console.log('[Session] Token verified for user:', decodedToken.uid);
     
-    // Set cookie on the response directly
-    response.cookies.set('fb-id-token', token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+    // Create session cookie with expiration
+    const sessionCookie = await auth.createSessionCookie(token, {
+      expiresIn: SESSION_DURATION_MS,
     });
     
-    console.log('✅ Cookie set successfully on response');
+    // Create response with cookie
+    const response = handleApiSuccess({ 
+      success: true,
+      expiresIn: SESSION_DURATION_MS,
+    });
+    
+    // Set secure cookie
+    response.cookies.set('fb-id-token', sessionCookie, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: SESSION_DURATION_MS / 1000, // Convert to seconds
+    });
+    
+    console.log('[Session] Cookie set successfully, expires in 7 days');
     
     return response;
   } catch (error) {
-    console.error('❌ Session API error:', error);
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Failed to set session' 
-    }, { status: 500 });
+    return handleApiError(
+      'auth',
+      error instanceof Error ? error : new Error(String(error)),
+      { endpoint: 'POST /api/auth/session' }
+    );
   }
 }
 
-export async function DELETE(request: NextRequest) {
-  console.log('🔵 DELETE session - removing cookie');
-  const response = NextResponse.json({ success: true });
-  response.cookies.delete('fb-id-token');
-  return response;
+/**
+ * Delete session cookie (logout)
+ */
+async function handleDelete(request: NextRequest) {
+  try {
+    console.log('[Session] DELETE - removing cookie');
+    const response = handleApiSuccess({ success: true });
+    response.cookies.delete('fb-id-token');
+    return response;
+  } catch (error) {
+    return handleApiError(
+      'server',
+      error instanceof Error ? error : new Error(String(error)),
+      { endpoint: 'DELETE /api/auth/session' }
+    );
+  }
 }
+
+// Export with CORS protection
+export const POST = withCors(handlePost);
+export const DELETE = withCors(handleDelete);
