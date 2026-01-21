@@ -2,8 +2,9 @@
 
 ## ✅ What Was Done
 
-**Date:** January 20, 2026
-**Branch:** `feat/rate-limiting`
+**Date:** January 20, 2026  
+**Branch:** `feat/rate-limiting`  
+**PR:** https://github.com/edwardxtra/xtrafleet/pull/28
 
 ### Files Created/Modified:
 
@@ -12,6 +13,8 @@
 3. **`src/app/api/add-new-driver/route.ts`** - Added rate limiting to invitations (10 per hour)
 4. **`src/app/api/loads/route.ts`** - Added rate limiting to load creation (20 per hour)
 5. **`src/app/api/create-driver-account/route.ts`** - Added rate limiting to registration (3 per hour per IP)
+6. **`.env.example`** - Environment variables template
+7. **`package.json`** - Added @upstash/ratelimit and @upstash/redis dependencies
 
 ## 🎯 Rate Limits Implemented
 
@@ -26,28 +29,39 @@
 
 ### 1. Install packages:
 ```bash
-npm install @upstash/ratelimit @upstash/redis
+npm install
 ```
 
 ### 2. Add environment variables:
 
-Add to `.env.local`:
+**For local development**, create `.env.local` in your project root:
 ```bash
-UPSTASH_REDIS_REST_URL="https://darling-marten-37536.upstash.io"
-UPSTASH_REDIS_REST_TOKEN="AZKgAAIncDE2Y2Y2ZjRhMWEyYmQ0YzYxOGE3OThjNGVlZWQ2MWQxZnAxMzc1MzY"
+UPSTASH_REDIS_REST_URL=https://darling-marten-37536.upstash.io
+UPSTASH_REDIS_REST_TOKEN=AZKgAAIncDE2Y2Y2ZjRhMWEyYmQ0YzYxOGE3OThjNGVlZWQ2MWQxZnAxMzc1MzY
 ```
 
-**Also add to Vercel environment variables:**
-1. Go to Vercel project settings
-2. Environment Variables section
-3. Add both variables for Production, Preview, and Development
+**For production (Firebase Hosting)**, you have two options:
+
+#### Option A: GitHub Secrets (if using GitHub Actions)
+1. Go to: https://github.com/edwardxtra/xtrafleet/settings/secrets/actions
+2. Add repository secrets:
+   - `UPSTASH_REDIS_REST_URL` = `https://darling-marten-37536.upstash.io`
+   - `UPSTASH_REDIS_REST_TOKEN` = `AZKgAAIncDE2Y2Y2ZjRhMWEyYmQ0YzYxOGE3OThjNGVlZWQ2MWQxZnAxMzc1MzY`
+
+#### Option B: Manual deployment
+If you deploy manually from your local machine, just having `.env.local` is enough since Next.js reads it during build.
 
 ### 3. Merge the PR:
 ```bash
 git checkout main
 git pull
-# Review changes at: https://github.com/edwardxtra/xtrafleet/pull/[NUMBER]
-# Merge when ready
+# Or merge via GitHub UI
+```
+
+### 4. Deploy:
+```bash
+npm run build
+firebase deploy --only hosting
 ```
 
 ## 🧪 Testing
@@ -55,33 +69,25 @@ git pull
 After deploying:
 
 ### Test Login Rate Limit:
-```bash
-# Try logging in with wrong password 6 times quickly
-# Expected: 6th attempt should return 429 error
-```
+1. Try logging in with wrong password 6 times quickly
+2. **Expected:** 6th attempt returns 429 error with message "Too many login attempts. Please try again in X minutes"
 
 ### Test Invitation Rate Limit:
-```bash
-# Send 11 driver invitations quickly
-# Expected: 11th should return 429 error
-```
+1. Send 11 driver invitations quickly
+2. **Expected:** 11th returns 429 error
 
 ### Test Load Creation Rate Limit:
-```bash
-# Create 21 loads quickly
-# Expected: 21st should return 429 error
-```
+1. Create 21 loads quickly
+2. **Expected:** 21st returns 429 error
 
 ### Test Registration Rate Limit:
-```bash
-# Try creating 4 driver accounts quickly from same IP
-# Expected: 4th should return 429 error
-```
+1. Try creating 4 driver accounts quickly from same IP
+2. **Expected:** 4th returns 429 error
 
 ## 📊 Monitoring
 
 ### Upstash Dashboard:
-https://console.upstash.com/redis/[your-database-id]
+https://console.upstash.com/redis/darling-marten-37536
 
 **View:**
 - Total requests
@@ -108,48 +114,64 @@ auth: new Ratelimit({
 }),
 ```
 
-Then redeploy.
+Then rebuild and redeploy:
+```bash
+npm run build
+firebase deploy --only hosting
+```
 
 ## 💰 Cost
 
-**Current usage:** ~18,000 commands/month
-**Free tier:** 500,000 commands/month
-**Cost:** $0 👍
+**Current usage:** ~18,000 commands/month  
+**Free tier:** 500,000 commands/month  
+**Cost:** **$0** 👍
 
 You won't pay anything unless you exceed 500K commands/month (unlikely until you have thousands of daily users).
 
 ## 🛡️ Security Benefits
 
-✅ **Prevents brute force attacks** - Attackers can't guess passwords quickly
-✅ **Stops spam/abuse** - Limits on invitations and load creation
-✅ **Protects costs** - Can't rack up huge Firebase/email bills
-✅ **Prevents DDoS** - Rate limiting handles traffic spikes
-✅ **Professional** - Industry standard security practice
+✅ **Prevents brute force attacks** - Attackers can't guess passwords quickly  
+✅ **Stops spam/abuse** - Limits on invitations and load creation  
+✅ **Protects costs** - Can't rack up huge Firebase/email bills  
+✅ **Prevents DDoS** - Rate limiting handles traffic spikes  
+✅ **Professional** - Industry standard security practice  
 
 ## 🚨 Troubleshooting
 
 **Problem: All requests return 429**
-- Check Upstash database is active
+- Check Upstash database is active at https://console.upstash.com/
 - Verify environment variables are set correctly
 - Check Upstash dashboard for errors
 
 **Problem: Rate limiting not working**
-- Verify code was deployed
+- Verify code was deployed (check commit hash)
 - Check browser console for 429 responses
-- Ensure environment variables are in Vercel
+- Ensure `.env.local` exists locally or GitHub Secrets are set
+- Run `npm run build` to rebuild with new env vars
 
 **Problem: Legitimate users blocked**
 - Increase limits in `rate-limit.ts`
 - Check if user is triggering limit accidentally
-- Monitor Upstash analytics
+- Monitor Upstash analytics for patterns
+
+**Problem: "Cannot read properties of undefined (reading 'UPSTASH_REDIS_REST_URL')"**
+- Environment variables not loaded
+- Make sure `.env.local` exists in project root
+- Rebuild: `npm run build`
 
 ## 📚 Resources
 
-- Upstash Console: https://console.upstash.com/
-- Upstash Rate Limiting Docs: https://upstash.com/docs/redis/sdks/ratelimit-ts/overview
-- GitHub Issue #22: https://github.com/edwardxtra/xtrafleet/issues/22
+- **Upstash Console:** https://console.upstash.com/
+- **Upstash Rate Limiting Docs:** https://upstash.com/docs/redis/sdks/ratelimit-ts/overview
+- **GitHub Issue #22:** https://github.com/edwardxtra/xtrafleet/issues/22
+- **Pull Request #28:** https://github.com/edwardxtra/xtrafleet/pull/28
 
 ---
 
-**Status:** ✅ Implemented and ready for testing
-**Next Steps:** Merge PR, add env vars to Vercel, test, deploy to production
+**Status:** ✅ Ready to merge and deploy  
+**Next Steps:**  
+1. Merge PR #28
+2. Add `.env.local` with credentials
+3. Run `npm install`
+4. Test locally
+5. Deploy to production
