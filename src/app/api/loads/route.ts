@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
+import { rateLimiters, getIdentifier, formatTimeRemaining } from '@/lib/rate-limit';
 
 const loadSchema = z.object({
   origin: z.string().min(1, 'Origin is required'),
@@ -49,6 +50,20 @@ async function handlePost(req: NextRequest) {
     // Verify token (handles both session cookies and ID tokens)
     const decodedToken = await verifyToken(auth, token.value);
     console.log('[Loads] User authenticated:', decodedToken.uid);
+
+    // Apply rate limiting AFTER auth (with user ID)
+    const identifier = getIdentifier(req, decodedToken.uid);
+    const { success, reset } = await rateLimiters.loads.limit(identifier);
+
+    if (!success) {
+      return NextResponse.json(
+        {
+          error: 'Too many load creation requests',
+          message: `You can create more loads in ${formatTimeRemaining(reset)}`,
+        },
+        { status: 429 }
+      );
+    }
     
     // Parse and validate request body
     const body = await req.json();

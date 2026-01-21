@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
+import { rateLimiters, getIdentifier, formatTimeRemaining } from '@/lib/rate-limit';
 
 /**
  * Session duration: 7 days
@@ -14,6 +15,20 @@ const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  */
 async function handlePost(request: NextRequest) {
   try {
+    // Apply rate limiting FIRST
+    const identifier = getIdentifier(request);
+    const { success, reset } = await rateLimiters.auth.limit(identifier);
+
+    if (!success) {
+      return NextResponse.json(
+        {
+          error: 'Too many login attempts',
+          message: `Please try again in ${formatTimeRemaining(reset)}`,
+        },
+        { status: 429 }
+      );
+    }
+
     const { token } = await request.json();
     
     if (!token) {
