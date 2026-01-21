@@ -197,7 +197,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader>
-          <Link href="/" passHref><Logo /></Link>
+          <Logo linkTo="/" forceLight />
         </SidebarHeader>
         <SidebarNav onSignOutClick={() => setShowLogoutDialog(true)} isAdmin={isAdmin} />
       </Sidebar>

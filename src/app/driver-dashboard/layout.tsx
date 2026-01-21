@@ -186,9 +186,7 @@ export default function DriverDashboardLayout({
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader>
-          <Link href="/" passHref>
-            <Logo />
-          </Link>
+          <Logo linkTo="/" forceLight />
         </SidebarHeader>
         <SidebarNav onSignOutClick={() => setShowLogoutDialog(true)} />
       </Sidebar>

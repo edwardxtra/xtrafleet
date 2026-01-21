@@ -163,10 +163,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader>
-          <Link href="/admin" passHref className="flex items-center gap-2">
-            <Logo />
+          <div className="flex items-center gap-2">
+            <Logo linkTo="/admin" forceLight />
             <Badge variant="destructive" className="text-xs">Admin</Badge>
-          </Link>
+          </div>
         </SidebarHeader>
         <AdminSidebarNav onSignOutClick={() => setShowLogoutDialog(true)} />
       </Sidebar>
