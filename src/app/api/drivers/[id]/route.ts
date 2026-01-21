@@ -1,8 +1,8 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAuthenticatedUser, initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
-import { handleError } from '@/lib/api-utils';
+import { authenticateRequest } from '@/lib/api-auth';
+import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
+import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 
 const driverUpdateSchema = z.object({
   name: z.string().min(1, 'Name is required').optional(),
@@ -24,83 +24,75 @@ const driverUpdateSchema = z.object({
 }).partial();
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const adminApp = initializeFirebaseAdmin();
-  if (!adminApp) {
-    return handleError(new Error('Server misconfigured'), 'Server configuration error. Cannot connect to backend services.', 500);
-  }
-
   try {
-    const user = await getAuthenticatedUser(req as any);
-    if (!user) {
-      return handleError(new Error('Unauthorized'), 'Unauthorized', 401);
-    }
+    const user = await authenticateRequest(req);
+    const { db } = await getFirebaseAdmin();
 
-    const firestore = adminApp.firestore();
     const driverId = params.id;
-    const docRef = firestore.doc(`owner_operators/${user.uid}/drivers/${driverId}`);
+    const docRef = db.doc(`owner_operators/${user.uid}/drivers/${driverId}`);
     const docSnap = await docRef.get();
 
     if (!docSnap.exists) {
-      return handleError(new Error('Driver not found'), 'Driver not found', 404);
+      return handleApiError('notFound', new Error('Driver not found'), {
+        endpoint: 'GET /api/drivers/[id]',
+        userId: user.uid,
+      });
     }
 
-    return NextResponse.json({ id: docSnap.id, ...docSnap.data() }, { status: 200 });
+    return handleApiSuccess({ id: docSnap.id, ...docSnap.data() });
   } catch (error) {
-    return handleError(error, 'Failed to fetch driver');
+    if (error instanceof Error && error.message === 'Unauthorized') {
+      return handleApiError('auth', error, { endpoint: 'GET /api/drivers/[id]' });
+    }
+    return handleApiError('server', error instanceof Error ? error : new Error('Unknown error'), {
+      endpoint: 'GET /api/drivers/[id]',
+    });
   }
 }
 
-
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const adminApp = initializeFirebaseAdmin();
-  if (!adminApp) {
-    return handleError(new Error('Server misconfigured'), 'Server configuration error. Cannot connect to backend services.', 500);
-  }
-
   try {
-    const user = await getAuthenticatedUser(req as any);
-    if (!user) {
-      return handleError(new Error('Unauthorized'), 'Unauthorized', 401);
-    }
+    const user = await authenticateRequest(req);
+    const { db } = await getFirebaseAdmin();
 
-    const firestore = adminApp.firestore();
     const driverId = params.id;
-    const docRef = firestore.doc(`owner_operators/${user.uid}/drivers/${driverId}`);
+    const docRef = db.doc(`owner_operators/${user.uid}/drivers/${driverId}`);
     const body = await req.json();
-    
+
     const validation = driverUpdateSchema.safeParse(body);
     if (!validation.success) {
       const fieldErrors = validation.error.flatten().fieldErrors;
-      const errorMessage = Object.values(fieldErrors).flat().join(', ');
-      return NextResponse.json({ error: errorMessage, fieldErrors }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid input', fieldErrors }, { status: 400 });
     }
 
     await docRef.update(validation.data);
-    return NextResponse.json({ message: 'Driver updated successfully' }, { status: 200 });
+    return handleApiSuccess({ message: 'Driver updated successfully' });
   } catch (error) {
-    return handleError(error, 'Failed to update driver');
+    if (error instanceof Error && error.message === 'Unauthorized') {
+      return handleApiError('auth', error, { endpoint: 'PUT /api/drivers/[id]' });
+    }
+    return handleApiError('server', error instanceof Error ? error : new Error('Unknown error'), {
+      endpoint: 'PUT /api/drivers/[id]',
+    });
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const adminApp = initializeFirebaseAdmin();
-  if (!adminApp) {
-    return handleError(new Error('Server misconfigured'), 'Server configuration error. Cannot connect to backend services.', 500);
-  }
-  
   try {
-    const user = await getAuthenticatedUser(req as any);
-    if (!user) {
-      return handleError(new Error('Unauthorized'), 'Unauthorized', 401);
-    }
+    const user = await authenticateRequest(req);
+    const { db } = await getFirebaseAdmin();
 
-    const firestore = adminApp.firestore();
     const driverId = params.id;
-    const docRef = firestore.doc(`owner_operators/${user.uid}/drivers/${driverId}`);
+    const docRef = db.doc(`owner_operators/${user.uid}/drivers/${driverId}`);
     await docRef.delete();
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {
-    return handleError(error, 'Failed to delete driver');
+    if (error instanceof Error && error.message === 'Unauthorized') {
+      return handleApiError('auth', error, { endpoint: 'DELETE /api/drivers/[id]' });
+    }
+    return handleApiError('server', error instanceof Error ? error : new Error('Unknown error'), {
+      endpoint: 'DELETE /api/drivers/[id]',
+    });
   }
 }
