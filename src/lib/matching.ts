@@ -48,6 +48,60 @@ const GEOCODING_STATE_NAMES = [
 const geocodeCache: Map<string, { lat: number; lng: number } | null> = new Map();
 
 // Fallback coordinates for all states and major cities
+// Synonyms for vehicle/cargo type matching
+const VEHICLE_CARGO_SYNONYMS: Record<string, string[]> = {
+  'reefer': ['refrigerated', 'cold', 'frozen', 'temperature controlled', 'temp controlled', 'climate controlled'],
+  'refrigerated': ['reefer', 'cold', 'frozen', 'temperature controlled', 'temp controlled', 'climate controlled'],
+  'flatbed': ['flat bed', 'flat-bed', 'open deck', 'open trailer'],
+  'dry van': ['dry-van', 'dryvan', 'enclosed', 'box trailer', 'box truck'],
+  'tanker': ['tank', 'liquid', 'bulk liquid'],
+  'hopper': ['grain', 'bulk', 'dry bulk'],
+  'lowboy': ['low boy', 'low-boy', 'heavy haul', 'heavy equipment'],
+  'step deck': ['step-deck', 'stepdeck', 'drop deck'],
+  'conestoga': ['curtain side', 'curtainside'],
+  'hazmat': ['hazardous', 'hazardous materials', 'dangerous goods'],
+};
+
+// Get all synonyms for a term
+function getSynonyms(term: string): string[] {
+  const normalized = term.toLowerCase().trim();
+  const synonyms = [normalized];
+
+  // Direct lookup
+  if (VEHICLE_CARGO_SYNONYMS[normalized]) {
+    synonyms.push(...VEHICLE_CARGO_SYNONYMS[normalized]);
+  }
+
+  // Reverse lookup - if term is a synonym of something
+  for (const [key, values] of Object.entries(VEHICLE_CARGO_SYNONYMS)) {
+    if (values.some(v => normalized.includes(v) || v.includes(normalized))) {
+      synonyms.push(key);
+      synonyms.push(...values);
+    }
+  }
+
+  return [...new Set(synonyms)];
+}
+
+// Check if two terms match (including synonyms)
+function termsMatch(term1: string, term2: string): boolean {
+  const t1 = term1.toLowerCase().trim();
+  const t2 = term2.toLowerCase().trim();
+
+  // Direct match
+  if (t1 === t2 || t1.includes(t2) || t2.includes(t1)) {
+    return true;
+  }
+
+  // Synonym match
+  const synonyms1 = getSynonyms(t1);
+  const synonyms2 = getSynonyms(t2);
+
+  return synonyms1.some(s1 =>
+    synonyms2.some(s2 => s1 === s2 || s1.includes(s2) || s2.includes(s1))
+  );
+}
+
 const FALLBACK_COORDINATES: Record<string, { lat: number; lng: number }> = {
   // Florida (FL) - Geocoding enabled
   'miami': { lat: 25.7617, lng: -80.1918 },
@@ -366,18 +420,18 @@ function calculateDistance(
 
 /**
  * Calculate location score based on distance
- * Returns 0-20 points
+ * Returns 0-20 points (legacy)
  */
 function calculateLocationScore(driverCoords: { lat: number; lng: number } | null, loadCoords: { lat: number; lng: number } | null): number {
   if (!driverCoords || !loadCoords) {
     return 5; // Unknown location, partial score
   }
-  
+
   const distance = calculateDistance(
     driverCoords.lat, driverCoords.lng,
     loadCoords.lat, loadCoords.lng
   );
-  
+
   // Score based on distance
   if (distance <= 50) return 20;
   if (distance <= 150) return 18;
@@ -390,7 +444,42 @@ function calculateLocationScore(driverCoords: { lat: number; lng: number } | nul
 }
 
 /**
+ * Calculate location score based on distance (weighted version)
+ * Returns 0-35 points - Location is the most important factor
+ */
+function calculateLocationScoreWeighted(driverCoords: { lat: number; lng: number } | null, loadCoords: { lat: number; lng: number } | null): number {
+  if (!driverCoords || !loadCoords) {
+    return 10; // Unknown location, partial score
+  }
+
+  const distance = calculateDistance(
+    driverCoords.lat, driverCoords.lng,
+    loadCoords.lat, loadCoords.lng
+  );
+
+  // Score based on distance - heavily favor nearby drivers
+  if (distance <= 25) return 35;   // Same city/immediate area
+  if (distance <= 50) return 33;   // Very close
+  if (distance <= 100) return 30;  // Close
+  if (distance <= 200) return 27;  // Regional
+  if (distance <= 350) return 23;  // Extended regional
+  if (distance <= 500) return 18;  // State-wide
+  if (distance <= 750) return 14;  // Multi-state
+  if (distance <= 1000) return 10; // Regional cross-country
+  if (distance <= 1500) return 6;  // Cross-country
+  if (distance <= 2500) return 3;  // Coast to coast
+  return 1;
+}
+
+/**
  * Calculate match score between a driver and a load (sync version)
+ *
+ * Weight distribution (total 100 points):
+ * - Location: 35 points (highest - proximity is most important)
+ * - Vehicle Match: 25 points
+ * - Qualification Match: 20 points
+ * - Rating: 10 points
+ * - Compliance: 10 points
  */
 export function calculateMatchScore(driver: Driver, load: Load): MatchScore['breakdown'] {
   let vehicleMatch = 0;
@@ -399,57 +488,59 @@ export function calculateMatchScore(driver: Driver, load: Load): MatchScore['bre
   let ratingScore = 0;
   let complianceScore = 0;
 
-  // Vehicle Type Match (0-30 points)
+  // Vehicle Type Match (0-25 points)
   const loadRequirements = load.requiredQualifications || [];
-  const driverVehicle = driver.vehicleType?.toLowerCase() || '';
-  
+  const driverVehicle = driver.vehicleType || '';
+  const loadCargo = load.cargo || '';
+
   if (loadRequirements.length > 0) {
-    const vehicleMatches = loadRequirements.some(req => 
-      req.toLowerCase() === driverVehicle ||
-      driverVehicle.includes(req.toLowerCase()) ||
-      req.toLowerCase().includes(driverVehicle)
-    );
-    
+    // Check if driver's vehicle matches any load requirements (with synonyms)
+    const vehicleMatches = loadRequirements.some(req => termsMatch(req, driverVehicle));
+
     if (vehicleMatches) {
-      vehicleMatch = 30;
+      vehicleMatch = 25;
     } else {
-      vehicleMatch = 10;
+      vehicleMatch = 8;
     }
   } else {
-    vehicleMatch = 20;
+    // No specific requirements - check if vehicle suits cargo type
+    if (loadCargo && termsMatch(loadCargo, driverVehicle)) {
+      vehicleMatch = 25;
+    } else {
+      vehicleMatch = 15; // Default for unspecified
+    }
   }
 
-  // Qualification Match (0-25 points)
+  // Qualification Match (0-20 points)
   if (loadRequirements.length > 0) {
     const driverQualifications = [
-      driver.vehicleType?.toLowerCase() || '',
-      ...(driver.certifications || []).map(c => c.toLowerCase())
+      driver.vehicleType || '',
+      ...(driver.certifications || [])
     ].filter(Boolean);
-    
+
     let matchedCount = 0;
     for (const req of loadRequirements) {
-      const reqLower = req.toLowerCase();
-      if (driverQualifications.some(q => q.includes(reqLower) || reqLower.includes(q))) {
+      if (driverQualifications.some(q => termsMatch(q, req))) {
         matchedCount++;
       }
     }
-    
+
     const matchPercentage = matchedCount / loadRequirements.length;
-    qualificationMatch = Math.round(matchPercentage * 25);
+    qualificationMatch = Math.round(matchPercentage * 20);
   } else {
-    qualificationMatch = 25;
+    qualificationMatch = 20;
   }
 
-  // Location Score (0-20 points)
+  // Location Score (0-35 points) - HIGHEST WEIGHT
   const driverCoords = getCoordinatesSync(driver.location || '');
   const loadCoords = getCoordinatesSync(load.origin || '');
-  locationScore = calculateLocationScore(driverCoords, loadCoords);
+  locationScore = calculateLocationScoreWeighted(driverCoords, loadCoords);
 
-  // Rating Score (0-15 points)
+  // Rating Score (0-10 points)
   if (driver.rating && driver.rating > 0) {
-    ratingScore = Math.round((driver.rating / 5) * 15);
+    ratingScore = Math.round((driver.rating / 5) * 10);
   } else {
-    ratingScore = 7;
+    ratingScore = 5;
   }
 
   // Compliance Score (0-10 points)
@@ -473,6 +564,13 @@ export function calculateMatchScore(driver: Driver, load: Load): MatchScore['bre
 
 /**
  * Calculate match score with async geocoding for unknown locations
+ *
+ * Weight distribution (total 100 points):
+ * - Location: 35 points (highest - proximity is most important)
+ * - Vehicle Match: 25 points
+ * - Qualification Match: 20 points
+ * - Rating: 10 points
+ * - Compliance: 10 points
  */
 export async function calculateMatchScoreAsync(driver: Driver, load: Load): Promise<MatchScore['breakdown']> {
   let vehicleMatch = 0;
@@ -481,57 +579,59 @@ export async function calculateMatchScoreAsync(driver: Driver, load: Load): Prom
   let ratingScore = 0;
   let complianceScore = 0;
 
-  // Vehicle Type Match (0-30 points)
+  // Vehicle Type Match (0-25 points)
   const loadRequirements = load.requiredQualifications || [];
-  const driverVehicle = driver.vehicleType?.toLowerCase() || '';
-  
+  const driverVehicle = driver.vehicleType || '';
+  const loadCargo = load.cargo || '';
+
   if (loadRequirements.length > 0) {
-    const vehicleMatches = loadRequirements.some(req => 
-      req.toLowerCase() === driverVehicle ||
-      driverVehicle.includes(req.toLowerCase()) ||
-      req.toLowerCase().includes(driverVehicle)
-    );
-    
+    // Check if driver's vehicle matches any load requirements (with synonyms)
+    const vehicleMatches = loadRequirements.some(req => termsMatch(req, driverVehicle));
+
     if (vehicleMatches) {
-      vehicleMatch = 30;
+      vehicleMatch = 25;
     } else {
-      vehicleMatch = 10;
+      vehicleMatch = 8;
     }
   } else {
-    vehicleMatch = 20;
+    // No specific requirements - check if vehicle suits cargo type
+    if (loadCargo && termsMatch(loadCargo, driverVehicle)) {
+      vehicleMatch = 25;
+    } else {
+      vehicleMatch = 15; // Default for unspecified
+    }
   }
 
-  // Qualification Match (0-25 points)
+  // Qualification Match (0-20 points)
   if (loadRequirements.length > 0) {
     const driverQualifications = [
-      driver.vehicleType?.toLowerCase() || '',
-      ...(driver.certifications || []).map(c => c.toLowerCase())
+      driver.vehicleType || '',
+      ...(driver.certifications || [])
     ].filter(Boolean);
-    
+
     let matchedCount = 0;
     for (const req of loadRequirements) {
-      const reqLower = req.toLowerCase();
-      if (driverQualifications.some(q => q.includes(reqLower) || reqLower.includes(q))) {
+      if (driverQualifications.some(q => termsMatch(q, req))) {
         matchedCount++;
       }
     }
-    
+
     const matchPercentage = matchedCount / loadRequirements.length;
-    qualificationMatch = Math.round(matchPercentage * 25);
+    qualificationMatch = Math.round(matchPercentage * 20);
   } else {
-    qualificationMatch = 25;
+    qualificationMatch = 20;
   }
 
-  // Location Score (0-20 points) - with async geocoding
+  // Location Score (0-35 points) - HIGHEST WEIGHT - with async geocoding
   const driverCoords = await getCoordinatesAsync(driver.location || '');
   const loadCoords = await getCoordinatesAsync(load.origin || '');
-  locationScore = calculateLocationScore(driverCoords, loadCoords);
+  locationScore = calculateLocationScoreWeighted(driverCoords, loadCoords);
 
-  // Rating Score (0-15 points)
+  // Rating Score (0-10 points)
   if (driver.rating && driver.rating > 0) {
-    ratingScore = Math.round((driver.rating / 5) * 15);
+    ratingScore = Math.round((driver.rating / 5) * 10);
   } else {
-    ratingScore = 7;
+    ratingScore = 5;
   }
 
   // Compliance Score (0-10 points)
