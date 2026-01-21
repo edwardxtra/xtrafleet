@@ -79,6 +79,9 @@ export type Match = {
   driverOwnerId: string;
   driverName?: string;
   driverOwnerName?: string;
+  // Bidirectional matching fields
+  initiatedBy: 'load_owner' | 'driver_owner';
+  recipientOwnerId: string; // The owner who needs to respond
   status: MatchStatus;
   matchScore: number;
   originalTerms: {

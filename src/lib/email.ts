@@ -230,6 +230,46 @@ export async function sendMatchRequestEmail(
   return sendEmail(driverOwnerEmail, subject, html);
 }
 
+// Driver owner offering their driver to a load owner
+export async function sendDriverOfferRequestEmail(
+  loadOwnerEmail: string,
+  loadOwnerName: string,
+  driverOwnerName: string,
+  driverName: string,
+  loadOrigin: string,
+  loadDestination: string,
+  rate: number,
+  matchId: string
+) {
+  const subject = `Driver Offer for Your Load: ${loadOrigin} → ${loadDestination}`;
+  const html = emailTemplate(`
+    <h2 style="color: #1a1a1a; font-size: 20px; margin-bottom: 16px;">New Driver Offer</h2>
+
+    <p>Hi ${loadOwnerName || 'there'},</p>
+
+    <p><strong>${driverOwnerName}</strong> has offered their driver for your load.</p>
+
+    <div style="background-color: #f3f4f6; border-radius: 6px; padding: 20px; margin: 24px 0;">
+      <h3 style="margin: 0 0 12px 0; color: #1f2937;">Offer Details</h3>
+      <p style="margin: 4px 0; color: #4b5563;"><strong>Driver:</strong> ${driverName}</p>
+      <p style="margin: 4px 0; color: #4b5563;"><strong>Route:</strong> ${loadOrigin} → ${loadDestination}</p>
+      <p style="margin: 4px 0; color: #059669; font-size: 18px;"><strong>Proposed Rate: $${rate.toLocaleString()}</strong></p>
+    </div>
+
+    <p>You have <strong>48 hours</strong> to respond to this offer.</p>
+
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="${APP_URL}/dashboard/incoming-matches" style="${buttonStyle()}">
+        View Offer
+      </a>
+    </div>
+
+    <p style="color: #6b7280; font-size: 14px;">You can accept, decline, or send a counter offer.</p>
+  `);
+
+  return sendEmail(loadOwnerEmail, subject, html);
+}
+
 export async function sendMatchAcceptedEmail(
   loadOwnerEmail: string,
   loadOwnerName: string,

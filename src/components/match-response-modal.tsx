@@ -65,14 +65,23 @@ export function MatchResponseModal({
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("accept");
-  
+
   // Counter offer state
   const [counterRate, setCounterRate] = useState<string>(match.originalTerms.rate.toString());
   const [counterPickupDate, setCounterPickupDate] = useState<string>(match.originalTerms.pickupDate || "");
   const [counterNotes, setCounterNotes] = useState<string>("");
-  
+
   // Decline state
   const [declineReason, setDeclineReason] = useState<string>("");
+
+  // Determine direction - who initiated this match?
+  // If load_owner initiated, driver_owner is responding (current behavior)
+  // If driver_owner initiated, load_owner is responding (new behavior)
+  const initiatedByLoadOwner = match.initiatedBy === 'load_owner' || !match.initiatedBy; // Default to load_owner for backwards compat
+  const initiatorName = initiatedByLoadOwner ? match.loadOwnerName : match.driverOwnerName;
+  const initiatorEmail = initiatedByLoadOwner
+    ? (match as any).loadOwnerEmail
+    : (match as any).driverOwnerEmail;
 
   const handleAccept = async () => {
     if (!firestore || !user) return;
@@ -160,44 +169,67 @@ export function MatchResponseModal({
       });
       console.log('✅ Load status updated successfully');
   
-      // Send email notification to load owner
+      // Send email notification to the INITIATOR (whoever sent the match request)
       const loadOwnerEmail = (lesseeInfo as any).contactEmail || '';
       const loadOwnerName = (lesseeInfo as any).legalName || '';
       const loadOwnerCompanyName = (lesseeInfo as any).companyName || loadOwnerName;
-      const driverOwnerCompanyName = (lessorInfo as any).companyName || (lessorInfo as any).legalName;
-      
-      if (loadOwnerEmail) {
-        notify.matchAccepted({
-          loadOwnerEmail,
-          loadOwnerName,
-          driverName: match.driverSnapshot.name,
-          loadOrigin: match.loadSnapshot.origin,
-          loadDestination: match.loadSnapshot.destination,
-          rate: match.originalTerms.rate,
-          tlaId: tlaRef.id,
-        }).catch(err => console.error('Failed to send match accepted notification:', err));
+      const driverOwnerEmail = (lessorInfo as any).contactEmail || '';
+      const driverOwnerNameFromDoc = (lessorInfo as any).legalName || '';
+      const driverOwnerCompanyName = (lessorInfo as any).companyName || driverOwnerNameFromDoc;
+
+      // Notify the initiator that their request was accepted
+      if (initiatedByLoadOwner) {
+        // Load owner initiated, driver owner is accepting -> notify load owner
+        if (loadOwnerEmail) {
+          notify.matchAccepted({
+            loadOwnerEmail,
+            loadOwnerName,
+            driverName: match.driverSnapshot.name,
+            loadOrigin: match.loadSnapshot.origin,
+            loadDestination: match.loadSnapshot.destination,
+            rate: match.originalTerms.rate,
+            tlaId: tlaRef.id,
+          }).catch(err => console.error('Failed to send match accepted notification:', err));
+        }
+      } else {
+        // Driver owner initiated, load owner is accepting -> notify driver owner
+        if (driverOwnerEmail) {
+          notify.matchAccepted({
+            loadOwnerEmail: driverOwnerEmail, // Reusing the same notification type but sending to driver owner
+            loadOwnerName: driverOwnerNameFromDoc,
+            driverName: match.driverSnapshot.name,
+            loadOrigin: match.loadSnapshot.origin,
+            loadDestination: match.loadSnapshot.destination,
+            rate: match.originalTerms.rate,
+            tlaId: tlaRef.id,
+          }).catch(err => console.error('Failed to send match accepted notification:', err));
+        }
       }
 
-      // Create in-app notification for load owner
+      // Create in-app notification for the INITIATOR
       try {
+        const notificationUserId = initiatedByLoadOwner ? match.loadOwnerId : match.driverOwnerId;
+        const responderCompanyName = initiatedByLoadOwner ? driverOwnerCompanyName : loadOwnerCompanyName;
+
         await addDoc(collection(firestore, "notifications"), {
-          userId: match.loadOwnerId,
+          userId: notificationUserId,
           type: "match_accepted",
           title: "Match Accepted!",
-          message: `${driverOwnerCompanyName} accepted your match for ${match.loadSnapshot.origin} → ${match.loadSnapshot.destination}. You can now message them!`,
+          message: `${responderCompanyName} accepted your match for ${match.loadSnapshot.origin} → ${match.loadSnapshot.destination}. You can now message them!`,
           link: "/dashboard/messages",
           linkText: "Go to Messages",
           createdAt: new Date().toISOString(),
           read: false,
         });
-        console.log('✅ In-app notification created for load owner');
+        console.log('✅ In-app notification created for initiator');
       } catch (notifError) {
         console.warn('Failed to create in-app notification:', notifError);
       }
   
       // CRITICAL FIX: Show BOTH toasts before redirecting
+      const otherPartyName = initiatedByLoadOwner ? loadOwnerCompanyName : driverOwnerCompanyName;
       showSuccess("Match accepted! TLA created and ready to sign.");
-      showInfo(`💬 You can now message ${loadOwnerCompanyName} in the Messages tab!`);
+      showInfo(`💬 You can now message ${otherPartyName} in the Messages tab!`);
       
       // Close modal
       onOpenChange(false);
@@ -240,16 +272,17 @@ export function MatchResponseModal({
         respondedAt: new Date().toISOString(),
       });
 
-      // Fetch load owner info for notification
-      const lesseeDoc = await getDoc(doc(firestore, `owner_operators/${match.loadOwnerId}`));
-      const lesseeInfo = lesseeDoc.exists() ? lesseeDoc.data() : null;
-      const loadOwnerEmail = lesseeInfo?.contactEmail || '';
-      const loadOwnerName = lesseeInfo?.legalName || '';
+      // Fetch initiator info for notification
+      const initiatorId = initiatedByLoadOwner ? match.loadOwnerId : match.driverOwnerId;
+      const initiatorDoc = await getDoc(doc(firestore, `owner_operators/${initiatorId}`));
+      const initiatorInfo = initiatorDoc.exists() ? initiatorDoc.data() : null;
+      const initiatorEmailFetched = initiatorInfo?.contactEmail || '';
+      const initiatorNameFetched = initiatorInfo?.legalName || '';
 
-      if (loadOwnerEmail) {
+      if (initiatorEmailFetched) {
         notify.matchCountered({
-          loadOwnerEmail,
-          loadOwnerName,
+          loadOwnerEmail: initiatorEmailFetched, // Reusing same type, sending to initiator
+          loadOwnerName: initiatorNameFetched,
           driverName: match.driverSnapshot.name,
           loadOrigin: match.loadSnapshot.origin,
           loadDestination: match.loadSnapshot.destination,
@@ -259,7 +292,7 @@ export function MatchResponseModal({
         }).catch(err => console.error('Failed to send counter notification:', err));
       }
 
-      showSuccess("Counter offer sent to load owner!");
+      showSuccess("Counter offer sent!");
       onOpenChange(false);
       if (onSuccess) onSuccess();
     } catch (error) {
@@ -283,16 +316,17 @@ export function MatchResponseModal({
 
       await updateDoc(doc(firestore, `matches/${match.id}`), updateData);
 
-      // Fetch load owner info for notification
-      const lesseeDoc = await getDoc(doc(firestore, `owner_operators/${match.loadOwnerId}`));
-      const lesseeInfo = lesseeDoc.exists() ? lesseeDoc.data() : null;
-      const loadOwnerEmail = lesseeInfo?.contactEmail || '';
-      const loadOwnerName = lesseeInfo?.legalName || '';
+      // Fetch initiator info for notification
+      const initiatorIdForDecline = initiatedByLoadOwner ? match.loadOwnerId : match.driverOwnerId;
+      const initiatorDocForDecline = await getDoc(doc(firestore, `owner_operators/${initiatorIdForDecline}`));
+      const initiatorInfoForDecline = initiatorDocForDecline.exists() ? initiatorDocForDecline.data() : null;
+      const initiatorEmailForDecline = initiatorInfoForDecline?.contactEmail || '';
+      const initiatorNameForDecline = initiatorInfoForDecline?.legalName || '';
 
-      if (loadOwnerEmail) {
+      if (initiatorEmailForDecline) {
         notify.matchDeclined({
-          loadOwnerEmail,
-          loadOwnerName,
+          loadOwnerEmail: initiatorEmailForDecline, // Reusing same type, sending to initiator
+          loadOwnerName: initiatorNameForDecline,
           driverName: match.driverSnapshot.name,
           loadOrigin: match.loadSnapshot.origin,
           loadDestination: match.loadSnapshot.destination,
@@ -334,10 +368,12 @@ export function MatchResponseModal({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Truck className="h-5 w-5" />
-              Match Request
+              {initiatedByLoadOwner ? "Match Request" : "Driver Offer"}
             </DialogTitle>
             <DialogDescription>
-              Review the match request and choose how to respond.
+              {initiatedByLoadOwner
+                ? "Review the match request and choose how to respond."
+                : "A driver owner has offered their driver for your load."}
             </DialogDescription>
           </DialogHeader>
 
@@ -364,24 +400,24 @@ export function MatchResponseModal({
               </div>
             </div>
 
-            {/* Load Owner Info with Email and Score */}
+            {/* Initiator Info with Email and Score */}
             <div className="p-4 bg-muted/50 rounded-lg">
               <h4 className="font-medium mb-2 flex items-center gap-2">
                 <Building2 className="h-4 w-4" />
-                From
+                {initiatedByLoadOwner ? "From (Load Owner)" : "From (Driver Owner)"}
               </h4>
               <div className="space-y-2">
-                <p className="text-sm font-semibold">{match.loadOwnerName}</p>
-                {match.loadOwnerEmail && (
+                <p className="text-sm font-semibold">{initiatorName}</p>
+                {initiatorEmail && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <p className="text-xs text-muted-foreground flex items-center gap-1 cursor-help">
                         <Mail className="h-3 w-3" />
-                        <span className="truncate max-w-[200px]">{match.loadOwnerEmail}</span>
+                        <span className="truncate max-w-[200px]">{initiatorEmail}</span>
                       </p>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>{match.loadOwnerEmail}</p>
+                      <p>{initiatorEmail}</p>
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -400,7 +436,7 @@ export function MatchResponseModal({
             <div className="p-4 bg-muted/50 rounded-lg">
               <h4 className="font-medium mb-2 flex items-center gap-2">
                 <User className="h-4 w-4" />
-                Requested Driver
+                {initiatedByLoadOwner ? "Your Driver" : "Offered Driver"}
               </h4>
               <div className="text-sm space-y-1">
                 <p className="font-semibold">{match.driverSnapshot.name}</p>

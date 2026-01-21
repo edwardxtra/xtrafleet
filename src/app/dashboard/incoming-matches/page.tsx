@@ -50,12 +50,15 @@ export default function IncomingMatchesPage() {
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
   const [responseModalOpen, setResponseModalOpen] = useState(false);
 
-  // Query matches where current user is the driver owner
+  // Query matches where current user is the recipient (needs to respond)
+  // This works for both directions:
+  // - Load owner initiated → driver owner is recipient
+  // - Driver owner initiated → load owner is recipient
   const matchesQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
     return query(
       collection(firestore, "matches"),
-      where("driverOwnerId", "==", user.uid),
+      where("recipientOwnerId", "==", user.uid),
       orderBy("createdAt", "desc")
     );
   }, [firestore, user?.uid]);
@@ -135,7 +138,7 @@ export default function IncomingMatchesPage() {
       <div>
         <h1 className="text-2xl font-bold font-headline">Incoming Match Requests</h1>
         <p className="text-muted-foreground">
-          Review and respond to requests from load owners.
+          Review and respond to match requests for your drivers or loads.
         </p>
       </div>
 
@@ -152,75 +155,94 @@ export default function IncomingMatchesPage() {
               <Inbox className="h-16 w-16 text-muted-foreground mb-4" />
               <h3 className="text-lg font-semibold">No Pending Requests</h3>
               <p className="text-muted-foreground text-center mt-1">
-                When load owners request your drivers, they'll appear here.
+                When someone sends a match request for your drivers or loads, it will appear here.
               </p>
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {pendingMatches.map(match => (
-              <Card key={match.id} className="border-primary/50">
-                <CardHeader className="pb-2">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <Truck className="h-4 w-4" />
-                        {match.loadSnapshot.origin} → {match.loadSnapshot.destination}
-                      </CardTitle>
-                      <CardDescription>
-                        {match.loadSnapshot.cargo} • {match.loadSnapshot.weight.toLocaleString()} lbs
-                      </CardDescription>
+            {pendingMatches.map(match => {
+              // Determine if this is a request for your driver or your load
+              const isForMyDriver = match.initiatedBy === 'load_owner';
+              const requesterName = isForMyDriver ? match.loadOwnerName : match.driverOwnerName;
+
+              return (
+                <Card key={match.id} className="border-primary/50">
+                  <CardHeader className="pb-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <Truck className="h-4 w-4" />
+                          {match.loadSnapshot.origin} → {match.loadSnapshot.destination}
+                        </CardTitle>
+                        <CardDescription>
+                          {match.loadSnapshot.cargo} • {match.loadSnapshot.weight.toLocaleString()} lbs
+                        </CardDescription>
+                      </div>
+                      <Badge variant="outline" className="text-orange-600 border-orange-600">
+                        <Clock className="h-3 w-3 mr-1" />
+                        {getTimeLeft(match.expiresAt)}
+                      </Badge>
                     </div>
-                    <Badge variant="outline" className="text-orange-600 border-orange-600">
-                      <Clock className="h-3 w-3 mr-1" />
-                      {getTimeLeft(match.expiresAt)}
+                  </CardHeader>
+
+                  <CardContent className="space-y-3">
+                    {/* Request type indicator */}
+                    <Badge variant={isForMyDriver ? "secondary" : "outline"} className="mb-2">
+                      {isForMyDriver ? "Request for your driver" : "Offer for your load"}
                     </Badge>
-                  </div>
-                </CardHeader>
-                
-                <CardContent className="space-y-3">
-                  {/* From */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <Building2 className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">From:</span>
-                    <span className="font-medium">{match.loadOwnerName}</span>
-                  </div>
-                  
-                  {/* Driver Requested */}
-                  <div className="flex items-center gap-2 text-sm">
-                    <User className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">Driver:</span>
-                    <span className="font-medium">{match.driverSnapshot.name}</span>
-                  </div>
-                  
-                  {/* Rate */}
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="h-4 w-4 text-green-600" />
-                    <span className="text-lg font-bold text-green-600">
-                      ${match.originalTerms.rate.toLocaleString()}
-                    </span>
-                  </div>
-                  
-                  {/* Pickup Date */}
-                  {match.originalTerms.pickupDate && (
+
+                    {/* From */}
                     <div className="flex items-center gap-2 text-sm">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">Pickup:</span>
-                      <span>{formatDate(match.originalTerms.pickupDate)}</span>
+                      <Building2 className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-muted-foreground">From:</span>
+                      <span className="font-medium">{requesterName}</span>
                     </div>
-                  )}
-                </CardContent>
-                
-                <CardFooter>
-                  <Button 
-                    className="w-full" 
-                    onClick={() => handleRespond(match)}
-                  >
-                    Respond to Request
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
+
+                    {/* Driver or Load info depending on direction */}
+                    {isForMyDriver ? (
+                      <div className="flex items-center gap-2 text-sm">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">Your Driver:</span>
+                        <span className="font-medium">{match.driverSnapshot.name}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">Their Driver:</span>
+                        <span className="font-medium">{match.driverSnapshot.name}</span>
+                      </div>
+                    )}
+
+                    {/* Rate */}
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-green-600" />
+                      <span className="text-lg font-bold text-green-600">
+                        ${match.originalTerms.rate.toLocaleString()}
+                      </span>
+                    </div>
+
+                    {/* Pickup Date */}
+                    {match.originalTerms.pickupDate && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">Pickup:</span>
+                        <span>{formatDate(match.originalTerms.pickupDate)}</span>
+                      </div>
+                    )}
+                  </CardContent>
+
+                  <CardFooter>
+                    <Button
+                      className="w-full"
+                      onClick={() => handleRespond(match)}
+                    >
+                      Respond to Request
+                    </Button>
+                  </CardFooter>
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>
@@ -235,7 +257,9 @@ export default function IncomingMatchesPage() {
               const status = expired ? 'expired' : match.status;
               const config = statusConfig[status];
               const StatusIcon = config.icon;
-              
+              const isForMyDriver = match.initiatedBy === 'load_owner';
+              const requesterName = isForMyDriver ? match.loadOwnerName : match.driverOwnerName;
+
               return (
                 <Card key={match.id} className="opacity-75">
                   <CardHeader className="pb-2">
@@ -255,18 +279,22 @@ export default function IncomingMatchesPage() {
                       </Badge>
                     </div>
                   </CardHeader>
-                  
+
                   <CardContent className="space-y-2">
+                    <Badge variant="outline" className="mb-1 text-xs">
+                      {isForMyDriver ? "For your driver" : "For your load"}
+                    </Badge>
+
                     <div className="flex items-center gap-2 text-sm">
                       <Building2 className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">{match.loadOwnerName}</span>
+                      <span className="font-medium">{requesterName}</span>
                     </div>
-                    
+
                     <div className="flex items-center gap-2 text-sm">
                       <User className="h-4 w-4 text-muted-foreground" />
                       <span>{match.driverSnapshot.name}</span>
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
                       <DollarSign className="h-4 w-4 text-muted-foreground" />
                       <span className="font-medium">

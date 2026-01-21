@@ -28,6 +28,7 @@ export async function sendNotification(
 
 // Convenience methods
 export const notify = {
+  // Load owner initiating match with driver owner
   matchRequest: (data: {
     driverOwnerEmail: string;
     driverOwnerName: string;
@@ -37,6 +38,18 @@ export const notify = {
     rate: number;
     matchId: string;
   }) => sendNotification('match_request', data),
+
+  // Driver owner initiating match with load owner
+  driverOfferRequest: (data: {
+    loadOwnerEmail: string;
+    loadOwnerName: string;
+    driverOwnerName: string;
+    driverName: string;
+    loadOrigin: string;
+    loadDestination: string;
+    rate: number;
+    matchId: string;
+  }) => sendNotification('driver_offer_request', data),
 
   matchAccepted: (data: {
     loadOwnerEmail: string;
