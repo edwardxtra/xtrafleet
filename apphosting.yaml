@@ -32,3 +32,13 @@ env:
     value: price_1SpDhVJkUn3hXOyqHesWbtho
   - variable: NEXT_PUBLIC_STRIPE_PRICE_ANNUAL
     value: price_1SpDi9JkUn3hXOyqHPI4bF5H
+
+  # Upstash Redis for Rate Limiting
+  - variable: UPSTASH_REDIS_REST_URL
+    secret: UPSTASH_REDIS_REST_URL
+  - variable: UPSTASH_REDIS_REST_TOKEN
+    secret: UPSTASH_REDIS_REST_TOKEN
+
+  # Firebase Service Account (full JSON - recommended)
+  - variable: FIREBASE_SERVICE_ACCOUNT
+    secret: FIREBASE_SERVICE_ACCOUNT
