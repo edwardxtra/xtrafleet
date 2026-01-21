@@ -1,16 +1,26 @@
 import type { Driver, Load } from "@/lib/data";
 import { getComplianceStatus, ComplianceStatus } from "@/lib/compliance";
 
+export interface MatchScoreBreakdown {
+  vehicleMatch: number;
+  qualificationMatch: number;
+  locationScore: number;
+  ratingScore: number;
+  complianceScore: number;
+}
+
 export interface MatchScore {
   driver: Driver;
   score: number;
-  breakdown: {
-    vehicleMatch: number;
-    qualificationMatch: number;
-    locationScore: number;
-    ratingScore: number;
-    complianceScore: number;
-  };
+  breakdown: MatchScoreBreakdown;
+  rank: number;
+  isBestMatch: boolean;
+}
+
+export interface LoadMatchScore {
+  load: Load;
+  score: number;
+  breakdown: MatchScoreBreakdown;
   rank: number;
   isBestMatch: boolean;
 }
@@ -669,7 +679,7 @@ export function findMatchingLoads(
   driver: Driver,
   loads: Load[],
   options: { maxResults?: number } = {}
-): { load: Load; score: number; breakdown: MatchScore['breakdown']; rank: number; isBestMatch: boolean }[] {
+): LoadMatchScore[] {
   const { maxResults = 10 } = options;
 
   const pendingLoads = loads.filter(load => load.status === 'Pending');

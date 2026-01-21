@@ -5,6 +5,7 @@ import {
   sendOwnerRegistrationEmail,
   sendDriverRegistrationCompleteEmail,
   sendMatchRequestEmail,
+  sendDriverOfferRequestEmail,
   sendMatchAcceptedEmail,
   sendMatchDeclinedEmail,
   sendMatchCounteredEmail,
@@ -38,6 +39,18 @@ async function handlePost(request: NextRequest) {
       case 'match_request':
         result = await sendMatchRequestEmail(
           data.driverOwnerEmail,
+          data.driverOwnerName,
+          data.driverName,
+          data.loadOrigin,
+          data.loadDestination,
+          data.rate,
+          data.matchId
+        );
+        break;
+      case 'driver_offer_request':
+        result = await sendDriverOfferRequestEmail(
+          data.loadOwnerEmail,
+          data.loadOwnerName,
           data.driverOwnerName,
           data.driverName,
           data.loadOrigin,
