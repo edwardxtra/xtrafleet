@@ -2,14 +2,14 @@
 
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { getAuthenticatedUser, initializeFirebaseAdmin } from '@/lib/firebase/server-auth';
-import admin from 'firebase-admin';
+import { authenticateServerAction } from '@/lib/api-auth';
+import { getFirebaseAdmin, FieldValue, Timestamp } from '@/lib/firebase-admin-singleton';
 import { z } from 'zod';
 import Stripe from 'stripe';
 import { Resend } from 'resend';
-import { 
-  sendOwnerRegistrationEmail, 
-  sendDriverInvitationConfirmationEmail 
+import {
+  sendOwnerRegistrationEmail,
+  sendDriverInvitationConfirmationEmail
 } from '@/lib/email';
 
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -31,7 +31,7 @@ const updateProfileSchema = z.object({
 // ==================== COMPANY PROFILE ACTIONS ====================
 
 export async function createCompanyProfile(formData: FormData) {
-  const user = await getAuthenticatedUser();
+  const user = await authenticateServerAction();
   if (!user) {
     redirect('/login?error=unauthorized');
   }
@@ -54,11 +54,7 @@ export async function createCompanyProfile(formData: FormData) {
   };
   
   try {
-      const adminApp = await initializeFirebaseAdmin();
-      if (!adminApp) {
-        throw new Error('Server not configured for database operations.');
-      }
-      const db = adminApp.firestore();
+      const { db } = await getFirebaseAdmin();
       const ownerDocRef = db.collection('owner_operators').doc(user.uid);
       await ownerDocRef.set(profileData, { merge: true });
       
@@ -84,7 +80,7 @@ export async function createCompanyProfile(formData: FormData) {
 }
 
 export async function updateCompanyProfile(values: unknown): Promise<{ error?: string; message?: string }> {
-  const user = await getAuthenticatedUser();
+  const user = await authenticateServerAction();
   if (!user) {
     return { error: 'You must be logged in to update your profile.' };
   }
@@ -95,11 +91,7 @@ export async function updateCompanyProfile(values: unknown): Promise<{ error?: s
   }
 
   try {
-    const adminApp = await initializeFirebaseAdmin();
-    if (!adminApp) {
-      return { error: 'Server configuration error.' };
-    }
-    const db = adminApp.firestore();
+    const { db } = await getFirebaseAdmin();
     const ownerDocRef = db.collection('owner_operators').doc(user.uid);
     
     const dataToSave = {
@@ -128,7 +120,7 @@ export async function createPaymentIntent(): Promise<string | { error: string }>
     return { error: errorMessage };
   }
   
-  const user = await getAuthenticatedUser();
+  const user = await authenticateServerAction();
   if (!user) {
       return { error: 'You must be logged in to create a payment intent.' };
   }
@@ -152,7 +144,7 @@ export async function handleSuccessfulPaymentSetup(setupIntentId: string) {
     if (!stripe) {
         throw new Error('Stripe is not configured.');
     }
-    const user = await getAuthenticatedUser();
+    const user = await authenticateServerAction();
     if (!user) {
         throw new Error('User not authenticated.');
     }
@@ -160,11 +152,7 @@ export async function handleSuccessfulPaymentSetup(setupIntentId: string) {
     try {
         const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
         if (setupIntent.status === 'succeeded' && setupIntent.metadata?.firebase_uid === user.uid) {
-            const adminApp = await initializeFirebaseAdmin();
-            if (!adminApp) {
-                throw new Error('Server not configured for database operations.');
-            }
-            const db = adminApp.firestore();
+            const { db } = await getFirebaseAdmin();
             const ownerDocRef = db.collection('owner_operators').doc(user.uid);
             
             await ownerDocRef.set({
@@ -200,17 +188,8 @@ export async function sendPasswordReset(
   }
 
   try {
-    const adminApp = await initializeFirebaseAdmin();
-    if (!adminApp) {
-      console.error("Could not send password reset. Firebase Admin not initialized.");
-      return {
-        message: 'If an account exists for this email, a reset link has been sent.',
-        error: '',
-      };
-    }
+    const { auth } = await getFirebaseAdmin();
 
-    const auth = adminApp.auth();
-    
     const resetLink = await auth.generatePasswordResetLink(email, {
       url: 'https://xtrafleet.com/login',
     });
@@ -309,7 +288,7 @@ export async function inviteDriver(
   try {
     console.log('🔵 inviteDriver called');
     
-    const user = await getAuthenticatedUser();
+    const user = await authenticateServerAction();
     
     if (!user) {
       console.log('❌ No authenticated user');
@@ -349,12 +328,8 @@ export async function inviteDriver(
     let companyName = '';
     
     try {
-      const adminApp = await initializeFirebaseAdmin();
-      if (!adminApp) {
-        throw new Error('Firebase Admin not initialized');
-      }
-      const db = adminApp.firestore();
-      
+      const { db } = await getFirebaseAdmin();
+
       // Get owner data
       const ownerDoc = await db.collection('owner_operators').doc(user.uid).get();
       if (ownerDoc.exists) {
@@ -362,13 +337,13 @@ export async function inviteDriver(
         ownerEmail = ownerData?.contactEmail || user.email || '';
         companyName = ownerData?.legalName || ownerData?.companyName || '';
       }
-      
+
       // Save invitation
       await db.collection('driver_invitations').doc(invitationToken).set({
         email: email,
         ownerId: user.uid,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+        createdAt: FieldValue.serverTimestamp(),
+        expiresAt: Timestamp.fromDate(expiresAt),
         status: 'pending',
       });
 
@@ -402,13 +377,14 @@ export async function inviteDriver(
 
     if (error) {
       console.error('❌ Resend error:', error);
-      
+
       try {
-        await admin.firestore().collection('driver_invitations').doc(invitationToken).delete();
+        const { db: cleanupDb } = await getFirebaseAdmin();
+        await cleanupDb.collection('driver_invitations').doc(invitationToken).delete();
       } catch (cleanupError) {
         console.error('Failed to cleanup invitation:', cleanupError);
       }
-      
+
       return {
         message: '',
         error: `Failed to send invitation: ${error.message}`,

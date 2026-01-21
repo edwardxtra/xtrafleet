@@ -1,19 +1,24 @@
 /**
- * Authentication Helper for API Routes
- * 
- * CRITICAL: All API routes MUST use this helper for authentication.
+ * Authentication Helper for API Routes and Server Actions
+ *
+ * CRITICAL: All API routes and server actions MUST use this helper for authentication.
  * This ensures consistent token verification across the entire app.
- * 
- * ✅ CORRECT USAGE:
+ *
+ * ✅ CORRECT USAGE (API Routes):
  * import { authenticateRequest } from '@/lib/api-auth';
  * const user = await authenticateRequest(req);
- * 
+ *
+ * ✅ CORRECT USAGE (Server Actions):
+ * import { authenticateServerAction } from '@/lib/api-auth';
+ * const user = await authenticateServerAction();
+ *
  * ❌ NEVER DO THIS:
  * const token = req.cookies.get('fb-id-token');
  * await auth.verifyIdToken(token.value); // This breaks with session cookies!
  */
 
 import { NextRequest } from 'next/server';
+import { cookies } from 'next/headers';
 import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
 
 export interface AuthenticatedUser {
@@ -65,5 +70,37 @@ export async function authenticateRequestWithError(
     return await authenticateRequest(req);
   } catch (error) {
     throw new Error(customError || 'Unauthorized');
+  }
+}
+
+/**
+ * Authenticate a server action by verifying the Firebase token from cookies
+ *
+ * Use this in 'use server' functions where NextRequest is not available.
+ *
+ * @throws Error with message 'Unauthorized' if authentication fails
+ * @returns Decoded token with user information
+ */
+export async function authenticateServerAction(): Promise<AuthenticatedUser> {
+  const { auth } = await getFirebaseAdmin();
+
+  // Get token from cookie using next/headers
+  const cookieStore = await cookies();
+  const token = cookieStore.get('fb-id-token');
+
+  if (!token) {
+    throw new Error('Unauthorized');
+  }
+
+  // Try session cookie first (most common for logged-in users)
+  try {
+    return await auth.verifySessionCookie(token.value, true);
+  } catch (sessionError) {
+    // If that fails, try regular ID token
+    try {
+      return await auth.verifyIdToken(token.value);
+    } catch (idTokenError) {
+      throw new Error('Unauthorized');
+    }
   }
 }
