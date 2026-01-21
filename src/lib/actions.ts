@@ -190,9 +190,23 @@ export async function sendPasswordReset(
   try {
     const { auth } = await getFirebaseAdmin();
 
-    const resetLink = await auth.generatePasswordResetLink(email, {
+    // Generate the Firebase reset link (this goes to Firebase's default handler)
+    const firebaseResetLink = await auth.generatePasswordResetLink(email, {
       url: 'https://xtrafleet.com/login',
     });
+
+    // Extract the oobCode from Firebase's link and construct our custom URL
+    const firebaseUrl = new URL(firebaseResetLink);
+    const oobCode = firebaseUrl.searchParams.get('oobCode');
+    const apiKey = firebaseUrl.searchParams.get('apiKey');
+
+    if (!oobCode) {
+      throw new Error('Failed to generate reset code');
+    }
+
+    // Construct our custom reset URL pointing to xtrafleet.com
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://xtrafleet.com';
+    const resetLink = `${baseUrl}/auth/action?mode=resetPassword&oobCode=${oobCode}&apiKey=${apiKey}`;
 
     if (!resend) {
       console.error('Resend not configured, but reset link generated:', resetLink);
