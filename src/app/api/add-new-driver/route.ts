@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getFirebaseAdmin, FieldValue, Timestamp } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
+import { rateLimiters, getIdentifier, formatTimeRemaining } from '@/lib/rate-limit';
 import { Resend } from 'resend';
 
 const resend = process.env.RESEND_API_KEY 
@@ -46,6 +47,20 @@ async function handlePost(req: NextRequest) {
     // Verify token (handles both session cookies and ID tokens)
     const ownerUser = await verifyToken(auth, token.value);
     console.log('[Invite Driver] User authenticated:', ownerUser.uid);
+
+    // Apply rate limiting AFTER auth (with user ID)
+    const identifier = getIdentifier(req, ownerUser.uid);
+    const { success, reset } = await rateLimiters.invitations.limit(identifier);
+
+    if (!success) {
+      return NextResponse.json(
+        {
+          error: 'Too many invitation requests',
+          message: `You can send more invitations in ${formatTimeRemaining(reset)}`,
+        },
+        { status: 429 }
+      );
+    }
 
     // Parse and validate request body
     const body = await req.json();

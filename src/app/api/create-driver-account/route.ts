@@ -2,10 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
+import { rateLimiters, getIdentifier, formatTimeRemaining } from '@/lib/rate-limit';
 import { FieldValue } from 'firebase-admin/firestore';
 
 async function handlePost(request: NextRequest) {
   try {
+    // Apply rate limiting by IP (before auth, for registration)
+    const identifier = getIdentifier(request);
+    const { success, reset } = await rateLimiters.registration.limit(identifier);
+
+    if (!success) {
+      return NextResponse.json(
+        {
+          error: 'Too many registration attempts',
+          message: `Please try again in ${formatTimeRemaining(reset)}`,
+        },
+        { status: 429 }
+      );
+    }
+
     const { email, password, token, ownerId, profileData } = await request.json();
 
     console.log('[Create Driver] Request received:', { email, token, ownerId });
