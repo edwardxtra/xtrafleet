@@ -5,7 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Table,
   TableBody,
@@ -19,6 +21,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -32,30 +35,77 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
-import { collection, collectionGroup, getDocs, doc, getDoc } from 'firebase/firestore';
-import { Search, MoreHorizontal, Truck, Eye, RefreshCw, ShieldCheck, Building2, Download } from 'lucide-react';
+import { collection, collectionGroup, getDocs, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { Search, MoreHorizontal, Truck, Eye, RefreshCw, ShieldCheck, Building2, Download, Edit2, Trash2, Loader2 } from 'lucide-react';
 import { getComplianceStatus, ComplianceStatus } from '@/lib/compliance';
 import type { Driver } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
+import { showSuccess, showError } from '@/lib/toast-utils';
+import { useAdminRole } from '../layout';
+import { TRAILER_TYPES } from '@/lib/trailer-types';
 
 type DriverWithOwner = Driver & {
   ownerCompanyName?: string;
 };
 
+type EditableDriverFields = {
+  name: string;
+  email: string;
+  location: string;
+  vehicleType: string;
+  availability: string;
+  cdlLicense: string;
+  cdlExpiry: string;
+  medicalCardExpiry: string;
+  insuranceExpiry: string;
+  isActive: boolean;
+};
+
 export default function AdminDriversPage() {
   const firestore = useFirestore();
   const { user: adminUser } = useUser();
+  const { hasPermission } = useAdminRole();
   const [drivers, setDrivers] = useState<DriverWithOwner[]>([]);
   const [filteredDrivers, setFilteredDrivers] = useState<DriverWithOwner[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [complianceFilter, setComplianceFilter] = useState<string>('all');
   const [selectedDriver, setSelectedDriver] = useState<DriverWithOwner | null>(null);
+  const [editingDriver, setEditingDriver] = useState<DriverWithOwner | null>(null);
+  const [deletingDriver, setDeletingDriver] = useState<DriverWithOwner | null>(null);
   const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const [editForm, setEditForm] = useState<EditableDriverFields>({
+    name: '',
+    email: '',
+    location: '',
+    vehicleType: '',
+    availability: '',
+    cdlLicense: '',
+    cdlExpiry: '',
+    medicalCardExpiry: '',
+    insuranceExpiry: '',
+    isActive: true,
+  });
+
+  const canEdit = hasPermission('drivers:edit');
+  const canDelete = hasPermission('drivers:delete');
 
   const fetchDrivers = async () => {
     if (!firestore) return;
@@ -105,7 +155,7 @@ export default function AdminDriversPage() {
     let filtered = drivers;
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(driver => 
+      filtered = filtered.filter(driver =>
         driver.name?.toLowerCase().includes(q) ||
         driver.email?.toLowerCase().includes(q) ||
         driver.location?.toLowerCase().includes(q) ||
@@ -117,6 +167,85 @@ export default function AdminDriversPage() {
     }
     setFilteredDrivers(filtered);
   }, [searchQuery, complianceFilter, drivers]);
+
+  const handleOpenEdit = (driver: DriverWithOwner) => {
+    setEditForm({
+      name: driver.name || '',
+      email: driver.email || '',
+      location: driver.location || '',
+      vehicleType: driver.vehicleType || '',
+      availability: driver.availability || 'Off-duty',
+      cdlLicense: driver.cdlLicense || '',
+      cdlExpiry: driver.cdlExpiry || '',
+      medicalCardExpiry: driver.medicalCardExpiry || '',
+      insuranceExpiry: driver.insuranceExpiry || '',
+      isActive: driver.isActive !== false,
+    });
+    setEditingDriver(driver);
+  };
+
+  const handleEditDriver = async () => {
+    if (!firestore || !editingDriver || !adminUser || !editingDriver.ownerId) return;
+
+    setIsProcessing(true);
+    try {
+      const driverRef = doc(firestore, `owner_operators/${editingDriver.ownerId}/drivers`, editingDriver.id);
+      await updateDoc(driverRef, {
+        ...editForm,
+        updatedAt: new Date().toISOString(),
+        updatedBy: adminUser.uid,
+        updatedByAdmin: true,
+      });
+
+      await logAuditAction(firestore, {
+        action: 'driver_updated',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'driver',
+        targetId: editingDriver.id,
+        targetName: editForm.name,
+        reason: 'Updated via admin console',
+        details: { ownerId: editingDriver.ownerId },
+      });
+
+      showSuccess('Driver updated successfully');
+      setEditingDriver(null);
+      fetchDrivers();
+    } catch (error: any) {
+      showError(error.message || 'Failed to update driver');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteDriver = async () => {
+    if (!firestore || !deletingDriver || !adminUser || !deletingDriver.ownerId) return;
+
+    setIsProcessing(true);
+    try {
+      const driverRef = doc(firestore, `owner_operators/${deletingDriver.ownerId}/drivers`, deletingDriver.id);
+      await deleteDoc(driverRef);
+
+      await logAuditAction(firestore, {
+        action: 'driver_deleted',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'driver',
+        targetId: deletingDriver.id,
+        targetName: deletingDriver.name || 'Unknown',
+        reason: 'Deleted via admin console',
+        details: { ownerId: deletingDriver.ownerId, ownerCompany: deletingDriver.ownerCompanyName },
+      });
+
+      showSuccess('Driver deleted successfully');
+      setDeletingDriver(null);
+      fetchDrivers();
+    } catch (error: any) {
+      showError(error.message || 'Failed to delete driver');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const handleExport = () => {
     const headers = ['Name', 'Email', 'Fleet', 'Location', 'Vehicle Type', 'Availability', 'Compliance', 'CDL Expiry', 'Medical Card Expiry', 'Status'];
@@ -157,9 +286,9 @@ export default function AdminDriversPage() {
 
   const getComplianceBadgeStyle = (status: ComplianceStatus) => {
     switch (status) {
-      case 'Green': return 'bg-green-100 text-green-800 border-green-300';
-      case 'Yellow': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      case 'Red': return 'bg-red-100 text-red-800 border-red-300';
+      case 'Green': return 'bg-green-100 text-green-800 border-green-300 dark:bg-green-950 dark:text-green-200 dark:border-green-800';
+      case 'Yellow': return 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-950 dark:text-yellow-200 dark:border-yellow-800';
+      case 'Red': return 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950 dark:text-red-200 dark:border-red-800';
       default: return '';
     }
   };
@@ -179,14 +308,14 @@ export default function AdminDriversPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold font-headline">All Drivers</h1>
-          <p className="text-muted-foreground">View drivers across all fleets</p>
+          <p className="text-muted-foreground">View and manage drivers across all fleets</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleExport} disabled={filteredDrivers.length === 0}>
-            <Download className="h-4 w-4 mr-2" />Export CSV
+            <Download className="h-4 w-4 mr-2" />Export
           </Button>
           <Button variant="outline" onClick={fetchDrivers} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />Refresh
@@ -239,16 +368,17 @@ export default function AdminDriversPage() {
                     <TableRow key={driver.id} className={driver.isActive === false ? 'opacity-50' : ''}>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
-                          {driver.name}
+                          <span className="truncate max-w-[120px]">{driver.name}</span>
                           {driver.isActive === false && <Badge variant="outline">Inactive</Badge>}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <Building2 className="h-3 w-3" />{driver.ownerCompanyName || 'Unknown'}
+                          <Building2 className="h-3 w-3" />
+                          <span className="truncate max-w-[100px]">{driver.ownerCompanyName || 'Unknown'}</span>
                         </div>
                       </TableCell>
-                      <TableCell>{driver.location || '-'}</TableCell>
+                      <TableCell><span className="truncate max-w-[100px] block">{driver.location || '-'}</span></TableCell>
                       <TableCell>{driver.vehicleType || '-'}</TableCell>
                       <TableCell>
                         <Badge variant={driver.availability === 'Available' ? 'default' : 'secondary'}>{driver.availability || 'Off-duty'}</Badge>
@@ -262,6 +392,17 @@ export default function AdminDriversPage() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
                             <DropdownMenuItem onClick={() => setSelectedDriver(driver)}><Eye className="h-4 w-4 mr-2" />View Details</DropdownMenuItem>
+                            {canEdit && (
+                              <DropdownMenuItem onClick={() => handleOpenEdit(driver)}><Edit2 className="h-4 w-4 mr-2" />Edit Driver</DropdownMenuItem>
+                            )}
+                            {canDelete && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => setDeletingDriver(driver)} className="text-destructive">
+                                  <Trash2 className="h-4 w-4 mr-2" />Delete Driver
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -303,11 +444,128 @@ export default function AdminDriversPage() {
               <div className="flex items-center gap-4 pt-4 border-t">
                 <Badge variant={selectedDriver.availability === 'Available' ? 'default' : 'secondary'}>{selectedDriver.availability || 'Off-duty'}</Badge>
                 <Badge className={getComplianceBadgeStyle(getComplianceStatus(selectedDriver))}><ShieldCheck className="h-3 w-3 mr-1" />{getComplianceStatus(selectedDriver)}</Badge>
+                {selectedDriver.isActive === false && <Badge variant="outline">Inactive</Badge>}
               </div>
             </div>
           )}
+          <DialogFooter>
+            {canEdit && (
+              <Button variant="outline" onClick={() => { setSelectedDriver(null); handleOpenEdit(selectedDriver!); }}>
+                <Edit2 className="h-4 w-4 mr-2" />Edit Driver
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Driver Dialog */}
+      <Dialog open={!!editingDriver} onOpenChange={(open) => !open && setEditingDriver(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="font-headline">Edit Driver</DialogTitle>
+            <DialogDescription>
+              Update driver information for {editingDriver?.name} ({editingDriver?.ownerCompanyName})
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh] pr-4">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-name">Name</Label>
+                  <Input id="edit-name" value={editForm.name} onChange={(e) => setEditForm(f => ({ ...f, name: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-email">Email</Label>
+                  <Input id="edit-email" type="email" value={editForm.email} onChange={(e) => setEditForm(f => ({ ...f, email: e.target.value }))} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-location">Location</Label>
+                <Input id="edit-location" value={editForm.location} onChange={(e) => setEditForm(f => ({ ...f, location: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-vehicle">Vehicle Type</Label>
+                  <Select value={editForm.vehicleType} onValueChange={(val) => setEditForm(f => ({ ...f, vehicleType: val }))}>
+                    <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                    <SelectContent>
+                      {TRAILER_TYPES.map(type => (
+                        <SelectItem key={type} value={type}>{type}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-availability">Availability</Label>
+                  <Select value={editForm.availability} onValueChange={(val) => setEditForm(f => ({ ...f, availability: val }))}>
+                    <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Available">Available</SelectItem>
+                      <SelectItem value="On-trip">On-trip</SelectItem>
+                      <SelectItem value="Off-duty">Off-duty</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-cdl">CDL License</Label>
+                  <Input id="edit-cdl" value={editForm.cdlLicense} onChange={(e) => setEditForm(f => ({ ...f, cdlLicense: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-cdl-expiry">CDL Expiry</Label>
+                  <Input id="edit-cdl-expiry" type="date" value={editForm.cdlExpiry} onChange={(e) => setEditForm(f => ({ ...f, cdlExpiry: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-medical">Medical Card Expiry</Label>
+                  <Input id="edit-medical" type="date" value={editForm.medicalCardExpiry} onChange={(e) => setEditForm(f => ({ ...f, medicalCardExpiry: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-insurance">Insurance Expiry</Label>
+                  <Input id="edit-insurance" type="date" value={editForm.insuranceExpiry} onChange={(e) => setEditForm(f => ({ ...f, insuranceExpiry: e.target.value }))} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={editForm.isActive ? 'active' : 'inactive'} onValueChange={(val) => setEditForm(f => ({ ...f, isActive: val === 'active' }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingDriver(null)}>Cancel</Button>
+            <Button onClick={handleEditDriver} disabled={isProcessing}>
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Driver Dialog */}
+      <AlertDialog open={!!deletingDriver} onOpenChange={(open) => !open && setDeletingDriver(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Driver</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deletingDriver?.name}</strong> from{' '}
+              <strong>{deletingDriver?.ownerCompanyName}</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteDriver} disabled={isProcessing} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</> : 'Delete Driver'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
