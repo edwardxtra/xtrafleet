@@ -15,6 +15,9 @@ const loadSchema = z.object({
   additionalDetails: z.string().optional().default(''),
   status: z.enum(['Pending', 'In-transit', 'Delivered']).default('Pending'),
   requiredQualifications: z.array(z.string()).default([]),
+  // Standardized trailer type for matching
+  trailerType: z.string().optional(),
+  requiredTrailerType: z.string().optional(), // Legacy field name from form
 });
 
 /**
@@ -74,7 +77,15 @@ async function handlePost(req: NextRequest) {
       throw new Error(errorMessage);
     }
     
-    const newLoadData = { ...validation.data, ownerOperatorId: decodedToken.uid };
+    // Normalize trailerType field (form sends as requiredTrailerType)
+    const { requiredTrailerType, ...restData } = validation.data;
+    const trailerType = validation.data.trailerType || requiredTrailerType;
+    const newLoadData = {
+      ...restData,
+      trailerType,
+      ownerOperatorId: decodedToken.uid,
+      createdAt: new Date().toISOString(),
+    };
     
     console.log('[Loads] Creating load for user:', decodedToken.uid);
     const docRef = await db.collection(`owner_operators/${decodedToken.uid}/loads`).add(newLoadData);

@@ -40,14 +40,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface Driver {
   id: string;
   name: string;
   email: string;
   location: string;
-  vehicleType?: string;
-  vehicleTypes?: string[];
+  vehicleType?: string; // Legacy single type
+  trailerTypes?: string[]; // New: array of types driver can haul
   availability: string;
   cdlLicense?: string;
   cdlExpiry?: string;
@@ -132,9 +133,9 @@ export default function DriverProfile() {
         if (driverDoc.exists()) {
           const driverData = { id: driverDoc.id, ...driverDoc.data() } as Driver;
           
-          // Migrate legacy vehicleType to vehicleTypes array
-          if (driverData.vehicleType && !driverData.vehicleTypes) {
-            driverData.vehicleTypes = [driverData.vehicleType];
+          // Migrate legacy vehicleType to trailerTypes array
+          if (driverData.vehicleType && !driverData.trailerTypes) {
+            driverData.trailerTypes = [driverData.vehicleType];
           }
           
           setDriver(driverData);
@@ -187,7 +188,8 @@ export default function DriverProfile() {
         name: editedDriver.name || '',
         location: editedDriver.location || '',
         availability: editedDriver.availability || 'Available',
-        vehicleType: editedDriver.vehicleType || '',
+        vehicleType: editedDriver.trailerTypes?.[0] || editedDriver.vehicleType || '', // Legacy field
+        trailerTypes: editedDriver.trailerTypes || (editedDriver.vehicleType ? [editedDriver.vehicleType] : []),
         cdlLicense: editedDriver.cdlLicense || '',
         cdlExpiry: editedDriver.cdlExpiry || '',
         cdlLicenseUrl: editedDriver.cdlLicenseUrl || '',
@@ -387,10 +389,25 @@ export default function DriverProfile() {
     return 'Green';
   };
 
-  const displayVehicleType = () => {
-    if (!driver.vehicleType) return 'Not specified';
-    const typeLabel = TRAILER_TYPES.find(t => t.value === driver.vehicleType)?.label;
-    return typeLabel || driver.vehicleType;
+  const displayVehicleTypes = () => {
+    const types = driver.trailerTypes || (driver.vehicleType ? [driver.vehicleType] : []);
+    if (types.length === 0) return 'Not specified';
+    return types.map(t => {
+      const typeLabel = TRAILER_TYPES.find(tt => tt.value === t)?.label;
+      return typeLabel || t;
+    }).join(', ');
+  };
+
+  const handleTrailerTypeToggle = (typeValue: string, checked: boolean) => {
+    if (!editedDriver) return;
+    const currentTypes = editedDriver.trailerTypes || [];
+    let newTypes: string[];
+    if (checked) {
+      newTypes = [...currentTypes, typeValue];
+    } else {
+      newTypes = currentTypes.filter(t => t !== typeValue);
+    }
+    setEditedDriver({ ...editedDriver, trailerTypes: newTypes });
   };
 
   return (
@@ -470,23 +487,31 @@ export default function DriverProfile() {
                   placeholder="City, State"
                 />
               </div>
-              <div>
-                <Label htmlFor="vehicleType">Trailer/Vehicle Type</Label>
-                <Select
-                  value={editedDriver.vehicleType || ''}
-                  onValueChange={(value) => handleInputChange('vehicleType', value)}
-                >
-                  <SelectTrigger id="vehicleType">
-                    <SelectValue placeholder="Select vehicle type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TRAILER_TYPES.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="md:col-span-2">
+                <Label>Trailer Types You Can Haul (select all that apply)</Label>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2 p-3 border rounded-md bg-muted/30">
+                  {TRAILER_TYPES.slice(0, 12).map((type) => {
+                    const isChecked = (editedDriver.trailerTypes || []).includes(type.value);
+                    return (
+                      <div key={type.value} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`trailer-${type.value}`}
+                          checked={isChecked}
+                          onCheckedChange={(checked) => handleTrailerTypeToggle(type.value, checked as boolean)}
+                        />
+                        <label
+                          htmlFor={`trailer-${type.value}`}
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                        >
+                          {type.label}
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Select all trailer types you are qualified and equipped to haul
+                </p>
               </div>
               <div>
                 <Label htmlFor="availability">Status</Label>
@@ -528,12 +553,12 @@ export default function DriverProfile() {
                 </div>
                 <p className="font-medium">{driver.location}</p>
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                   <Truck className="h-4 w-4" />
-                  <span>Trailer/Vehicle Type</span>
+                  <span>Trailer Types</span>
                 </div>
-                <p className="font-medium">{displayVehicleType()}</p>
+                <p className="font-medium">{displayVehicleTypes()}</p>
               </div>
               <div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
