@@ -57,8 +57,6 @@ export default function MatchesPage() {
   const [selectedLoad, setSelectedLoad] = useState<Load | null>(null);
   const [selectedMyDriver, setSelectedMyDriver] = useState<DriverWithOwner | null>(null);
 
-  // For viewing other OO's assets (not for initiating)
-  const [selectedOtherDriver, setSelectedOtherDriver] = useState<DriverWithOwner | null>(null);
 
   // Modal states
   const [matchModalOpen, setMatchModalOpen] = useState(false);
@@ -193,14 +191,6 @@ export default function MatchesPage() {
     return isActive && driver.availability === 'Available' && status === 'Green';
   });
 
-  // Other OO's drivers (for receiving match requests)
-  const otherDrivers = allDrivers.filter(driver => {
-    if (driver.ownerId === user?.uid) return false;
-    const status = getComplianceStatus(driver);
-    const isActive = driver.isActive !== false;
-    return isActive && driver.availability === 'Available' && status === 'Green';
-  });
-
   // Other OO's pending loads (for driver-initiated matching)
   const otherPendingLoads = allPendingLoads.filter(load => load.ownerId !== user?.uid);
 
@@ -218,12 +208,6 @@ export default function MatchesPage() {
     setSelectedMyDriver(driver);
     setSelectedLoad(null);
     setSelectedOtherDriver(null);
-  };
-
-  // Handle selecting OTHER OO's driver (just to view load matches - informational)
-  const handleOtherDriverSelect = (driver: DriverWithOwner) => {
-    setSelectedOtherDriver(driver);
-    // Don't change selection mode - this is just for viewing
   };
 
   // Handle selecting a driver match (load owner initiating)
@@ -271,10 +255,9 @@ export default function MatchesPage() {
 
   return (
     <TooltipProvider>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-8rem)]">
-        <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 h-full">
-          {/* MY ASSETS - Loads and Drivers I own */}
-          <Card className="flex flex-col h-full overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-8rem)]">
+        {/* MY ASSETS - Loads and Drivers I own */}
+        <Card className="flex flex-col h-full overflow-hidden">
             <CardHeader className="flex-shrink-0">
               <CardTitle className="font-headline flex items-center gap-2">
                 <Briefcase className="h-5 w-5" /> My Assets
@@ -371,78 +354,8 @@ export default function MatchesPage() {
             </CardContent>
           </Card>
 
-          {/* OTHER OO's DRIVERS - For browsing/viewing */}
-          <Card className="flex flex-col h-full overflow-hidden">
-            <CardHeader className="flex-shrink-0">
-              <CardTitle className="font-headline flex items-center gap-2">
-                <Users className="h-5 w-5" /> Available Drivers
-              </CardTitle>
-              <CardDescription>Other operators' drivers available for hire.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0 flex-1 overflow-hidden">
-              <ScrollArea className="h-full">
-                <div className="p-6 pt-0">
-                  {driversLoading ? (
-                    <div className="p-6 text-center text-muted-foreground">Loading drivers...</div>
-                  ) : otherDrivers.length > 0 ? (
-                    otherDrivers.map((driver) => {
-                      const complianceStatus = getComplianceStatus(driver);
-                      const companyName = driver.ownerId ? ownerNames[driver.ownerId] : null;
-                      return (
-                        <div key={driver.id}>
-                          <button
-                            onClick={() => handleOtherDriverSelect(driver)}
-                            className={`w-full text-left p-3 rounded-lg transition-colors ${
-                              selectedOtherDriver?.id === driver.id
-                                ? 'bg-muted'
-                                : 'hover:bg-muted/50'
-                            }`}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <p className="font-semibold">{driver.name}</p>
-                                  <Badge className={getComplianceBadgeStyle(complianceStatus)}>
-                                    <ShieldCheck className="h-3 w-3 mr-1" />{complianceStatus}
-                                  </Badge>
-                                </div>
-                                <p className="text-sm text-muted-foreground">{driver.location} • {driver.vehicleType}</p>
-                                {companyName && (
-                                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                                    <Building2 className="h-3 w-3" />{companyName}
-                                  </p>
-                                )}
-                                {driver.rating && (
-                                  <div className="flex items-center gap-1 mt-1">
-                                    <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                                    <span className="text-xs">{driver.rating.toFixed(1)}</span>
-                                  </div>
-                                )}
-                              </div>
-                              {selectedOtherDriver?.id === driver.id && (
-                                <CheckCircle className="h-5 w-5 text-primary" />
-                              )}
-                            </div>
-                          </button>
-                          <Separator className="my-1" />
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="p-6 text-center">
-                      <AlertCircle className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">No available drivers.</p>
-                      <p className="text-xs text-muted-foreground mt-1">Drivers must be available and have green compliance.</p>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-        </div>
-        
         {/* Ranked Matches Panel */}
-        <Card className="lg:col-span-1 flex flex-col h-full overflow-hidden">
+        <Card className="flex flex-col h-full overflow-hidden">
           <CardHeader className="flex-shrink-0">
             <CardTitle className="font-headline flex items-center gap-2">
               <Link2 className="h-5 w-5" /> Ranked Matches
@@ -525,10 +438,10 @@ export default function MatchesPage() {
                                 <TooltipContent side="left" className="w-64">
                                   <p className="font-semibold mb-2">Score Breakdown</p>
                                   <div className="space-y-1 text-xs">
-                                    <div className="flex justify-between"><span>Vehicle Match:</span><span>{match.breakdown.vehicleMatch}/30</span></div>
-                                    <div className="flex justify-between"><span>Qualifications:</span><span>{match.breakdown.qualificationMatch}/25</span></div>
-                                    <div className="flex justify-between"><span>Location:</span><span>{match.breakdown.locationScore}/20</span></div>
-                                    <div className="flex justify-between"><span>Rating:</span><span>{match.breakdown.ratingScore}/15</span></div>
+                                    <div className="flex justify-between"><span>Location:</span><span>{match.breakdown.locationScore}/35</span></div>
+                                    <div className="flex justify-between"><span>Vehicle Match:</span><span>{match.breakdown.vehicleMatch}/25</span></div>
+                                    <div className="flex justify-between"><span>Qualifications:</span><span>{match.breakdown.qualificationMatch}/20</span></div>
+                                    <div className="flex justify-between"><span>Rating:</span><span>{match.breakdown.ratingScore}/10</span></div>
                                     <div className="flex justify-between"><span>Compliance:</span><span>{match.breakdown.complianceScore}/10</span></div>
                                     <Separator className="my-2" />
                                     <div className="flex justify-between font-semibold"><span>Total:</span><span>{match.score}/100</span></div>
