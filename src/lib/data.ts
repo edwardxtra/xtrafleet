@@ -1,3 +1,5 @@
+import type { TrailerType } from './trailer-types';
+
 export type Review = {
   id: string;
   reviewer: string;
@@ -13,7 +15,8 @@ export type Driver = {
   location: string;
   certifications: string[];
   availability: "Available" | "On-trip" | "Off-duty";
-  vehicleType: "Dry Van" | "Reefer" | "Flatbed";
+  vehicleType: "Dry Van" | "Reefer" | "Flatbed"; // Legacy - single type
+  trailerTypes?: TrailerType[]; // New - array of types driver can haul
   profileSummary?: string;
   ownerId?: string;
   isActive?: boolean;
@@ -45,6 +48,7 @@ export type Load = {
   weight: number;
   status: "Pending" | "Matched" | "In-transit" | "Delivered";
   requiredQualifications: string[];
+  trailerType?: TrailerType; // New - standardized trailer type
   description?: string;
   ownerId?: string;
   price?: number;

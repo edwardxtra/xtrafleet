@@ -1,5 +1,6 @@
 import type { Driver, Load } from "@/lib/data";
 import { getComplianceStatus, ComplianceStatus } from "@/lib/compliance";
+import type { TrailerType } from "./trailer-types";
 
 export interface MatchScoreBreakdown {
   vehicleMatch: number;
@@ -100,6 +101,69 @@ function termsMatch(term1: string, term2: string): boolean {
   return synonyms1.some(s1 =>
     synonyms2.some(s2 => s1 === s2 || s1.includes(s2) || s2.includes(s1))
   );
+}
+
+/**
+ * Check if a driver can haul a specific trailer type
+ * Uses both new trailerTypes array and legacy vehicleType field
+ */
+export function canDriverHaulTrailerType(driver: Driver, requiredType: TrailerType | string): boolean {
+  const required = requiredType.toLowerCase().trim();
+
+  // Check new trailerTypes array first
+  if (driver.trailerTypes && driver.trailerTypes.length > 0) {
+    return driver.trailerTypes.some(t => t.toLowerCase() === required || termsMatch(t, requiredType));
+  }
+
+  // Fall back to legacy vehicleType field
+  if (driver.vehicleType) {
+    return driver.vehicleType.toLowerCase() === required || termsMatch(driver.vehicleType, requiredType);
+  }
+
+  return false;
+}
+
+/**
+ * Check if driver is compatible with load equipment requirements
+ * This is a HARD FILTER - incompatible drivers should not appear in results
+ */
+export function isEquipmentCompatible(driver: Driver, load: Load): boolean {
+  // If load specifies a trailer type, driver must support it
+  if (load.trailerType) {
+    return canDriverHaulTrailerType(driver, load.trailerType);
+  }
+
+  // Legacy: check requiredQualifications for trailer types
+  if (load.requiredQualifications && load.requiredQualifications.length > 0) {
+    // Check if any requirement is a trailer type that driver must match
+    const trailerReqs = load.requiredQualifications.filter(req => {
+      const lower = req.toLowerCase();
+      return lower.includes('van') || lower.includes('reefer') || lower.includes('flatbed') ||
+             lower.includes('tanker') || lower.includes('hopper') || lower.includes('deck') ||
+             lower.includes('refrigerated') || lower.includes('lowboy');
+    });
+
+    if (trailerReqs.length > 0) {
+      // Driver must match at least one trailer requirement
+      return trailerReqs.some(req => canDriverHaulTrailerType(driver, req));
+    }
+  }
+
+  // No specific trailer requirement - any driver is compatible
+  return true;
+}
+
+/**
+ * Get all trailer types a driver can haul
+ */
+export function getDriverTrailerTypes(driver: Driver): string[] {
+  if (driver.trailerTypes && driver.trailerTypes.length > 0) {
+    return driver.trailerTypes;
+  }
+  if (driver.vehicleType) {
+    return [driver.vehicleType];
+  }
+  return [];
 }
 
 const FALLBACK_COORDINATES: Record<string, { lat: number; lng: number }> = {
@@ -489,46 +553,44 @@ export function calculateMatchScore(driver: Driver, load: Load): MatchScore['bre
   let complianceScore = 0;
 
   // Vehicle Type Match (0-25 points)
-  const loadRequirements = load.requiredQualifications || [];
-  const driverVehicle = driver.vehicleType || '';
-  const loadCargo = load.cargo || '';
-
-  if (loadRequirements.length > 0) {
-    // Check if driver's vehicle matches any load requirements (with synonyms)
-    const vehicleMatches = loadRequirements.some(req => termsMatch(req, driverVehicle));
-
-    if (vehicleMatches) {
-      vehicleMatch = 25;
-    } else {
-      vehicleMatch = 8;
-    }
+  // Since equipment compatibility is now a hard filter, drivers reaching this point are compatible
+  // Give full points if load specifies a type and driver matches, partial if unspecified
+  if (load.trailerType) {
+    // Load has specific requirement - driver must match (verified by hard filter)
+    vehicleMatch = 25;
+  } else if (load.requiredQualifications && load.requiredQualifications.length > 0) {
+    // Legacy: check if driver matches any requirements
+    const driverTypes = getDriverTrailerTypes(driver);
+    const matches = load.requiredQualifications.some(req =>
+      driverTypes.some(t => termsMatch(t, req))
+    );
+    vehicleMatch = matches ? 25 : 15;
   } else {
-    // No specific requirements - check if vehicle suits cargo type
-    if (loadCargo && termsMatch(loadCargo, driverVehicle)) {
-      vehicleMatch = 25;
-    } else {
-      vehicleMatch = 15; // Default for unspecified
-    }
+    // No specific trailer requirement - partial points
+    vehicleMatch = 15;
   }
 
-  // Qualification Match (0-20 points)
-  if (loadRequirements.length > 0) {
-    const driverQualifications = [
-      driver.vehicleType || '',
-      ...(driver.certifications || [])
-    ].filter(Boolean);
+  // Qualification Match (0-20 points) - certifications and special requirements
+  const loadRequirements = (load.requiredQualifications || []).filter(req => {
+    // Filter out trailer type requirements (handled above)
+    const lower = req.toLowerCase();
+    return !lower.includes('van') && !lower.includes('reefer') && !lower.includes('flatbed') &&
+           !lower.includes('tanker') && !lower.includes('refrigerated') && !lower.includes('lowboy') &&
+           !lower.includes('deck') && !lower.includes('hopper');
+  });
 
+  if (loadRequirements.length > 0) {
+    const driverCerts = driver.certifications || [];
     let matchedCount = 0;
     for (const req of loadRequirements) {
-      if (driverQualifications.some(q => termsMatch(q, req))) {
+      if (driverCerts.some(cert => termsMatch(cert, req))) {
         matchedCount++;
       }
     }
-
     const matchPercentage = matchedCount / loadRequirements.length;
     qualificationMatch = Math.round(matchPercentage * 20);
   } else {
-    qualificationMatch = 20;
+    qualificationMatch = 20; // No special certifications required
   }
 
   // Location Score (0-35 points) - HIGHEST WEIGHT
@@ -580,42 +642,35 @@ export async function calculateMatchScoreAsync(driver: Driver, load: Load): Prom
   let complianceScore = 0;
 
   // Vehicle Type Match (0-25 points)
-  const loadRequirements = load.requiredQualifications || [];
-  const driverVehicle = driver.vehicleType || '';
-  const loadCargo = load.cargo || '';
-
-  if (loadRequirements.length > 0) {
-    // Check if driver's vehicle matches any load requirements (with synonyms)
-    const vehicleMatches = loadRequirements.some(req => termsMatch(req, driverVehicle));
-
-    if (vehicleMatches) {
-      vehicleMatch = 25;
-    } else {
-      vehicleMatch = 8;
-    }
+  // Since equipment compatibility is now a hard filter, drivers reaching this point are compatible
+  if (load.trailerType) {
+    vehicleMatch = 25;
+  } else if (load.requiredQualifications && load.requiredQualifications.length > 0) {
+    const driverTypes = getDriverTrailerTypes(driver);
+    const matches = load.requiredQualifications.some(req =>
+      driverTypes.some(t => termsMatch(t, req))
+    );
+    vehicleMatch = matches ? 25 : 15;
   } else {
-    // No specific requirements - check if vehicle suits cargo type
-    if (loadCargo && termsMatch(loadCargo, driverVehicle)) {
-      vehicleMatch = 25;
-    } else {
-      vehicleMatch = 15; // Default for unspecified
-    }
+    vehicleMatch = 15;
   }
 
-  // Qualification Match (0-20 points)
-  if (loadRequirements.length > 0) {
-    const driverQualifications = [
-      driver.vehicleType || '',
-      ...(driver.certifications || [])
-    ].filter(Boolean);
+  // Qualification Match (0-20 points) - certifications and special requirements
+  const loadRequirements = (load.requiredQualifications || []).filter(req => {
+    const lower = req.toLowerCase();
+    return !lower.includes('van') && !lower.includes('reefer') && !lower.includes('flatbed') &&
+           !lower.includes('tanker') && !lower.includes('refrigerated') && !lower.includes('lowboy') &&
+           !lower.includes('deck') && !lower.includes('hopper');
+  });
 
+  if (loadRequirements.length > 0) {
+    const driverCerts = driver.certifications || [];
     let matchedCount = 0;
     for (const req of loadRequirements) {
-      if (driverQualifications.some(q => termsMatch(q, req))) {
+      if (driverCerts.some(cert => termsMatch(cert, req))) {
         matchedCount++;
       }
     }
-
     const matchPercentage = matchedCount / loadRequirements.length;
     qualificationMatch = Math.round(matchPercentage * 20);
   } else {
@@ -686,6 +741,11 @@ export function findMatchingDrivers(
       if (status !== 'Green') {
         return false;
       }
+    }
+
+    // HARD FILTER: Equipment must be compatible
+    if (!isEquipmentCompatible(driver, load)) {
+      return false;
     }
 
     return true;
@@ -782,9 +842,14 @@ export function findMatchingLoads(
 ): LoadMatchScore[] {
   const { maxResults = 10 } = options;
 
-  const pendingLoads = loads.filter(load => load.status === 'Pending');
+  // Filter to pending loads where driver has compatible equipment
+  const compatibleLoads = loads.filter(load => {
+    if (load.status !== 'Pending') return false;
+    // HARD FILTER: Driver must be able to haul this load
+    return isEquipmentCompatible(driver, load);
+  });
 
-  const scoredLoads = pendingLoads.map(load => {
+  const scoredLoads = compatibleLoads.map(load => {
     const breakdown = calculateMatchScore(driver, load);
     const score = getTotalScore(breakdown);
 
