@@ -172,10 +172,10 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-headline">Edit Driver Profile</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="font-headline text-base md:text-lg">Edit Driver Profile</DialogTitle>
+          <DialogDescription className="text-xs md:text-sm">
             Update any fields below. You can save incomplete forms and finish later.
           </DialogDescription>
         </DialogHeader>
@@ -183,12 +183,12 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
         <form onSubmit={handleSubmit}>
           <Tabs defaultValue="basic" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="basic">Basic Info</TabsTrigger>
-              <TabsTrigger value="compliance">Compliance</TabsTrigger>
+              <TabsTrigger value="basic" className="text-xs md:text-sm">Basic Info</TabsTrigger>
+              <TabsTrigger value="compliance" className="text-xs md:text-sm">Compliance</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="basic" className="space-y-4 pt-4">
-              <div className="grid grid-cols-2 gap-4">
+            <TabsContent value="basic" className="space-y-3 md:space-y-4 pt-3 md:pt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-name">Full Name</Label>
                   <Input
@@ -208,9 +208,9 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-email">Email</Label>
+                  <Label htmlFor="edit-email" className="text-sm">Email</Label>
                   <Input
                     id="edit-email"
                     type="email"

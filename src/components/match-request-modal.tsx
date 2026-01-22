@@ -204,18 +204,18 @@ export function MatchRequestModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Truck className="h-5 w-5" />
+          <DialogTitle className="flex items-center gap-2 text-base md:text-lg">
+            <Truck className="h-4 w-4 md:h-5 md:w-5" />
             Send Match Request
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-xs md:text-sm">
             Request this driver for your load. The driver owner has 48 hours to respond.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-3 md:space-y-4 py-2 md:py-4">
           {/* Load Summary */}
-          <div className="p-4 bg-muted/50 rounded-lg">
+          <div className="p-3 md:p-4 bg-muted/50 rounded-lg">
             <h4 className="font-medium mb-2">Load Details</h4>
             <p className="text-sm font-semibold">
               {load.origin} → {load.destination}
