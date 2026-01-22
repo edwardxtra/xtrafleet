@@ -213,18 +213,18 @@ export function DriverMatchRequestModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <User className="h-5 w-5" />
+          <DialogTitle className="flex items-center gap-2 text-base md:text-lg">
+            <User className="h-4 w-4 md:h-5 md:w-5" />
             Offer Your Driver
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-xs md:text-sm">
             Offer your driver for this load. The load owner has 48 hours to respond.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-3 md:space-y-4 py-2 md:py-4">
           {/* Driver Summary */}
-          <div className="p-4 bg-muted/50 rounded-lg">
+          <div className="p-3 md:p-4 bg-muted/50 rounded-lg">
             <h4 className="font-medium mb-2">Your Driver</h4>
             <div className="flex items-start justify-between">
               <div className="flex-1">

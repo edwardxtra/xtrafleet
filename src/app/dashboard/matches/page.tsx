@@ -255,18 +255,18 @@ export default function MatchesPage() {
 
   return (
     <TooltipProvider>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-8rem)]">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 lg:h-[calc(100vh-8rem)]">
         {/* MY ASSETS - Loads and Drivers I own */}
-        <Card className="flex flex-col h-full overflow-hidden">
-            <CardHeader className="flex-shrink-0">
-              <CardTitle className="font-headline flex items-center gap-2">
-                <Briefcase className="h-5 w-5" /> My Assets
+        <Card className="flex flex-col h-[50vh] lg:h-full overflow-hidden">
+            <CardHeader className="flex-shrink-0 p-4 md:p-6">
+              <CardTitle className="font-headline flex items-center gap-2 text-base md:text-lg">
+                <Briefcase className="h-4 w-4 md:h-5 md:w-5" /> My Assets
               </CardTitle>
-              <CardDescription>Select your load or driver to find matches.</CardDescription>
+              <CardDescription className="text-xs md:text-sm">Select your load or driver to find matches.</CardDescription>
             </CardHeader>
             <CardContent className="p-0 flex-1 overflow-hidden">
               <ScrollArea className="h-full">
-                <div className="p-6 pt-0">
+                <div className="p-3 md:p-6 pt-0">
                   {/* My Pending Loads Section */}
                   <div className="mb-4">
                     <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-2">
@@ -355,12 +355,12 @@ export default function MatchesPage() {
           </Card>
 
         {/* Ranked Matches Panel */}
-        <Card className="flex flex-col h-full overflow-hidden">
-          <CardHeader className="flex-shrink-0">
-            <CardTitle className="font-headline flex items-center gap-2">
-              <Link2 className="h-5 w-5" /> Ranked Matches
+        <Card className="flex flex-col h-[50vh] lg:h-full overflow-hidden">
+          <CardHeader className="flex-shrink-0 p-4 md:p-6">
+            <CardTitle className="font-headline flex items-center gap-2 text-base md:text-lg">
+              <Link2 className="h-4 w-4 md:h-5 md:w-5" /> Ranked Matches
             </CardTitle>
-            <CardDescription className="truncate">
+            <CardDescription className="truncate text-xs md:text-sm">
               {selectionMode === 'load' && selectedLoad
                 ? `Top drivers for your load to ${selectedLoad.destination}`
                 : selectionMode === 'driver' && selectedMyDriver
@@ -370,7 +370,7 @@ export default function MatchesPage() {
           </CardHeader>
           <CardContent className="flex-1 overflow-hidden p-0">
             <ScrollArea className="h-full">
-              <div className="p-6 pt-0">
+              <div className="p-3 md:p-6 pt-0">
                 {/* Load Owner Mode: Show driver matches */}
                 {selectionMode === 'load' && selectedLoad ? (
                   driverMatches.length > 0 ? (
