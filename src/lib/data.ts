@@ -134,6 +134,30 @@ export type OwnerOperator = {
   mcNumber?: string;
   isAdmin?: boolean;
   createdAt?: string;
+  // Certificate of Insurance (COI) fields
+  insurance?: {
+    // General Liability Insurance
+    liabilityCarrier?: string;
+    liabilityPolicyNumber?: string;
+    liabilityExpiry?: string;
+    liabilityCoverageAmount?: number;
+    // Cargo Insurance
+    cargoCarrier?: string;
+    cargoPolicyNumber?: string;
+    cargoExpiry?: string;
+    cargoCoverageAmount?: number;
+    // Auto/Physical Damage Insurance
+    autoCarrier?: string;
+    autoPolicyNumber?: string;
+    autoExpiry?: string;
+    // Workers Compensation (if applicable)
+    workersCompCarrier?: string;
+    workersCompPolicyNumber?: string;
+    workersCompExpiry?: string;
+    // Document URL for uploaded COI
+    coiDocumentUrl?: string;
+    coiDocumentUploadedAt?: string;
+  };
 };
 
 export type TLASignature = {
