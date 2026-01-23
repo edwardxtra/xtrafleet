@@ -10,9 +10,27 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Save, Eye, EyeOff, WifiOff, Building2, Lock } from 'lucide-react';
+import { Loader2, Save, Eye, EyeOff, WifiOff, Building2, Lock, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
+
+interface InsuranceInfo {
+  liabilityCarrier?: string;
+  liabilityPolicyNumber?: string;
+  liabilityExpiry?: string;
+  liabilityCoverageAmount?: number;
+  cargoCarrier?: string;
+  cargoPolicyNumber?: string;
+  cargoExpiry?: string;
+  cargoCoverageAmount?: number;
+  autoCarrier?: string;
+  autoPolicyNumber?: string;
+  autoExpiry?: string;
+  workersCompCarrier?: string;
+  workersCompPolicyNumber?: string;
+  workersCompExpiry?: string;
+  coiDocumentUrl?: string;
+}
 
 interface CompanyProfile {
   companyName?: string;
@@ -28,6 +46,7 @@ interface CompanyProfile {
   city?: string;
   state?: string;
   zip?: string;
+  insurance?: InsuranceInfo;
 }
 
 export default function SettingsPage() {
@@ -40,6 +59,11 @@ export default function SettingsPage() {
   const [editedProfile, setEditedProfile] = useState<CompanyProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
+
+  // Insurance state
+  const [insurance, setInsurance] = useState<InsuranceInfo>({});
+  const [editedInsurance, setEditedInsurance] = useState<InsuranceInfo>({});
+  const [savingInsurance, setSavingInsurance] = useState(false);
   
   // Password state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -89,6 +113,11 @@ export default function SettingsPage() {
           const data = profileDoc.data() as CompanyProfile;
           setProfile(data);
           setEditedProfile(data);
+          // Load insurance data
+          if (data.insurance) {
+            setInsurance(data.insurance);
+            setEditedInsurance(data.insurance);
+          }
         } else {
           // Initialize empty profile if none exists
           const emptyProfile: CompanyProfile = {
@@ -122,6 +151,59 @@ export default function SettingsPage() {
     if (editedProfile) {
       setEditedProfile({ ...editedProfile, [field]: value });
     }
+  };
+
+  // Handle insurance input change
+  const handleInsuranceChange = (field: keyof InsuranceInfo, value: string | number) => {
+    setEditedInsurance({ ...editedInsurance, [field]: value });
+  };
+
+  // Save insurance info
+  const handleSaveInsurance = async () => {
+    if (!db || !user) return;
+
+    if (!isOnline) {
+      showError('You\'re offline. Please check your connection.');
+      return;
+    }
+
+    setSavingInsurance(true);
+    try {
+      const profileRef = doc(db, 'owner_operators', user.uid);
+      await updateDoc(profileRef, {
+        insurance: {
+          ...editedInsurance,
+        },
+        insuranceUpdatedAt: new Date().toISOString(),
+      });
+
+      setInsurance(editedInsurance);
+      showSuccess('Insurance information saved successfully!');
+    } catch (error) {
+      console.error('Error saving insurance:', error);
+      const appError = parseError(error);
+      showError(appError.message, 'Failed to save insurance info');
+    } finally {
+      setSavingInsurance(false);
+    }
+  };
+
+  // Check if insurance has changes
+  const hasInsuranceChanges = JSON.stringify(insurance) !== JSON.stringify(editedInsurance);
+
+  // Check if any insurance policy is expiring soon (within 30 days)
+  const isExpiringSoon = (dateStr?: string): boolean => {
+    if (!dateStr) return false;
+    const expiry = new Date(dateStr);
+    const now = new Date();
+    const daysUntilExpiry = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
+  };
+
+  const isExpired = (dateStr?: string): boolean => {
+    if (!dateStr) return false;
+    const expiry = new Date(dateStr);
+    return expiry < new Date();
   };
 
   // Save company profile
@@ -389,6 +471,232 @@ export default function SettingsPage() {
           ) : (
             <p className="text-muted-foreground">No company profile found. Please complete your profile setup.</p>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Certificate of Insurance Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <CardTitle>Certificate of Insurance (COI)</CardTitle>
+              <CardDescription>Enter your insurance policy information for compliance verification</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Expiry Warnings */}
+          {(isExpired(editedInsurance.liabilityExpiry) || isExpired(editedInsurance.cargoExpiry) || isExpired(editedInsurance.autoExpiry)) && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                One or more of your insurance policies has expired. Please update your information.
+              </AlertDescription>
+            </Alert>
+          )}
+          {!isExpired(editedInsurance.liabilityExpiry) && !isExpired(editedInsurance.cargoExpiry) &&
+           (isExpiringSoon(editedInsurance.liabilityExpiry) || isExpiringSoon(editedInsurance.cargoExpiry) || isExpiringSoon(editedInsurance.autoExpiry)) && (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                One or more of your insurance policies is expiring within 30 days.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* General Liability Insurance */}
+          <div className="space-y-4">
+            <h4 className="font-medium text-sm border-b pb-2">General Liability Insurance</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="liabilityCarrier">Insurance Carrier</Label>
+                <Input
+                  id="liabilityCarrier"
+                  value={editedInsurance.liabilityCarrier || ''}
+                  onChange={(e) => handleInsuranceChange('liabilityCarrier', e.target.value)}
+                  placeholder="e.g., Progressive, National Interstate"
+                  disabled={!isOnline}
+                />
+              </div>
+              <div>
+                <Label htmlFor="liabilityPolicyNumber">Policy Number</Label>
+                <Input
+                  id="liabilityPolicyNumber"
+                  value={editedInsurance.liabilityPolicyNumber || ''}
+                  onChange={(e) => handleInsuranceChange('liabilityPolicyNumber', e.target.value)}
+                  placeholder="e.g., LB-1234567"
+                  disabled={!isOnline}
+                />
+              </div>
+              <div>
+                <Label htmlFor="liabilityExpiry">Policy Expiration Date</Label>
+                <Input
+                  id="liabilityExpiry"
+                  type="date"
+                  value={editedInsurance.liabilityExpiry || ''}
+                  onChange={(e) => handleInsuranceChange('liabilityExpiry', e.target.value)}
+                  disabled={!isOnline}
+                  className={isExpired(editedInsurance.liabilityExpiry) ? 'border-red-500' : isExpiringSoon(editedInsurance.liabilityExpiry) ? 'border-yellow-500' : ''}
+                />
+              </div>
+              <div>
+                <Label htmlFor="liabilityCoverageAmount">Coverage Amount ($)</Label>
+                <Input
+                  id="liabilityCoverageAmount"
+                  type="number"
+                  value={editedInsurance.liabilityCoverageAmount || ''}
+                  onChange={(e) => handleInsuranceChange('liabilityCoverageAmount', parseInt(e.target.value) || 0)}
+                  placeholder="e.g., 1000000"
+                  disabled={!isOnline}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Cargo Insurance */}
+          <div className="space-y-4">
+            <h4 className="font-medium text-sm border-b pb-2">Cargo Insurance</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="cargoCarrier">Insurance Carrier</Label>
+                <Input
+                  id="cargoCarrier"
+                  value={editedInsurance.cargoCarrier || ''}
+                  onChange={(e) => handleInsuranceChange('cargoCarrier', e.target.value)}
+                  placeholder="e.g., Great West Casualty"
+                  disabled={!isOnline}
+                />
+              </div>
+              <div>
+                <Label htmlFor="cargoPolicyNumber">Policy Number</Label>
+                <Input
+                  id="cargoPolicyNumber"
+                  value={editedInsurance.cargoPolicyNumber || ''}
+                  onChange={(e) => handleInsuranceChange('cargoPolicyNumber', e.target.value)}
+                  placeholder="e.g., CG-9876543"
+                  disabled={!isOnline}
+                />
+              </div>
+              <div>
+                <Label htmlFor="cargoExpiry">Policy Expiration Date</Label>
+                <Input
+                  id="cargoExpiry"
+                  type="date"
+                  value={editedInsurance.cargoExpiry || ''}
+                  onChange={(e) => handleInsuranceChange('cargoExpiry', e.target.value)}
+                  disabled={!isOnline}
+                  className={isExpired(editedInsurance.cargoExpiry) ? 'border-red-500' : isExpiringSoon(editedInsurance.cargoExpiry) ? 'border-yellow-500' : ''}
+                />
+              </div>
+              <div>
+                <Label htmlFor="cargoCoverageAmount">Coverage Amount ($)</Label>
+                <Input
+                  id="cargoCoverageAmount"
+                  type="number"
+                  value={editedInsurance.cargoCoverageAmount || ''}
+                  onChange={(e) => handleInsuranceChange('cargoCoverageAmount', parseInt(e.target.value) || 0)}
+                  placeholder="e.g., 100000"
+                  disabled={!isOnline}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Auto/Physical Damage Insurance */}
+          <div className="space-y-4">
+            <h4 className="font-medium text-sm border-b pb-2">Auto/Physical Damage Insurance</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="autoCarrier">Insurance Carrier</Label>
+                <Input
+                  id="autoCarrier"
+                  value={editedInsurance.autoCarrier || ''}
+                  onChange={(e) => handleInsuranceChange('autoCarrier', e.target.value)}
+                  placeholder="Carrier name"
+                  disabled={!isOnline}
+                />
+              </div>
+              <div>
+                <Label htmlFor="autoPolicyNumber">Policy Number</Label>
+                <Input
+                  id="autoPolicyNumber"
+                  value={editedInsurance.autoPolicyNumber || ''}
+                  onChange={(e) => handleInsuranceChange('autoPolicyNumber', e.target.value)}
+                  placeholder="Policy number"
+                  disabled={!isOnline}
+                />
+              </div>
+              <div>
+                <Label htmlFor="autoExpiry">Expiration Date</Label>
+                <Input
+                  id="autoExpiry"
+                  type="date"
+                  value={editedInsurance.autoExpiry || ''}
+                  onChange={(e) => handleInsuranceChange('autoExpiry', e.target.value)}
+                  disabled={!isOnline}
+                  className={isExpired(editedInsurance.autoExpiry) ? 'border-red-500' : isExpiringSoon(editedInsurance.autoExpiry) ? 'border-yellow-500' : ''}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Workers Compensation */}
+          <div className="space-y-4">
+            <h4 className="font-medium text-sm border-b pb-2">Workers&apos; Compensation (if applicable)</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="workersCompCarrier">Insurance Carrier</Label>
+                <Input
+                  id="workersCompCarrier"
+                  value={editedInsurance.workersCompCarrier || ''}
+                  onChange={(e) => handleInsuranceChange('workersCompCarrier', e.target.value)}
+                  placeholder="Carrier name"
+                  disabled={!isOnline}
+                />
+              </div>
+              <div>
+                <Label htmlFor="workersCompPolicyNumber">Policy Number</Label>
+                <Input
+                  id="workersCompPolicyNumber"
+                  value={editedInsurance.workersCompPolicyNumber || ''}
+                  onChange={(e) => handleInsuranceChange('workersCompPolicyNumber', e.target.value)}
+                  placeholder="Policy number"
+                  disabled={!isOnline}
+                />
+              </div>
+              <div>
+                <Label htmlFor="workersCompExpiry">Expiration Date</Label>
+                <Input
+                  id="workersCompExpiry"
+                  type="date"
+                  value={editedInsurance.workersCompExpiry || ''}
+                  onChange={(e) => handleInsuranceChange('workersCompExpiry', e.target.value)}
+                  disabled={!isOnline}
+                  className={isExpired(editedInsurance.workersCompExpiry) ? 'border-red-500' : isExpiringSoon(editedInsurance.workersCompExpiry) ? 'border-yellow-500' : ''}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t">
+            <Button
+              onClick={handleSaveInsurance}
+              disabled={savingInsurance || !hasInsuranceChanges || !isOnline}
+            >
+              {savingInsurance ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Insurance Info
+                </>
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
