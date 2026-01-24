@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -42,8 +43,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { Search, FileText, RefreshCw, ArrowRight, CheckCircle, XCircle, Ban, Download, Loader2 } from 'lucide-react';
+import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { Search, FileText, RefreshCw, ArrowRight, CheckCircle, XCircle, Ban, Download, Loader2, Trash2 } from 'lucide-react';
+import { useAdminRole } from '../layout';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { TLA } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
@@ -52,6 +54,7 @@ import { showSuccess, showError } from '@/lib/toast-utils';
 export default function AdminTLAsPage() {
   const firestore = useFirestore();
   const { user: adminUser } = useUser();
+  const { hasPermission } = useAdminRole();
   const [tlas, setTLAs] = useState<TLA[]>([]);
   const [filteredTLAs, setFilteredTLAs] = useState<TLA[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -61,6 +64,10 @@ export default function AdminTLAsPage() {
   const [voidingTLA, setVoidingTLA] = useState<TLA | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedTLAIds, setSelectedTLAIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+
+  const canDelete = hasPermission('tlas:delete');
 
   const fetchTLAs = async () => {
     if (!firestore) return;
@@ -84,7 +91,7 @@ export default function AdminTLAsPage() {
     let filtered = tlas;
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(tla => 
+      filtered = filtered.filter(tla =>
         tla.trip?.origin?.toLowerCase().includes(q) ||
         tla.trip?.destination?.toLowerCase().includes(q) ||
         tla.driver?.name?.toLowerCase().includes(q) ||
@@ -97,6 +104,59 @@ export default function AdminTLAsPage() {
     }
     setFilteredTLAs(filtered);
   }, [searchQuery, statusFilter, tlas]);
+
+  const handleBulkDelete = async () => {
+    if (!firestore || !adminUser || selectedTLAIds.size === 0) return;
+
+    setIsProcessing(true);
+    try {
+      let deletedCount = 0;
+
+      for (const tlaId of selectedTLAIds) {
+        const tlaRef = doc(firestore, 'tlas', tlaId);
+        await deleteDoc(tlaRef);
+        deletedCount++;
+      }
+
+      await logAuditAction(firestore, {
+        action: 'tla_deleted',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'tla',
+        targetId: 'bulk',
+        targetName: `${deletedCount} TLAs`,
+        reason: 'Bulk deleted via admin console',
+        details: { count: deletedCount, tlaIds: Array.from(selectedTLAIds) },
+      });
+
+      showSuccess(`${deletedCount} TLAs deleted successfully`);
+      setSelectedTLAIds(new Set());
+      setShowBulkDeleteDialog(false);
+      fetchTLAs();
+    } catch (error: any) {
+      showError(error.message || 'Failed to delete TLAs');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedTLAIds.size === filteredTLAs.length) {
+      setSelectedTLAIds(new Set());
+    } else {
+      setSelectedTLAIds(new Set(filteredTLAs.map(t => t.id)));
+    }
+  };
+
+  const toggleSelectTLA = (tlaId: string) => {
+    const newSelected = new Set(selectedTLAIds);
+    if (newSelected.has(tlaId)) {
+      newSelected.delete(tlaId);
+    } else {
+      newSelected.add(tlaId);
+    }
+    setSelectedTLAIds(newSelected);
+  };
 
   const handleVoidTLA = async () => {
     if (!firestore || !voidingTLA || !adminUser) return;
@@ -200,12 +260,17 @@ export default function AdminTLAsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold font-headline">TLA Management</h1>
           <p className="text-muted-foreground">View and manage Trip Lease Agreements</p>
         </div>
         <div className="flex gap-2">
+          {canDelete && selectedTLAIds.size > 0 && (
+            <Button variant="destructive" onClick={() => setShowBulkDeleteDialog(true)}>
+              <Trash2 className="h-4 w-4 mr-2" />Delete ({selectedTLAIds.size})
+            </Button>
+          )}
           <Button variant="outline" onClick={handleExport} disabled={filteredTLAs.length === 0}>
             <Download className="h-4 w-4 mr-2" />Export CSV
           </Button>
@@ -247,6 +312,15 @@ export default function AdminTLAsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                {canDelete && (
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={filteredTLAs.length > 0 && selectedTLAIds.size === filteredTLAs.length}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
+                )}
                 <TableHead>Route</TableHead>
                 <TableHead>Driver</TableHead>
                 <TableHead>Lessor</TableHead>
@@ -259,21 +333,30 @@ export default function AdminTLAsPage() {
             <TableBody>
               {isLoading ? <TableSkeleton /> : filteredTLAs.length > 0 ? (
                 filteredTLAs.map(tla => (
-                  <TableRow key={tla.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedTLA(tla)}>
-                    <TableCell className="font-medium">
+                  <TableRow key={tla.id} className="cursor-pointer hover:bg-muted/50">
+                    {canDelete && (
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedTLAIds.has(tla.id)}
+                          onCheckedChange={() => toggleSelectTLA(tla.id)}
+                          aria-label={`Select TLA ${tla.trip?.origin} to ${tla.trip?.destination}`}
+                        />
+                      </TableCell>
+                    )}
+                    <TableCell className="font-medium" onClick={() => setSelectedTLA(tla)}>
                       <div className="flex items-center gap-1">{tla.trip?.origin}<ArrowRight className="h-3 w-3 text-muted-foreground" />{tla.trip?.destination}</div>
                     </TableCell>
-                    <TableCell>{tla.driver?.name || '-'}</TableCell>
-                    <TableCell>{tla.lessor?.legalName || '-'}</TableCell>
-                    <TableCell>{tla.lessee?.legalName || '-'}</TableCell>
-                    <TableCell><Badge variant={getStatusBadgeVariant(tla.status)}>{tla.status.replace('_', ' ')}</Badge></TableCell>
-                    <TableCell>${tla.payment?.amount?.toLocaleString() || '-'}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{tla.createdAt ? formatDistanceToNow(new Date(tla.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedTLA(tla)}>{tla.driver?.name || '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedTLA(tla)}>{tla.lessor?.legalName || '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedTLA(tla)}>{tla.lessee?.legalName || '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedTLA(tla)}><Badge variant={getStatusBadgeVariant(tla.status)}>{tla.status.replace('_', ' ')}</Badge></TableCell>
+                    <TableCell onClick={() => setSelectedTLA(tla)}>${tla.payment?.amount?.toLocaleString() || '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedTLA(tla)} className="text-muted-foreground text-sm">{tla.createdAt ? formatDistanceToNow(new Date(tla.createdAt), { addSuffix: true }) : '-'}</TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center">
+                  <TableCell colSpan={canDelete ? 8 : 7} className="h-24 text-center">
                     <FileText className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-muted-foreground">No TLAs found</p>
                   </TableCell>
@@ -387,6 +470,24 @@ export default function AdminTLAsPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleVoidTLA} disabled={isProcessing || !voidReason.trim()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Voiding...</> : 'Void TLA'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedTLAIds.size} TLAs</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{selectedTLAIds.size} selected TLAs</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} disabled={isProcessing} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</> : `Delete ${selectedTLAIds.size} TLAs`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

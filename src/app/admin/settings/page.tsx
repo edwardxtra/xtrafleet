@@ -72,8 +72,10 @@ export default function AdminSettingsPage() {
   const [showClearDataDialog, setShowClearDataDialog] = useState(false);
   const [clearLoads, setClearLoads] = useState(true);
   const [clearDrivers, setClearDrivers] = useState(true);
+  const [clearMatches, setClearMatches] = useState(true);
+  const [clearTLAs, setClearTLAs] = useState(true);
   const [isClearingData, setIsClearingData] = useState(false);
-  const [clearDataResult, setClearDataResult] = useState<{ loadsDeleted?: number; driversDeleted?: number } | null>(null);
+  const [clearDataResult, setClearDataResult] = useState<{ loadsDeleted?: number; driversDeleted?: number; matchesDeleted?: number; tlasDeleted?: number } | null>(null);
 
   const canManageRoles = currentUserRole === 'super_admin';
 
@@ -239,7 +241,7 @@ export default function AdminSettingsPage() {
   };
 
   const handleClearData = async () => {
-    if (!clearLoads && !clearDrivers) {
+    if (!clearLoads && !clearDrivers && !clearMatches && !clearTLAs) {
       showError('Please select at least one data type to clear');
       return;
     }
@@ -251,7 +253,7 @@ export default function AdminSettingsPage() {
       const response = await fetch('/api/admin/clear-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clearLoads, clearDrivers }),
+        body: JSON.stringify({ clearLoads, clearDrivers, clearMatches, clearTLAs }),
       });
 
       const data = await response.json();
@@ -263,8 +265,15 @@ export default function AdminSettingsPage() {
       setClearDataResult({
         loadsDeleted: data.loadsDeleted,
         driversDeleted: data.driversDeleted,
+        matchesDeleted: data.matchesDeleted,
+        tlasDeleted: data.tlasDeleted,
       });
-      showSuccess(`Data cleared: ${data.loadsDeleted || 0} loads, ${data.driversDeleted || 0} drivers deleted`);
+      const parts = [];
+      if (data.loadsDeleted) parts.push(`${data.loadsDeleted} loads`);
+      if (data.driversDeleted) parts.push(`${data.driversDeleted} drivers`);
+      if (data.matchesDeleted) parts.push(`${data.matchesDeleted} matches`);
+      if (data.tlasDeleted) parts.push(`${data.tlasDeleted} TLAs`);
+      showSuccess(`Data cleared: ${parts.join(', ')} deleted`);
       setShowClearDataDialog(false);
     } catch (error: any) {
       showError(error.message || 'Failed to clear data');
@@ -537,9 +546,9 @@ export default function AdminSettingsPage() {
           <CardContent>
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Clear All Loads and Drivers</p>
+                <p className="font-medium">Clear Platform Data</p>
                 <p className="text-sm text-muted-foreground">
-                  Permanently delete all loads and drivers from the platform
+                  Permanently delete loads, drivers, matches, and TLAs
                 </p>
               </div>
               <Button
@@ -558,6 +567,12 @@ export default function AdminSettingsPage() {
                   )}
                   {clearDataResult.driversDeleted !== undefined && (
                     <li>{clearDataResult.driversDeleted} drivers deleted</li>
+                  )}
+                  {clearDataResult.matchesDeleted !== undefined && (
+                    <li>{clearDataResult.matchesDeleted} matches deleted</li>
+                  )}
+                  {clearDataResult.tlasDeleted !== undefined && (
+                    <li>{clearDataResult.tlasDeleted} TLAs deleted</li>
                   )}
                 </ul>
               </div>
@@ -598,12 +613,32 @@ export default function AdminSettingsPage() {
                 Clear all drivers
               </Label>
             </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="clearMatches"
+                checked={clearMatches}
+                onCheckedChange={(checked) => setClearMatches(checked === true)}
+              />
+              <Label htmlFor="clearMatches" className="cursor-pointer">
+                Clear all matches
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="clearTLAs"
+                checked={clearTLAs}
+                onCheckedChange={(checked) => setClearTLAs(checked === true)}
+              />
+              <Label htmlFor="clearTLAs" className="cursor-pointer">
+                Clear all TLAs (Trip Lease Agreements)
+              </Label>
+            </div>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isClearingData}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleClearData}
-              disabled={isClearingData || (!clearLoads && !clearDrivers)}
+              disabled={isClearingData || (!clearLoads && !clearDrivers && !clearMatches && !clearTLAs)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isClearingData ? (

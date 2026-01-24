@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -88,6 +89,8 @@ export default function AdminDriversPage() {
   const [selectedDriver, setSelectedDriver] = useState<DriverWithOwner | null>(null);
   const [editingDriver, setEditingDriver] = useState<DriverWithOwner | null>(null);
   const [deletingDriver, setDeletingDriver] = useState<DriverWithOwner | null>(null);
+  const [selectedDriverIds, setSelectedDriverIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -247,6 +250,61 @@ export default function AdminDriversPage() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (!firestore || !adminUser || selectedDriverIds.size === 0) return;
+
+    setIsProcessing(true);
+    try {
+      const driversToDelete = filteredDrivers.filter(d => selectedDriverIds.has(d.id));
+      let deletedCount = 0;
+
+      for (const driver of driversToDelete) {
+        if (!driver.ownerId) continue;
+        const driverRef = doc(firestore, `owner_operators/${driver.ownerId}/drivers`, driver.id);
+        await deleteDoc(driverRef);
+        deletedCount++;
+      }
+
+      await logAuditAction(firestore, {
+        action: 'driver_deleted',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'driver',
+        targetId: 'bulk',
+        targetName: `${deletedCount} drivers`,
+        reason: 'Bulk deleted via admin console',
+        details: { count: deletedCount, driverIds: Array.from(selectedDriverIds) },
+      });
+
+      showSuccess(`${deletedCount} drivers deleted successfully`);
+      setSelectedDriverIds(new Set());
+      setShowBulkDeleteDialog(false);
+      fetchDrivers();
+    } catch (error: any) {
+      showError(error.message || 'Failed to delete drivers');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedDriverIds.size === filteredDrivers.length) {
+      setSelectedDriverIds(new Set());
+    } else {
+      setSelectedDriverIds(new Set(filteredDrivers.map(d => d.id)));
+    }
+  };
+
+  const toggleSelectDriver = (driverId: string) => {
+    const newSelected = new Set(selectedDriverIds);
+    if (newSelected.has(driverId)) {
+      newSelected.delete(driverId);
+    } else {
+      newSelected.add(driverId);
+    }
+    setSelectedDriverIds(newSelected);
+  };
+
   const handleExport = () => {
     const headers = ['Name', 'Email', 'Fleet', 'Location', 'Vehicle Type', 'Availability', 'Compliance', 'CDL Expiry', 'Medical Card Expiry', 'Status'];
     const csvContent = [
@@ -314,6 +372,11 @@ export default function AdminDriversPage() {
           <p className="text-muted-foreground">View and manage drivers across all fleets</p>
         </div>
         <div className="flex gap-2">
+          {canDelete && selectedDriverIds.size > 0 && (
+            <Button variant="destructive" onClick={() => setShowBulkDeleteDialog(true)}>
+              <Trash2 className="h-4 w-4 mr-2" />Delete ({selectedDriverIds.size})
+            </Button>
+          )}
           <Button variant="outline" onClick={handleExport} disabled={filteredDrivers.length === 0}>
             <Download className="h-4 w-4 mr-2" />Export
           </Button>
@@ -351,6 +414,15 @@ export default function AdminDriversPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                {canDelete && (
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={filteredDrivers.length > 0 && selectedDriverIds.size === filteredDrivers.length}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
+                )}
                 <TableHead>Name</TableHead>
                 <TableHead>Fleet</TableHead>
                 <TableHead>Location</TableHead>
@@ -366,6 +438,15 @@ export default function AdminDriversPage() {
                   const compliance = getComplianceStatus(driver);
                   return (
                     <TableRow key={driver.id} className={driver.isActive === false ? 'opacity-50' : ''}>
+                      {canDelete && (
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedDriverIds.has(driver.id)}
+                            onCheckedChange={() => toggleSelectDriver(driver.id)}
+                            aria-label={`Select ${driver.name}`}
+                          />
+                        </TableCell>
+                      )}
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           <span className="truncate max-w-[120px]">{driver.name}</span>
@@ -562,6 +643,24 @@ export default function AdminDriversPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteDriver} disabled={isProcessing} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</> : 'Delete Driver'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedDriverIds.size} Drivers</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{selectedDriverIds.size} selected drivers</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} disabled={isProcessing} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</> : `Delete ${selectedDriverIds.size} Drivers`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
