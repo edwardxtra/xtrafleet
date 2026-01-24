@@ -28,9 +28,11 @@ export type AdminPermission =
   // Match Management
   | 'matches:view'
   | 'matches:cancel'
+  | 'matches:delete'
   // TLA Management
   | 'tlas:view'
   | 'tlas:void'
+  | 'tlas:delete'
   // Billing Management
   | 'billing:view'
   | 'billing:refund'
@@ -51,8 +53,8 @@ export const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     'users:view', 'users:create', 'users:edit', 'users:delete', 'users:suspend',
     'drivers:view', 'drivers:edit', 'drivers:delete',
     'loads:view', 'loads:edit', 'loads:delete',
-    'matches:view', 'matches:cancel',
-    'tlas:view', 'tlas:void',
+    'matches:view', 'matches:cancel', 'matches:delete',
+    'tlas:view', 'tlas:void', 'tlas:delete',
     'billing:view', 'billing:refund', 'billing:manage_subscriptions',
     'audit:view',
     'admin:manage_roles', 'admin:grant_access', 'admin:revoke_access',
@@ -63,8 +65,8 @@ export const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     'users:view', 'users:create', 'users:edit', 'users:delete', 'users:suspend',
     'drivers:view', 'drivers:edit', 'drivers:delete',
     'loads:view', 'loads:edit', 'loads:delete',
-    'matches:view', 'matches:cancel',
-    'tlas:view', 'tlas:void',
+    'matches:view', 'matches:cancel', 'matches:delete',
+    'tlas:view', 'tlas:void', 'tlas:delete',
     'billing:view', 'billing:refund', 'billing:manage_subscriptions',
     'audit:view',
   ],

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -41,8 +42,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
-import { collection, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
-import { Search, Link2, RefreshCw, ArrowRight, Ban, Download, Loader2 } from 'lucide-react';
+import { collection, getDocs, doc, updateDoc, getDoc, deleteDoc } from 'firebase/firestore';
+import { Search, Link2, RefreshCw, ArrowRight, Ban, Download, Loader2, Trash2 } from 'lucide-react';
+import { useAdminRole } from '../layout';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { Match, MatchStatus } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
@@ -51,6 +53,7 @@ import { showSuccess, showError } from '@/lib/toast-utils';
 export default function AdminMatchesPage() {
   const firestore = useFirestore();
   const { user: adminUser } = useUser();
+  const { hasPermission } = useAdminRole();
   const [matches, setMatches] = useState<Match[]>([]);
   const [filteredMatches, setFilteredMatches] = useState<Match[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -60,6 +63,10 @@ export default function AdminMatchesPage() {
   const [cancellingMatch, setCancellingMatch] = useState<Match | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedMatchIds, setSelectedMatchIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+
+  const canDelete = hasPermission('matches:delete');
 
   const fetchMatches = async () => {
     if (!firestore) return;
@@ -83,7 +90,7 @@ export default function AdminMatchesPage() {
     let filtered = matches;
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(match => 
+      filtered = filtered.filter(match =>
         match.loadSnapshot?.origin?.toLowerCase().includes(q) ||
         match.loadSnapshot?.destination?.toLowerCase().includes(q) ||
         match.driverSnapshot?.name?.toLowerCase().includes(q) ||
@@ -96,6 +103,59 @@ export default function AdminMatchesPage() {
     }
     setFilteredMatches(filtered);
   }, [searchQuery, statusFilter, matches]);
+
+  const handleBulkDelete = async () => {
+    if (!firestore || !adminUser || selectedMatchIds.size === 0) return;
+
+    setIsProcessing(true);
+    try {
+      let deletedCount = 0;
+
+      for (const matchId of selectedMatchIds) {
+        const matchRef = doc(firestore, 'matches', matchId);
+        await deleteDoc(matchRef);
+        deletedCount++;
+      }
+
+      await logAuditAction(firestore, {
+        action: 'match_deleted',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'match',
+        targetId: 'bulk',
+        targetName: `${deletedCount} matches`,
+        reason: 'Bulk deleted via admin console',
+        details: { count: deletedCount, matchIds: Array.from(selectedMatchIds) },
+      });
+
+      showSuccess(`${deletedCount} matches deleted successfully`);
+      setSelectedMatchIds(new Set());
+      setShowBulkDeleteDialog(false);
+      fetchMatches();
+    } catch (error: any) {
+      showError(error.message || 'Failed to delete matches');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedMatchIds.size === filteredMatches.length) {
+      setSelectedMatchIds(new Set());
+    } else {
+      setSelectedMatchIds(new Set(filteredMatches.map(m => m.id)));
+    }
+  };
+
+  const toggleSelectMatch = (matchId: string) => {
+    const newSelected = new Set(selectedMatchIds);
+    if (newSelected.has(matchId)) {
+      newSelected.delete(matchId);
+    } else {
+      newSelected.add(matchId);
+    }
+    setSelectedMatchIds(newSelected);
+  };
 
   const handleCancelMatch = async () => {
     if (!firestore || !cancellingMatch || !adminUser) return;
@@ -223,12 +283,17 @@ export default function AdminMatchesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold font-headline">Match Management</h1>
           <p className="text-muted-foreground">View and manage all matches across the platform</p>
         </div>
         <div className="flex gap-2">
+          {canDelete && selectedMatchIds.size > 0 && (
+            <Button variant="destructive" onClick={() => setShowBulkDeleteDialog(true)}>
+              <Trash2 className="h-4 w-4 mr-2" />Delete ({selectedMatchIds.size})
+            </Button>
+          )}
           <Button variant="outline" onClick={handleExport} disabled={filteredMatches.length === 0}>
             <Download className="h-4 w-4 mr-2" />Export CSV
           </Button>
@@ -273,6 +338,15 @@ export default function AdminMatchesPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                {canDelete && (
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={filteredMatches.length > 0 && selectedMatchIds.size === filteredMatches.length}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
+                )}
                 <TableHead>Route</TableHead>
                 <TableHead>Driver</TableHead>
                 <TableHead>Load Owner</TableHead>
@@ -284,20 +358,29 @@ export default function AdminMatchesPage() {
             <TableBody>
               {isLoading ? <TableSkeleton /> : filteredMatches.length > 0 ? (
                 filteredMatches.map(match => (
-                  <TableRow key={match.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedMatch(match)}>
-                    <TableCell className="font-medium">
+                  <TableRow key={match.id} className="cursor-pointer hover:bg-muted/50">
+                    {canDelete && (
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedMatchIds.has(match.id)}
+                          onCheckedChange={() => toggleSelectMatch(match.id)}
+                          aria-label={`Select match ${match.loadSnapshot?.origin} to ${match.loadSnapshot?.destination}`}
+                        />
+                      </TableCell>
+                    )}
+                    <TableCell className="font-medium" onClick={() => setSelectedMatch(match)}>
                       <div className="flex items-center gap-1">{match.loadSnapshot?.origin}<ArrowRight className="h-3 w-3 text-muted-foreground" />{match.loadSnapshot?.destination}</div>
                     </TableCell>
-                    <TableCell>{match.driverSnapshot?.name || match.driverName || '-'}</TableCell>
-                    <TableCell>{match.loadOwnerName || '-'}</TableCell>
-                    <TableCell><Badge variant={getStatusBadgeVariant(match.status)}>{match.status.replace('_', ' ')}</Badge></TableCell>
-                    <TableCell>{match.matchScore}/100</TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{match.createdAt ? formatDistanceToNow(new Date(match.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedMatch(match)}>{match.driverSnapshot?.name || match.driverName || '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedMatch(match)}>{match.loadOwnerName || '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedMatch(match)}><Badge variant={getStatusBadgeVariant(match.status)}>{match.status.replace('_', ' ')}</Badge></TableCell>
+                    <TableCell onClick={() => setSelectedMatch(match)}>{match.matchScore}/100</TableCell>
+                    <TableCell onClick={() => setSelectedMatch(match)} className="text-muted-foreground text-sm">{match.createdAt ? formatDistanceToNow(new Date(match.createdAt), { addSuffix: true }) : '-'}</TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center">
+                  <TableCell colSpan={canDelete ? 7 : 6} className="h-24 text-center">
                     <Link2 className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-muted-foreground">No matches found</p>
                   </TableCell>
@@ -383,6 +466,24 @@ export default function AdminMatchesPage() {
             <AlertDialogCancel>Keep Match</AlertDialogCancel>
             <AlertDialogAction onClick={handleCancelMatch} disabled={isProcessing || !cancelReason.trim()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Cancelling...</> : 'Cancel Match'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedMatchIds.size} Matches</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{selectedMatchIds.size} selected matches</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} disabled={isProcessing} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</> : `Delete ${selectedMatchIds.size} Matches`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

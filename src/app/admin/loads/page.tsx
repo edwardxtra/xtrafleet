@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -28,9 +29,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
-import { collectionGroup, getDocs, doc, getDoc } from 'firebase/firestore';
-import { Search, Package, RefreshCw, ArrowRight, Building2, Download } from 'lucide-react';
+import { collectionGroup, getDocs, doc, getDoc, deleteDoc } from 'firebase/firestore';
+import { Search, Package, RefreshCw, ArrowRight, Building2, Download, Trash2, Loader2 } from 'lucide-react';
+import { showSuccess, showError } from '@/lib/toast-utils';
+import { useAdminRole } from '../layout';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { Load } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
@@ -43,6 +56,7 @@ type LoadWithOwner = Load & {
 export default function AdminLoadsPage() {
   const firestore = useFirestore();
   const { user: adminUser } = useUser();
+  const { hasPermission } = useAdminRole();
   const [loads, setLoads] = useState<LoadWithOwner[]>([]);
   const [filteredLoads, setFilteredLoads] = useState<LoadWithOwner[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,6 +64,11 @@ export default function AdminLoadsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedLoad, setSelectedLoad] = useState<LoadWithOwner | null>(null);
   const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
+  const [selectedLoadIds, setSelectedLoadIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const canDelete = hasPermission('loads:delete');
 
   const fetchLoads = async () => {
     if (!firestore) return;
@@ -108,7 +127,7 @@ export default function AdminLoadsPage() {
     let filtered = loads;
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(load => 
+      filtered = filtered.filter(load =>
         load.origin?.toLowerCase().includes(q) ||
         load.destination?.toLowerCase().includes(q) ||
         load.cargo?.toLowerCase().includes(q) ||
@@ -120,6 +139,61 @@ export default function AdminLoadsPage() {
     }
     setFilteredLoads(filtered);
   }, [searchQuery, statusFilter, loads]);
+
+  const handleBulkDelete = async () => {
+    if (!firestore || !adminUser || selectedLoadIds.size === 0) return;
+
+    setIsProcessing(true);
+    try {
+      const loadsToDelete = filteredLoads.filter(l => selectedLoadIds.has(l.id));
+      let deletedCount = 0;
+
+      for (const load of loadsToDelete) {
+        if (!load.ownerId) continue;
+        const loadRef = doc(firestore, `owner_operators/${load.ownerId}/loads`, load.id);
+        await deleteDoc(loadRef);
+        deletedCount++;
+      }
+
+      await logAuditAction(firestore, {
+        action: 'load_deleted',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'load',
+        targetId: 'bulk',
+        targetName: `${deletedCount} loads`,
+        reason: 'Bulk deleted via admin console',
+        details: { count: deletedCount, loadIds: Array.from(selectedLoadIds) },
+      });
+
+      showSuccess(`${deletedCount} loads deleted successfully`);
+      setSelectedLoadIds(new Set());
+      setShowBulkDeleteDialog(false);
+      fetchLoads();
+    } catch (error: any) {
+      showError(error.message || 'Failed to delete loads');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedLoadIds.size === filteredLoads.length) {
+      setSelectedLoadIds(new Set());
+    } else {
+      setSelectedLoadIds(new Set(filteredLoads.map(l => l.id)));
+    }
+  };
+
+  const toggleSelectLoad = (loadId: string) => {
+    const newSelected = new Set(selectedLoadIds);
+    if (newSelected.has(loadId)) {
+      newSelected.delete(loadId);
+    } else {
+      newSelected.add(loadId);
+    }
+    setSelectedLoadIds(newSelected);
+  };
 
   const handleExport = () => {
     const headers = ['Origin', 'Destination', 'Cargo', 'Weight', 'Price', 'Status', 'Owner', 'Created'];
@@ -181,12 +255,17 @@ export default function AdminLoadsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold font-headline">All Loads</h1>
           <p className="text-muted-foreground">View loads across all fleets</p>
         </div>
         <div className="flex gap-2">
+          {canDelete && selectedLoadIds.size > 0 && (
+            <Button variant="destructive" onClick={() => setShowBulkDeleteDialog(true)}>
+              <Trash2 className="h-4 w-4 mr-2" />Delete ({selectedLoadIds.size})
+            </Button>
+          )}
           <Button variant="outline" onClick={handleExport} disabled={filteredLoads.length === 0}>
             <Download className="h-4 w-4 mr-2" />Export CSV
           </Button>
@@ -225,6 +304,15 @@ export default function AdminLoadsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                {canDelete && (
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={filteredLoads.length > 0 && selectedLoadIds.size === filteredLoads.length}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
+                )}
                 <TableHead>Route</TableHead>
                 <TableHead>Cargo</TableHead>
                 <TableHead>Weight</TableHead>
@@ -237,25 +325,34 @@ export default function AdminLoadsPage() {
             <TableBody>
               {isLoading ? <TableSkeleton /> : filteredLoads.length > 0 ? (
                 filteredLoads.map(load => (
-                  <TableRow key={load.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedLoad(load)}>
-                    <TableCell className="font-medium">
+                  <TableRow key={load.id} className="cursor-pointer hover:bg-muted/50">
+                    {canDelete && (
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedLoadIds.has(load.id)}
+                          onCheckedChange={() => toggleSelectLoad(load.id)}
+                          aria-label={`Select load ${load.origin} to ${load.destination}`}
+                        />
+                      </TableCell>
+                    )}
+                    <TableCell className="font-medium" onClick={() => setSelectedLoad(load)}>
                       <div className="flex items-center gap-1">{load.origin}<ArrowRight className="h-3 w-3 text-muted-foreground" />{load.destination}</div>
                     </TableCell>
-                    <TableCell>{load.cargo || '-'}</TableCell>
-                    <TableCell>{load.weight?.toLocaleString() || '-'} lbs</TableCell>
-                    <TableCell className="text-green-600 font-medium">${load.price?.toLocaleString() || '-'}</TableCell>
-                    <TableCell><Badge variant={getStatusBadgeVariant(load.status)}>{load.status || 'Unknown'}</Badge></TableCell>
-                    <TableCell>
+                    <TableCell onClick={() => setSelectedLoad(load)}>{load.cargo || '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedLoad(load)}>{load.weight?.toLocaleString() || '-'} lbs</TableCell>
+                    <TableCell onClick={() => setSelectedLoad(load)} className="text-green-600 font-medium">${load.price?.toLocaleString() || '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedLoad(load)}><Badge variant={getStatusBadgeVariant(load.status)}>{load.status || 'Unknown'}</Badge></TableCell>
+                    <TableCell onClick={() => setSelectedLoad(load)}>
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Building2 className="h-3 w-3" />{load.ownerCompanyName || 'Unknown'}
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{load.createdAt ? formatDistanceToNow(new Date(load.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell onClick={() => setSelectedLoad(load)} className="text-muted-foreground text-sm">{load.createdAt ? formatDistanceToNow(new Date(load.createdAt), { addSuffix: true }) : '-'}</TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center">
+                  <TableCell colSpan={canDelete ? 8 : 7} className="h-24 text-center">
                     <Package className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-muted-foreground">No loads found</p>
                   </TableCell>
@@ -301,6 +398,24 @@ export default function AdminLoadsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedLoadIds.size} Loads</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{selectedLoadIds.size} selected loads</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} disabled={isProcessing} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</> : `Delete ${selectedLoadIds.size} Loads`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
