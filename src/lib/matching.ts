@@ -893,6 +893,72 @@ export function getMatchQualityColor(score: number): string {
 }
 
 /**
+ * Match reason types
+ */
+export type MatchReason = {
+  label: string;
+  icon: 'location' | 'truck' | 'star' | 'certificate' | 'shield';
+  color: string;
+};
+
+/**
+ * Get the primary reasons why a driver is a good match
+ * Returns up to 2 reasons based on highest scoring categories
+ */
+export function getMatchReasons(breakdown: MatchScoreBreakdown): MatchReason[] {
+  const reasons: MatchReason[] = [];
+
+  // Check each category and determine if it's a strong match
+  // Location: 35 max, >= 27 is great (within 350 miles)
+  if (breakdown.locationScore >= 27) {
+    reasons.push({
+      label: breakdown.locationScore >= 33 ? 'Very Close' : 'Nearby',
+      icon: 'location',
+      color: 'bg-blue-100 text-blue-700 border-blue-300',
+    });
+  }
+
+  // Vehicle Match: 25 max, 25 means perfect equipment match
+  if (breakdown.vehicleMatch === 25) {
+    reasons.push({
+      label: 'Equipment Match',
+      icon: 'truck',
+      color: 'bg-green-100 text-green-700 border-green-300',
+    });
+  }
+
+  // Rating: 10 max, >= 9 means highly rated driver
+  if (breakdown.ratingScore >= 9) {
+    reasons.push({
+      label: 'Top Rated',
+      icon: 'star',
+      color: 'bg-yellow-100 text-yellow-700 border-yellow-300',
+    });
+  }
+
+  // Qualifications: 20 max, 20 means all qualifications met
+  if (breakdown.qualificationMatch === 20) {
+    reasons.push({
+      label: 'Fully Qualified',
+      icon: 'certificate',
+      color: 'bg-purple-100 text-purple-700 border-purple-300',
+    });
+  }
+
+  // Compliance: 10 max, 10 means green compliance
+  if (breakdown.complianceScore === 10) {
+    reasons.push({
+      label: 'Compliant',
+      icon: 'shield',
+      color: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+    });
+  }
+
+  // Return top 2 reasons (prioritize location and equipment)
+  return reasons.slice(0, 2);
+}
+
+/**
  * Get distance between driver and load origin (for display)
  */
 export function getDistanceToLoad(driverLocation: string, loadOrigin: string): string | null {

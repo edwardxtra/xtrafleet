@@ -39,20 +39,24 @@ import {
   Truck,
   AlertCircle,
   ArrowRight,
+  Star,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import type { TLA } from "@/lib/data";
+import { DriverRatingModal } from "@/components/driver-rating-modal";
 
 type StatusFilter = "all" | "pending" | "signed" | "in_progress" | "completed";
 
 export default function AgreementsPage() {
   const { user } = useUser();
   const firestore = useFirestore();
-  
+
   const [tlas, setTlas] = useState<TLA[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [ratingModalOpen, setRatingModalOpen] = useState(false);
+  const [tlaToRate, setTlaToRate] = useState<TLA | null>(null);
 
   useEffect(() => {
     async function fetchTLAs() {
@@ -142,6 +146,30 @@ export default function AgreementsPage() {
     if (tla.lessor.ownerOperatorId === user.uid) return "lessor";
     if (tla.lessee.ownerOperatorId === user.uid) return "lessee";
     return null;
+  };
+
+  // Check if user can rate this TLA (must be lessee/load owner, completed, and not yet rated)
+  const canRate = (tla: TLA) => {
+    if (!user) return false;
+    const isLessee = tla.lessee.ownerOperatorId === user.uid;
+    const isCompleted = tla.status === "completed";
+    const notRated = !(tla as any).rated;
+    return isLessee && isCompleted && notRated;
+  };
+
+  const handleRateDriver = (tla: TLA) => {
+    setTlaToRate(tla);
+    setRatingModalOpen(true);
+  };
+
+  const handleRatingSuccess = () => {
+    // Refresh TLAs to show updated rated status
+    if (tlaToRate) {
+      setTlas(prev => prev.map(t =>
+        t.id === tlaToRate.id ? { ...t, rated: true } as TLA : t
+      ));
+    }
+    setTlaToRate(null);
   };
 
   const stats = {
@@ -308,11 +336,30 @@ export default function AgreementsPage() {
                         {formatDate(tla.createdAt)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button asChild size="sm">
-                          <Link href={`/dashboard/tla/${tla.id}`}>
-                            View
-                          </Link>
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          {canRate(tla) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRateDriver(tla)}
+                              className="text-yellow-600 border-yellow-600 hover:bg-yellow-50"
+                            >
+                              <Star className="h-4 w-4 mr-1" />
+                              Rate
+                            </Button>
+                          )}
+                          {(tla as any).rated && (
+                            <Badge variant="outline" className="text-green-600 border-green-300">
+                              <Star className="h-3 w-3 mr-1 fill-yellow-400 text-yellow-400" />
+                              Rated
+                            </Badge>
+                          )}
+                          <Button asChild size="sm">
+                            <Link href={`/dashboard/tla/${tla.id}`}>
+                              View
+                            </Link>
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -322,6 +369,16 @@ export default function AgreementsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Rating Modal */}
+      {tlaToRate && (
+        <DriverRatingModal
+          open={ratingModalOpen}
+          onOpenChange={setRatingModalOpen}
+          tla={tlaToRate}
+          onSuccess={handleRatingSuccess}
+        />
+      )}
     </div>
   );
 }

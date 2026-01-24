@@ -31,7 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HelpWidget } from "@/components/help-widget";
-import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare } from "lucide-react";
+import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare, Send } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
 import { Footer } from "@/components/footer";
@@ -78,6 +78,9 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarNavLink href="/dashboard/incoming-matches" tooltip="Incoming Requests"><Inbox /><span>Incoming Requests</span></SidebarNavLink>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarNavLink href="/dashboard/sent-requests" tooltip="Sent Requests"><Send /><span>Sent Requests</span></SidebarNavLink>
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarNavLink href="/dashboard/messages" tooltip="Messages" badge={unreadCount}>

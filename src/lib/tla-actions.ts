@@ -13,6 +13,7 @@ export interface SignTLAParams {
   signatureName: string;
   role: 'lessor' | 'lessee';
   insuranceOption?: InsuranceOption;
+  locations?: TLA['locations'];
 }
 
 export interface TripActionParams {
@@ -27,7 +28,7 @@ export interface TripActionParams {
  * Sign a TLA as lessor or lessee with complete audit trail
  */
 export async function signTLA(params: SignTLAParams): Promise<TLA | null> {
-  const { firestore, tlaId, tla, userId, signatureName, role, insuranceOption } = params;
+  const { firestore, tlaId, tla, userId, signatureName, role, insuranceOption, locations } = params;
   
   try {
     // Capture audit trail data
@@ -99,13 +100,18 @@ export async function signTLA(params: SignTLAParams): Promise<TLA | null> {
       
     } else if (role === 'lessee') {
       updateData.lesseeSignature = signature;
-      
+
       if (insuranceOption) {
         updateData.insurance = {
           option: insuranceOption,
           confirmedAt: new Date().toISOString(),
           confirmedBy: userId,
         };
+      }
+
+      // Save location details if provided
+      if (locations) {
+        updateData.locations = locations;
       }
       
       if (otherPartyHasSigned) {

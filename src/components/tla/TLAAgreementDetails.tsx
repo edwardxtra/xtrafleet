@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { User, Truck, DollarSign, Shield, Timer } from "lucide-react";
+import { User, Truck, DollarSign, Shield, Timer, MapPin, RotateCcw } from "lucide-react";
 import type { TLA } from "@/lib/data";
 import { formatTLADate, formatTripDuration } from "@/lib/tla-utils";
 
@@ -98,6 +98,99 @@ export function TLAAgreementDetails({ tla }: TLAAgreementDetailsProps) {
             </div>
 
             <Separator />
+
+            {/* Location Details (if provided) */}
+            {tla.locations?.pickup && (
+              <>
+                <div>
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    Location Details
+                  </h3>
+                  <div className="space-y-4">
+                    {/* Pickup Location */}
+                    <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                      <p className="text-xs font-semibold text-blue-600 mb-2 flex items-center gap-1">
+                        <MapPin className="h-3 w-3" />
+                        PICKUP
+                      </p>
+                      <p className="font-medium">{tla.locations.pickup.address}</p>
+                      <p className="text-sm">
+                        {tla.locations.pickup.city}, {tla.locations.pickup.state} {tla.locations.pickup.zip}
+                      </p>
+                      {tla.locations.pickup.contactName && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Contact: {tla.locations.pickup.contactName}
+                          {tla.locations.pickup.contactPhone && ` - ${tla.locations.pickup.contactPhone}`}
+                        </p>
+                      )}
+                      {tla.locations.pickup.instructions && (
+                        <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-950/20 rounded text-xs">
+                          <span className="font-medium">Instructions: </span>
+                          {tla.locations.pickup.instructions}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Delivery Location */}
+                    {tla.locations?.delivery && (
+                      <div className="p-3 bg-green-50 dark:bg-green-950/20 rounded-lg">
+                        <p className="text-xs font-semibold text-green-600 mb-2 flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          DELIVERY
+                        </p>
+                        <p className="font-medium">{tla.locations.delivery.address}</p>
+                        <p className="text-sm">
+                          {tla.locations.delivery.city}, {tla.locations.delivery.state} {tla.locations.delivery.zip}
+                        </p>
+                        {tla.locations.delivery.contactName && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Contact: {tla.locations.delivery.contactName}
+                            {tla.locations.delivery.contactPhone && ` - ${tla.locations.delivery.contactPhone}`}
+                          </p>
+                        )}
+                        {tla.locations.delivery.instructions && (
+                          <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-950/20 rounded text-xs">
+                            <span className="font-medium">Instructions: </span>
+                            {tla.locations.delivery.instructions}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Truck Return Location (if different from delivery) */}
+                    {tla.locations?.truckReturn?.differentFromDelivery && tla.locations.truckReturn.address && (
+                      <div className="p-3 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
+                        <p className="text-xs font-semibold text-purple-600 mb-2 flex items-center gap-1">
+                          <RotateCcw className="h-3 w-3" />
+                          TRUCK RETURN
+                        </p>
+                        <p className="font-medium">{tla.locations.truckReturn.address}</p>
+                        <p className="text-sm">
+                          {tla.locations.truckReturn.city}, {tla.locations.truckReturn.state} {tla.locations.truckReturn.zip}
+                        </p>
+                        {tla.locations.truckReturn.instructions && (
+                          <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-950/20 rounded text-xs">
+                            <span className="font-medium">Instructions: </span>
+                            {tla.locations.truckReturn.instructions}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* If truck returns to delivery location */}
+                    {tla.locations?.truckReturn && !tla.locations.truckReturn.differentFromDelivery && (
+                      <p className="text-xs text-muted-foreground">
+                        <RotateCcw className="h-3 w-3 inline mr-1" />
+                        Truck returns to delivery location
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+              </>
+            )}
 
             {/* Payment */}
             <div>

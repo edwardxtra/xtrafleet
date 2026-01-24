@@ -23,7 +23,8 @@ import {
   Building2,
   Lock,
   Package,
-  Briefcase
+  Briefcase,
+  Award
 } from "lucide-react";
 import { useUser, useFirestore, useMemoFirebase } from "@/firebase";
 import { collection, query, where, collectionGroup, doc, getDoc, onSnapshot } from 'firebase/firestore';
@@ -32,6 +33,7 @@ import {
   findMatchingDrivers,
   findMatchingLoads,
   getMatchQualityLabel,
+  getMatchReasons,
   MatchScore,
   LoadMatchScore
 } from "@/lib/matching";
@@ -420,6 +422,24 @@ export default function MatchesPage() {
                                 <Progress value={match.score} className="h-2" />
                                 <p className="text-xs text-muted-foreground mt-1">{getMatchQualityLabel(match.score)}</p>
                               </div>
+                              {/* Match Reasons */}
+                              {(() => {
+                                const reasons = getMatchReasons(match.breakdown);
+                                return reasons.length > 0 ? (
+                                  <div className="flex gap-1 flex-wrap mb-2">
+                                    {reasons.map((reason, idx) => (
+                                      <Badge key={idx} variant="outline" className={`text-xs ${reason.color}`}>
+                                        {reason.icon === 'location' && <MapPin className="h-3 w-3 mr-1" />}
+                                        {reason.icon === 'truck' && <Truck className="h-3 w-3 mr-1" />}
+                                        {reason.icon === 'star' && <Star className="h-3 w-3 mr-1 fill-current" />}
+                                        {reason.icon === 'certificate' && <Award className="h-3 w-3 mr-1" />}
+                                        {reason.icon === 'shield' && <ShieldCheck className="h-3 w-3 mr-1" />}
+                                        {reason.label}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                ) : null;
+                              })()}
                               <div className="flex gap-1 flex-wrap mb-2">
                                 <Badge variant="secondary" className="text-xs">{match.driver.vehicleType}</Badge>
                                 {match.driver.rating && (
