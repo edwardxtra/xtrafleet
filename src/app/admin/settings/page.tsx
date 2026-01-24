@@ -31,10 +31,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Autocomplete, type AutocompleteOption } from '@/components/ui/autocomplete';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { Shield, ShieldOff, RefreshCw, UserPlus, AlertTriangle, Loader2, Edit2 } from 'lucide-react';
+import { Shield, ShieldOff, RefreshCw, UserPlus, AlertTriangle, Loader2, Edit2, Trash2, Database } from 'lucide-react';
 import { format } from 'date-fns';
 import type { OwnerOperator } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
@@ -68,6 +69,11 @@ export default function AdminSettingsPage() {
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [editingRole, setEditingRole] = useState<AdminRole>('admin');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showClearDataDialog, setShowClearDataDialog] = useState(false);
+  const [clearLoads, setClearLoads] = useState(true);
+  const [clearDrivers, setClearDrivers] = useState(true);
+  const [isClearingData, setIsClearingData] = useState(false);
+  const [clearDataResult, setClearDataResult] = useState<{ loadsDeleted?: number; driversDeleted?: number } | null>(null);
 
   const canManageRoles = currentUserRole === 'super_admin';
 
@@ -230,6 +236,41 @@ export default function AdminSettingsPage() {
   const handleEditRole = (admin: AdminUser) => {
     setEditingUser(admin);
     setEditingRole(admin.adminRole || getDefaultRoleForLegacyAdmin());
+  };
+
+  const handleClearData = async () => {
+    if (!clearLoads && !clearDrivers) {
+      showError('Please select at least one data type to clear');
+      return;
+    }
+
+    setIsClearingData(true);
+    setClearDataResult(null);
+
+    try {
+      const response = await fetch('/api/admin/clear-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clearLoads, clearDrivers }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to clear data');
+      }
+
+      setClearDataResult({
+        loadsDeleted: data.loadsDeleted,
+        driversDeleted: data.driversDeleted,
+      });
+      showSuccess(`Data cleared: ${data.loadsDeleted || 0} loads, ${data.driversDeleted || 0} drivers deleted`);
+      setShowClearDataDialog(false);
+    } catch (error: any) {
+      showError(error.message || 'Failed to clear data');
+    } finally {
+      setIsClearingData(false);
+    }
   };
 
   const getRoleBadgeVariant = (role: AdminRole): 'destructive' | 'default' | 'secondary' | 'outline' => {
@@ -479,6 +520,100 @@ export default function AdminSettingsPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleRevokeAdmin} disabled={isProcessing}>
               {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Revoking...</> : 'Revoke Access'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Data Management Section - Super Admin Only */}
+      {canManageRoles && (
+        <Card className="border-red-200 dark:border-red-800">
+          <CardHeader>
+            <CardTitle className="font-headline flex items-center gap-2 text-red-600 dark:text-red-400">
+              <Database className="h-5 w-5" />Data Management
+            </CardTitle>
+            <CardDescription>Danger zone - these actions cannot be undone</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Clear All Loads and Drivers</p>
+                <p className="text-sm text-muted-foreground">
+                  Permanently delete all loads and drivers from the platform
+                </p>
+              </div>
+              <Button
+                variant="destructive"
+                onClick={() => setShowClearDataDialog(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />Clear Data
+              </Button>
+            </div>
+            {clearDataResult && (
+              <div className="mt-4 p-3 bg-muted rounded-md text-sm">
+                <p>Last clear operation:</p>
+                <ul className="list-disc list-inside mt-1">
+                  {clearDataResult.loadsDeleted !== undefined && (
+                    <li>{clearDataResult.loadsDeleted} loads deleted</li>
+                  )}
+                  {clearDataResult.driversDeleted !== undefined && (
+                    <li>{clearDataResult.driversDeleted} drivers deleted</li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Clear Data Confirmation Dialog */}
+      <AlertDialog open={showClearDataDialog} onOpenChange={setShowClearDataDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />Clear All Data
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the selected data from all users.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="clearLoads"
+                checked={clearLoads}
+                onCheckedChange={(checked) => setClearLoads(checked === true)}
+              />
+              <Label htmlFor="clearLoads" className="cursor-pointer">
+                Clear all loads
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="clearDrivers"
+                checked={clearDrivers}
+                onCheckedChange={(checked) => setClearDrivers(checked === true)}
+              />
+              <Label htmlFor="clearDrivers" className="cursor-pointer">
+                Clear all drivers
+              </Label>
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClearingData}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleClearData}
+              disabled={isClearingData || (!clearLoads && !clearDrivers)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isClearingData ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Clearing...</>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Clear Selected Data
+                </>
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

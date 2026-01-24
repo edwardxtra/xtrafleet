@@ -40,7 +40,9 @@ export type AdminPermission =
   // Admin Management (Super Admin only)
   | 'admin:manage_roles'
   | 'admin:grant_access'
-  | 'admin:revoke_access';
+  | 'admin:revoke_access'
+  // Data Management (Super Admin only)
+  | 'data:clear_all';
 
 // Role to Permissions Mapping
 export const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
@@ -54,6 +56,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     'billing:view', 'billing:refund', 'billing:manage_subscriptions',
     'audit:view',
     'admin:manage_roles', 'admin:grant_access', 'admin:revoke_access',
+    'data:clear_all',
   ],
   admin: [
     // Full operational access, no admin management

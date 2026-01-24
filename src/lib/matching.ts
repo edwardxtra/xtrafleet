@@ -939,7 +939,7 @@ export function getMatchReasons(breakdown: MatchScoreBreakdown): MatchReason[] {
   // Qualifications: 20 max, 20 means all qualifications met
   if (breakdown.qualificationMatch === 20) {
     reasons.push({
-      label: 'Fully Qualified',
+      label: 'Fully Verified',
       icon: 'certificate',
       color: 'bg-purple-100 text-purple-700 border-purple-300',
     });
