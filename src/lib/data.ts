@@ -206,6 +206,35 @@ export type TLA = {
     startDate: string;
     endDate?: string;
   };
+  // Detailed location information (captured during lessee signing)
+  locations?: {
+    pickup?: {
+      address: string;
+      city: string;
+      state: string;
+      zip: string;
+      instructions?: string;
+      contactName?: string;
+      contactPhone?: string;
+    };
+    delivery?: {
+      address: string;
+      city: string;
+      state: string;
+      zip: string;
+      instructions?: string;
+      contactName?: string;
+      contactPhone?: string;
+    };
+    truckReturn?: {
+      differentFromDelivery: boolean;
+      address?: string;
+      city?: string;
+      state?: string;
+      zip?: string;
+      instructions?: string;
+    };
+  };
   payment: {
     amount: number;
     dueDate?: string;

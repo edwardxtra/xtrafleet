@@ -10,22 +10,21 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Loader2, 
-  Truck, 
-  User, 
-  MapPin, 
+import {
+  Loader2,
+  Truck,
+  User,
+  MapPin,
   DollarSign,
   Calendar,
   Star,
   CheckCircle,
   Mail
 } from "lucide-react";
-import type { Load, Driver, Match } from "@/lib/data";
+import type { Load } from "@/lib/data";
 import type { MatchScore } from "@/lib/matching";
 import { useUser, useFirestore } from "@/firebase";
 import { collection, addDoc, doc, getDoc } from "firebase/firestore";
@@ -50,8 +49,6 @@ export function MatchRequestModal({
   const { user } = useUser();
   const firestore = useFirestore();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [rate, setRate] = useState<string>(load.price?.toString() || "");
-  const [pickupDate, setPickupDate] = useState<string>(load.pickupDate || "");
   const [notes, setNotes] = useState<string>("");
   const [driverOwnerEmail, setDriverOwnerEmail] = useState<string>("");
 
@@ -81,8 +78,8 @@ export function MatchRequestModal({
   const handleSubmit = async () => {
     if (!firestore || !user) return;
 
-    if (!rate || parseFloat(rate) <= 0) {
-      showError("Please enter a valid rate");
+    if (!load.price || load.price <= 0) {
+      showError("Load must have a valid price");
       return;
     }
 
@@ -128,9 +125,9 @@ export function MatchRequestModal({
         status: 'pending',
         matchScore: matchScore.score ?? 0,
 
-        // Terms
+        // Terms - use load's original values
         originalTerms: {
-          rate: parseFloat(rate),
+          rate: load.price,
         },
 
         // Timestamps
@@ -152,8 +149,8 @@ export function MatchRequestModal({
       };
 
       // Only add optional fields if they have values
-      if (pickupDate) {
-        matchData.originalTerms.pickupDate = pickupDate;
+      if (load.pickupDate) {
+        matchData.originalTerms.pickupDate = load.pickupDate;
       }
       if (notes) {
         matchData.originalTerms.notes = notes;
@@ -178,19 +175,17 @@ export function MatchRequestModal({
           driverName: driver.name,
           loadOrigin: load.origin,
           loadDestination: load.destination,
-          rate: parseFloat(rate),
+          rate: load.price,
           matchId: matchRef.id,
         }).catch(err => console.error('Failed to send match request notification:', err));
       }
 
       showSuccess("Match request sent! The driver owner has 48 hours to respond.");
       onOpenChange(false);
-      
+
       // Reset form
-      setRate(load.price?.toString() || "");
-      setPickupDate(load.pickupDate || "");
       setNotes("");
-      
+
       if (onSuccess) onSuccess();
     } catch (error) {
       console.error("Error creating match request:", error);
@@ -266,39 +261,31 @@ export function MatchRequestModal({
             </div>
           </div>
 
-          {/* Terms Form */}
+          {/* Load Terms (Read-only) */}
+          <div className="p-3 md:p-4 border rounded-lg space-y-2">
+            <h4 className="font-medium text-sm">Your Terms</h4>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Rate</p>
+                <p className="font-semibold text-green-600 flex items-center gap-1">
+                  <DollarSign className="h-4 w-4" />
+                  {load.price ? `$${load.price.toLocaleString()}` : 'Not specified'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Pickup Date</p>
+                <p className="font-semibold flex items-center gap-1">
+                  <Calendar className="h-4 w-4" />
+                  {load.pickupDate || 'Flexible'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Notes Form */}
           <div className="space-y-4">
             <div className="grid gap-2">
-              <Label htmlFor="rate">Proposed Rate ($) *</Label>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="rate"
-                  type="number"
-                  placeholder="Enter rate"
-                  value={rate}
-                  onChange={(e) => setRate(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="pickupDate">Pickup Date (Optional)</Label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="pickupDate"
-                  type="date"
-                  value={pickupDate}
-                  onChange={(e) => setPickupDate(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="notes">Notes (Optional)</Label>
+              <Label htmlFor="notes">Message to Driver Owner (Optional)</Label>
               <Textarea
                 id="notes"
                 placeholder="Any additional information for the driver owner..."
