@@ -52,6 +52,37 @@ async function deleteAllInSubcollection(db: FirebaseFirestore.Firestore, subcoll
   return deletedCount;
 }
 
+/**
+ * Delete all documents in a top-level collection
+ */
+async function deleteAllInCollection(db: FirebaseFirestore.Firestore, collectionName: string): Promise<number> {
+  const collectionRef = db.collection(collectionName);
+  const docsSnap = await collectionRef.get();
+  let deletedCount = 0;
+
+  // Delete in batches of 500 (Firestore limit)
+  let batch = db.batch();
+  let batchCount = 0;
+
+  for (const doc of docsSnap.docs) {
+    batch.delete(doc.ref);
+    batchCount++;
+    deletedCount++;
+
+    if (batchCount === 500) {
+      await batch.commit();
+      batch = db.batch();
+      batchCount = 0;
+    }
+  }
+
+  if (batchCount > 0) {
+    await batch.commit();
+  }
+
+  return deletedCount;
+}
+
 async function handlePost(req: NextRequest) {
   try {
     console.log('[Admin Clear Data] POST request received');
@@ -85,16 +116,16 @@ async function handlePost(req: NextRequest) {
 
     // Parse request body to determine what to clear
     const body = await req.json();
-    const { clearLoads, clearDrivers } = body;
+    const { clearLoads, clearDrivers, clearMatches, clearTLAs } = body;
 
-    if (!clearLoads && !clearDrivers) {
+    if (!clearLoads && !clearDrivers && !clearMatches && !clearTLAs) {
       return NextResponse.json(
         { error: 'No data type specified to clear' },
         { status: 400 }
       );
     }
 
-    const results: { loadsDeleted?: number; driversDeleted?: number } = {};
+    const results: { loadsDeleted?: number; driversDeleted?: number; matchesDeleted?: number; tlasDeleted?: number } = {};
 
     // Clear loads if requested
     if (clearLoads) {
@@ -110,6 +141,20 @@ async function handlePost(req: NextRequest) {
       console.log(`[Admin Clear Data] Deleted ${results.driversDeleted} drivers`);
     }
 
+    // Clear matches if requested
+    if (clearMatches) {
+      console.log('[Admin Clear Data] Clearing all matches...');
+      results.matchesDeleted = await deleteAllInCollection(db, 'matches');
+      console.log(`[Admin Clear Data] Deleted ${results.matchesDeleted} matches`);
+    }
+
+    // Clear TLAs if requested
+    if (clearTLAs) {
+      console.log('[Admin Clear Data] Clearing all TLAs...');
+      results.tlasDeleted = await deleteAllInCollection(db, 'tlas');
+      console.log(`[Admin Clear Data] Deleted ${results.tlasDeleted} TLAs`);
+    }
+
     // Log audit action
     await db.collection('admin_audit').add({
       action: 'data_cleared',
@@ -119,6 +164,8 @@ async function handlePost(req: NextRequest) {
       details: {
         loadsDeleted: results.loadsDeleted || 0,
         driversDeleted: results.driversDeleted || 0,
+        matchesDeleted: results.matchesDeleted || 0,
+        tlasDeleted: results.tlasDeleted || 0,
       },
       timestamp: new Date().toISOString(),
     });
