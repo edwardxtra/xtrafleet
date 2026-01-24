@@ -13,9 +13,8 @@ import { BillingDetailModal } from '@/components/admin/billing/billing-detail-mo
 
 interface OwnerOperator {
   id: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
+  contactEmail?: string;
+  legalName?: string;
   companyName?: string;
   subscriptionPlan?: 'monthly' | 'six_month' | 'yearly';
   subscriptionStatus?: 'active' | 'inactive' | 'cancelled';
@@ -56,9 +55,8 @@ export default function AdminBillingPage() {
     const filtered = ownerOperators.filter(oo => {
       const searchLower = searchTerm.toLowerCase();
       return (
-        oo.email?.toLowerCase().includes(searchLower) ||
-        oo.firstName?.toLowerCase().includes(searchLower) ||
-        oo.lastName?.toLowerCase().includes(searchLower) ||
+        oo.contactEmail?.toLowerCase().includes(searchLower) ||
+        oo.legalName?.toLowerCase().includes(searchLower) ||
         oo.companyName?.toLowerCase().includes(searchLower)
       );
     });
@@ -159,12 +157,10 @@ export default function AdminBillingPage() {
                         onClick={() => handleRowClick(oo)}
                       >
                         <TableCell className="font-medium">
-                          {oo.firstName || oo.lastName
-                            ? `${oo.firstName || ''} ${oo.lastName || ''}`.trim()
-                            : 'N/A'}
+                          {oo.legalName || 'N/A'}
                         </TableCell>
                         <TableCell>{oo.companyName || 'N/A'}</TableCell>
-                        <TableCell>{oo.email}</TableCell>
+                        <TableCell>{oo.contactEmail || 'N/A'}</TableCell>
                         <TableCell>{getPlanBadge(oo.subscriptionPlan)}</TableCell>
                         <TableCell>{getStatusBadge(oo.subscriptionStatus)}</TableCell>
                         <TableCell className="text-right">
