@@ -29,7 +29,7 @@ service cloud.firestore {
       allow list: if false;
       allow create: if isSignedIn() && isOwner(userId);
       allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if false;
+      allow delete: if isSignedIn() && isSuperAdmin();
     }
 
     // SECURITY FIX: Restrict driver invitation access
@@ -37,13 +37,13 @@ service cloud.firestore {
       // Allow reading specific invitation (for validation)
       allow get: if true; // Token-based validation, checked server-side
       // Only allow owner to list their own invitations
-      allow list: if isSignedIn() && 
+      allow list: if isSignedIn() &&
                      request.query.where[0][0] == 'ownerId' &&
                      request.query.where[0][2] == request.auth.uid;
       // Only owner can create invitations
       allow create: if isSignedIn() && request.auth.uid == request.resource.data.ownerId;
-      // Only owner can update/delete their invitations
-      allow update, delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      // Only owner or super_admin can update/delete their invitations
+      allow update, delete: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isSuperAdmin());
     }
 
     match /owner_operators/{ownerOperatorId} {
@@ -51,8 +51,8 @@ service cloud.firestore {
       allow list: if isSignedIn();
       allow create: if isSignedIn() && isOwner(ownerOperatorId);
       // SECURITY FIX: Only owner can update their own profile
-      allow update: if isSignedIn() && isOwner(ownerOperatorId);
-      allow delete: if isSignedIn() && isOwner(ownerOperatorId);
+      allow update: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
+      allow delete: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
 
       match /drivers/{driverId} {
         allow read: if isSignedIn();
@@ -79,8 +79,8 @@ service cloud.firestore {
       }
 
       match /subscriptions/{subscriptionId} {
-        allow read: if isSignedIn() && isOwner(ownerOperatorId);
-        allow write: if isSignedIn() && isOwner(ownerOperatorId);
+        allow read: if isSignedIn() && (isOwner(ownerOperatorId) || isAdmin());
+        allow write: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
       }
     }
 
@@ -107,7 +107,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
-      allow delete: if false;
+      allow delete: if isSignedIn() && isSuperAdmin();
     }
 
     // Conversations collection
@@ -115,13 +115,13 @@ service cloud.firestore {
       allow read: if isSignedIn() && isParticipant(resource.data.participants);
       allow create: if isSignedIn() && isParticipant(request.resource.data.participants);
       allow update: if isSignedIn() && isParticipant(resource.data.participants);
-      allow delete: if false;
+      allow delete: if isSignedIn() && isSuperAdmin();
 
       match /messages/{messageId} {
         allow read: if isSignedIn() && isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants);
         allow create: if isSignedIn() && isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants);
         allow update: if isSignedIn() && isParticipant(get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants);
-        allow delete: if false;
+        allow delete: if isSignedIn() && isSuperAdmin();
       }
     }
 
@@ -131,13 +131,20 @@ service cloud.firestore {
       // SECURITY FIX: Users can only create notifications for themselves
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow delete: if false;
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
     }
 
-    // SECURITY FIX: Audit logs - users can only read their own
+    // Audit logs - users can read their own, admins can read all
     match /audit_logs/{logId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+    // Admin audit logs - only admins can read
+    match /admin_audit/{logId} {
+      allow read: if isSignedIn() && isAdmin();
+      allow create: if isSignedIn() && isAdmin();
       allow update, delete: if false;
     }
   }
