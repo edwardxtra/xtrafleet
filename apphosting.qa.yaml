@@ -1,40 +1,42 @@
-# Production Environment - Firebase App Hosting Configuration
+# QA Environment - Firebase App Hosting Configuration
 # https://firebase.google.com/docs/app-hosting/configure
-# See apphosting.qa.yaml for QA environment configuration
+#
+# This file is used for the QA/staging environment.
+# To deploy: Link this backend in Firebase Console to your QA project.
 
 runConfig:
   maxInstances: 1
 
 env:
   - variable: NEXT_PUBLIC_APP_URL
-    value: https://xtrafleet.com
+    value: https://YOUR_QA_DOMAIN.web.app
 
-  # Firebase Admin SDK - Individual variables
+  # Firebase Admin SDK - Individual variables (use QA project values)
   - variable: FB_PROJECT_ID
-    value: studio-5112915880-e9ca2
+    value: YOUR_QA_PROJECT_ID
   - variable: FB_CLIENT_EMAIL
-    value: firebase-adminsdk-fbsvc@studio-5112915880-e9ca2.iam.gserviceaccount.com
+    value: firebase-adminsdk-xxxxx@YOUR_QA_PROJECT_ID.iam.gserviceaccount.com
   - variable: FB_PRIVATE_KEY
     secret: FB_PRIVATE_KEY
 
   - variable: RESEND_API_KEY
     secret: RESEND_API_KEY
 
-  # Stripe Configuration
+  # Stripe Configuration (use TEST keys for QA)
   - variable: STRIPE_SECRET_KEY
     secret: STRIPE_SECRET_KEY
   - variable: STRIPE_WEBHOOK_SECRET
     secret: STRIPE_WEBHOOK_SECRET
   - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-    value: pk_test_51Sn7v5JkUn3hXOyqkTTuouQcJDxztUdcpnrJ2RhteANOjJBKcmeUTeQLPXmC45QGDjlIiKBuCmPHuDcQ5nPMVL9U00SaZvo8p5
+    value: pk_test_YOUR_STRIPE_TEST_KEY
   - variable: NEXT_PUBLIC_STRIPE_PRICE_MONTHLY
-    value: price_1SpDgoJkUn3hXOyqyWvriBDO
+    value: price_YOUR_TEST_PRICE_MONTHLY
   - variable: NEXT_PUBLIC_STRIPE_PRICE_SIX_MONTH
-    value: price_1SpDhVJkUn3hXOyqHesWbtho
+    value: price_YOUR_TEST_PRICE_SIX_MONTH
   - variable: NEXT_PUBLIC_STRIPE_PRICE_ANNUAL
-    value: price_1SpDi9JkUn3hXOyqHPI4bF5H
+    value: price_YOUR_TEST_PRICE_ANNUAL
 
-  # Upstash Redis for Rate Limiting
+  # Upstash Redis for Rate Limiting (can share with prod or create separate)
   - variable: UPSTASH_REDIS_REST_URL
     secret: UPSTASH_REDIS_REST_URL
   - variable: UPSTASH_REDIS_REST_TOKEN
@@ -44,6 +46,6 @@ env:
   - variable: FIREBASE_SERVICE_ACCOUNT
     secret: FIREBASE_SERVICE_ACCOUNT
 
-  # Environment flag
+  # QA Environment flag (useful for conditional logic)
   - variable: NEXT_PUBLIC_ENV
-    value: production
+    value: qa

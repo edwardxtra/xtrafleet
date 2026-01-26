@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "studio-5112915880-e9ca2"
+    "default": "studio-5112915880-e9ca2",
+    "production": "studio-5112915880-e9ca2",
+    "qa": "YOUR_QA_PROJECT_ID"
   }
 }
