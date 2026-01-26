@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { X, ChevronRight, ChevronLeft } from 'lucide-react';
@@ -21,15 +21,24 @@ interface GuidedTourProps {
   onComplete?: () => void;
 }
 
-export function GuidedTour({ 
-  steps, 
-  tourKey, 
+interface SpotlightRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+export function GuidedTour({
+  steps,
+  tourKey,
   autoStart = false,
-  onComplete 
+  onComplete
 }: GuidedTourProps) {
   const [isActive, setIsActive] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
+  const [spotlightRect, setSpotlightRect] = useState<SpotlightRect | null>(null);
+  const [tooltipPlacement, setTooltipPlacement] = useState<'top' | 'bottom' | 'left' | 'right'>('bottom');
 
   useEffect(() => {
     // Check if user has seen this tour
@@ -40,63 +49,119 @@ export function GuidedTour({
     }
   }, [tourKey, autoStart]);
 
+  const updatePosition = useCallback(() => {
+    if (!isActive) return;
+
+    const step = steps[currentStep];
+    const element = document.querySelector(step.target);
+
+    if (element) {
+      const rect = element.getBoundingClientRect();
+      const padding = 8; // Padding around the spotlight
+
+      // Calculate spotlight rectangle (viewport-relative for the overlay)
+      setSpotlightRect({
+        top: rect.top - padding,
+        left: rect.left - padding,
+        width: rect.width + padding * 2,
+        height: rect.height + padding * 2,
+      });
+
+      // Calculate tooltip position
+      const placement = step.placement || 'bottom';
+      setTooltipPlacement(placement);
+
+      let top = 0;
+      let left = 0;
+      const tooltipWidth = 320; // w-80 = 20rem = 320px
+      const tooltipHeight = 200; // Approximate height
+      const margin = 16;
+
+      switch (placement) {
+        case 'bottom':
+          top = rect.bottom + margin;
+          left = rect.left + rect.width / 2;
+          // Check if tooltip would go off-screen bottom
+          if (top + tooltipHeight > window.innerHeight) {
+            top = rect.top - tooltipHeight - margin;
+            setTooltipPlacement('top');
+          }
+          break;
+        case 'top':
+          top = rect.top - margin;
+          left = rect.left + rect.width / 2;
+          // Check if tooltip would go off-screen top
+          if (top - tooltipHeight < 0) {
+            top = rect.bottom + margin;
+            setTooltipPlacement('bottom');
+          }
+          break;
+        case 'right':
+          top = rect.top + rect.height / 2;
+          left = rect.right + margin;
+          // Check if tooltip would go off-screen right
+          if (left + tooltipWidth > window.innerWidth) {
+            left = rect.left - tooltipWidth - margin;
+            setTooltipPlacement('left');
+          }
+          break;
+        case 'left':
+          top = rect.top + rect.height / 2;
+          left = rect.left - margin;
+          // Check if tooltip would go off-screen left
+          if (left - tooltipWidth < 0) {
+            left = rect.right + margin;
+            setTooltipPlacement('right');
+          }
+          break;
+      }
+
+      // Ensure tooltip stays within horizontal bounds
+      if (placement === 'top' || placement === 'bottom') {
+        const halfWidth = tooltipWidth / 2;
+        if (left - halfWidth < margin) {
+          left = halfWidth + margin;
+        } else if (left + halfWidth > window.innerWidth - margin) {
+          left = window.innerWidth - halfWidth - margin;
+        }
+      }
+
+      setTooltipPosition({ top, left });
+
+      // Scroll element into view if needed (with padding for the tooltip)
+      const elementTop = rect.top;
+      const elementBottom = rect.bottom;
+      const viewportHeight = window.innerHeight;
+
+      if (elementTop < 100 || elementBottom > viewportHeight - 100) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [isActive, currentStep, steps]);
+
   useEffect(() => {
     if (!isActive) return;
 
-    const updatePosition = () => {
-      const step = steps[currentStep];
-      const element = document.querySelector(step.target);
-      
-      if (element) {
-        const rect = element.getBoundingClientRect();
-        const placement = step.placement || 'bottom';
-        
-        let top = 0;
-        let left = 0;
-
-        switch (placement) {
-          case 'bottom':
-            top = rect.bottom + window.scrollY + 10;
-            left = rect.left + window.scrollX + rect.width / 2;
-            break;
-          case 'top':
-            top = rect.top + window.scrollY - 10;
-            left = rect.left + window.scrollX + rect.width / 2;
-            break;
-          case 'right':
-            top = rect.top + window.scrollY + rect.height / 2;
-            left = rect.right + window.scrollX + 10;
-            break;
-          case 'left':
-            top = rect.top + window.scrollY + rect.height / 2;
-            left = rect.left + window.scrollX - 10;
-            break;
-        }
-
-        setTooltipPosition({ top, left });
-
-        // Highlight the element
-        element.classList.add('guided-tour-highlight');
-        
-        // Scroll element into view
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    };
-
+    // Initial position update
     updatePosition();
+
+    // Update on scroll and resize
     window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition);
+    window.addEventListener('scroll', updatePosition, true); // capture phase for nested scrolls
 
     return () => {
       window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition);
-      
-      // Remove highlight from all elements
-      document.querySelectorAll('.guided-tour-highlight').forEach(el => {
-        el.classList.remove('guided-tour-highlight');
-      });
+      window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [isActive, currentStep, steps]);
+  }, [isActive, updatePosition]);
+
+  // Update position when step changes
+  useEffect(() => {
+    if (isActive) {
+      // Small delay to allow any animations to complete
+      setTimeout(updatePosition, 100);
+    }
+  }, [currentStep, isActive, updatePosition]);
 
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
@@ -115,26 +180,83 @@ export function GuidedTour({
   const handleComplete = () => {
     localStorage.setItem(`tour_${tourKey}`, 'completed');
     setIsActive(false);
+    setSpotlightRect(null);
     onComplete?.();
   };
 
   const handleSkip = () => {
     localStorage.setItem(`tour_${tourKey}`, 'skipped');
     setIsActive(false);
+    setSpotlightRect(null);
   };
 
-  if (!isActive) return null;
+  if (!isActive || !spotlightRect) return null;
 
   const step = steps[currentStep];
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
 
+  // Calculate tooltip transform based on placement
+  const getTooltipTransform = () => {
+    switch (tooltipPlacement) {
+      case 'top':
+        return 'translate(-50%, -100%)';
+      case 'bottom':
+        return 'translate(-50%, 0)';
+      case 'left':
+        return 'translate(-100%, -50%)';
+      case 'right':
+        return 'translate(0, -50%)';
+      default:
+        return 'translate(-50%, 0)';
+    }
+  };
+
   return (
     <>
-      {/* Overlay */}
-      <div 
-        className="fixed inset-0 bg-black/50 z-40 transition-opacity"
-        onClick={handleSkip}
+      {/* SVG Overlay with spotlight cutout */}
+      <svg
+        className="fixed inset-0 z-40 pointer-events-none"
+        style={{ width: '100vw', height: '100vh' }}
+      >
+        <defs>
+          <mask id="spotlight-mask">
+            {/* White = visible, black = hidden */}
+            <rect x="0" y="0" width="100%" height="100%" fill="white" />
+            <rect
+              x={spotlightRect.left}
+              y={spotlightRect.top}
+              width={spotlightRect.width}
+              height={spotlightRect.height}
+              rx="8"
+              fill="black"
+            />
+          </mask>
+        </defs>
+        {/* Dark overlay with cutout */}
+        <rect
+          x="0"
+          y="0"
+          width="100%"
+          height="100%"
+          fill="rgba(0, 0, 0, 0.6)"
+          mask="url(#spotlight-mask)"
+          className="pointer-events-auto"
+          onClick={handleSkip}
+        />
+      </svg>
+
+      {/* Spotlight border highlight */}
+      <div
+        className="fixed z-40 pointer-events-none rounded-lg"
+        style={{
+          top: spotlightRect.top,
+          left: spotlightRect.left,
+          width: spotlightRect.width,
+          height: spotlightRect.height,
+          boxShadow: '0 0 0 3px hsl(var(--primary)), 0 0 20px rgba(0, 0, 0, 0.3)',
+          transition: 'all 0.3s ease-out',
+        }}
       />
 
       {/* Tooltip */}
@@ -143,7 +265,8 @@ export function GuidedTour({
         style={{
           top: `${tooltipPosition.top}px`,
           left: `${tooltipPosition.left}px`,
-          transform: 'translateX(-50%)',
+          transform: getTooltipTransform(),
+          transition: 'top 0.3s ease-out, left 0.3s ease-out',
         }}
       >
         <CardContent className="p-4">
@@ -190,7 +313,7 @@ export function GuidedTour({
             >
               Skip Tour
             </Button>
-            
+
             <div className="flex gap-2">
               {!isFirstStep && (
                 <Button
@@ -202,7 +325,7 @@ export function GuidedTour({
                   Back
                 </Button>
               )}
-              
+
               <Button
                 size="sm"
                 onClick={handleNext}
@@ -214,18 +337,6 @@ export function GuidedTour({
           </div>
         </CardContent>
       </Card>
-
-      {/* Global styles for highlighting */}
-      <style jsx global>{`
-        .guided-tour-highlight {
-          position: relative;
-          z-index: 45;
-          box-shadow: 0 0 0 4px rgba(var(--primary), 0.3), 
-                      0 0 0 9999px rgba(0, 0, 0, 0.5);
-          border-radius: 0.5rem;
-          transition: box-shadow 0.3s ease;
-        }
-      `}</style>
     </>
   );
 }
