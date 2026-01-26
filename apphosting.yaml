@@ -40,6 +40,10 @@ env:
   - variable: UPSTASH_REDIS_REST_TOKEN
     secret: UPSTASH_REDIS_REST_TOKEN
 
+  # Radar API for Truck Routing
+  - variable: RADAR_SECRET_KEY
+    secret: RADAR_SECRET_KEY
+
   # Firebase Service Account (full JSON - recommended)
   - variable: FIREBASE_SERVICE_ACCOUNT
     secret: FIREBASE_SERVICE_ACCOUNT
