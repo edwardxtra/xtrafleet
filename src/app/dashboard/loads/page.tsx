@@ -139,9 +139,9 @@ const LoadsTable = ({
           loads.map((load) => (
             <TableRow key={load.id} className="hover:bg-muted/50">
               <TableCell>
-                <TableAvatar 
+                <TableAvatar
                   name={`${load.origin} → ${load.destination}`}
-                  subtitle={load.distance ? `${load.distance} mi` : undefined}
+                  subtitle={load.route?.distanceText || undefined}
                 />
               </TableCell>
               <TableCell>
