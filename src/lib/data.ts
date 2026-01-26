@@ -176,7 +176,7 @@ export type TLA = {
   lessor: {
     ownerOperatorId: string;
     legalName: string;
-    address: string;
+    address?: string;
     dotNumber?: string;
     mcNumber?: string;
     contactEmail: string;
@@ -185,7 +185,7 @@ export type TLA = {
   lessee: {
     ownerOperatorId: string;
     legalName: string;
-    address: string;
+    address?: string;
     dotNumber?: string;
     mcNumber?: string;
     contactEmail: string;
