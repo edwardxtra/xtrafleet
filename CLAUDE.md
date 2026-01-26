@@ -29,14 +29,36 @@ XtraFleet is a fleet management platform built with Next.js, Firebase, and Strip
 3. Push to feature branch
    git push -u origin feature/my-feature
 
-4. Create PR to `qa` branch → Merge
+4. Create PR to `qa` branch with description → Merge
    (Auto-deploys to QA environment)
 
 5. Test on QA site
    https://xtrafleet-qa--xtrafleet-qa.us-central1.hosted.app
 
-6. If tests pass → Create PR from `qa` to `main` → Merge
+6. If tests pass → Create PR from `qa` to `main` with description → Merge
    (Auto-deploys to Production)
+```
+
+### PR Description Template
+
+Every PR must include a description with:
+
+```markdown
+## Summary
+- Brief description of what changed (2-3 bullet points)
+
+## Changes
+- List of specific changes made
+- Files/components affected
+
+## Setup Required (if any)
+- Environment variables to add
+- Secrets to configure
+- Database migrations
+
+## Test Plan
+- [ ] Steps to verify the change works
+- [ ] Edge cases to test
 ```
 
 ### Visual Flow
