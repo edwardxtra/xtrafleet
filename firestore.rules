@@ -74,11 +74,9 @@ service cloud.firestore {
           (resource.data.acceptedBy == request.auth.uid &&
            request.resource.data.price == resource.data.price && // Can't change price
            request.resource.data.cargo == resource.data.cargo) || // Can't change cargo
-          // Allow any signed-in user to update a Pending load to Matched status
+          // Allow any signed-in user to update status to Matched
           // This is needed when driver owner accepts a match for load owner's load
-          (resource.data.status == 'Pending' &&
-           request.resource.data.status == 'Matched' &&
-           request.resource.data.tlaId is string)
+          request.resource.data.status == 'Matched'
         );
         allow delete: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
       }
