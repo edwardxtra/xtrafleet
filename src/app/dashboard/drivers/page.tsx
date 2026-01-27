@@ -59,6 +59,7 @@ import { Star, Truck, User, FileText as FileTextIcon, CheckCircle, XCircle, Aler
 import { format, parseISO, differenceInDays } from 'date-fns';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { TRAILER_TYPES } from '@/lib/trailer-types';
+import { TableAvatar, TableStatusBadge } from '@/components/ui/table-components';
 
 const ComplianceItem = ({ 
     label, 
@@ -229,18 +230,6 @@ const DriversTable = ({
   onEditDriver: (driver: Driver) => void;
   onToggleActive: (driver: Driver) => void;
 }) => {
-  const getBadgeVariant = (status: string) => {
-    switch (status) {
-      case "Available":
-        return "default";
-      case "On-trip":
-        return "secondary";
-      case "Off-duty":
-      default:
-        return "outline";
-    }
-  };
-
   const getComplianceBadgeVariant = (status: ComplianceStatus) => {
     switch (status) {
       case 'Green':
@@ -252,10 +241,6 @@ const DriversTable = ({
       default:
         return 'outline';
     }
-  };
-
-  const getInitials = (name: string) => {
-    return name?.split(' ').map(n => n[0]).join('') || '';
   };
 
   // Get vehicle types display text
@@ -314,19 +299,14 @@ const DriversTable = ({
             return (
               <TableRow key={driver.id} className={isInactive ? "opacity-50" : ""}>
                 <TableCell className="font-medium">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback>{getInitials(driver.name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="grid">
-                      <span className="flex items-center gap-2">
-                        {driver.name || 'Unnamed Driver'}
-                        {isInactive && (
-                          <Badge variant="outline" className="text-xs">Inactive</Badge>
-                        )}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{driver.certifications?.join(', ') || driver.email}</span>
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <TableAvatar
+                      name={driver.name || 'Unnamed Driver'}
+                      subtitle={driver.certifications?.join(', ') || driver.email}
+                    />
+                    {isInactive && (
+                      <Badge variant="outline" className="text-xs">Inactive</Badge>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -334,9 +314,7 @@ const DriversTable = ({
                 </TableCell>
                 <TableCell>{driver.location || '-'}</TableCell>
                 <TableCell>
-                  <Badge variant={getBadgeVariant(driver.availability || 'Off-duty')}>
-                    {driver.availability || 'Off-duty'}
-                  </Badge>
+                  <TableStatusBadge status={driver.availability || 'Off-duty'} />
                 </TableCell>
                 <TableCell>
                   <Badge variant={getComplianceBadgeVariant(complianceStatus)} className="flex items-center gap-1.5 w-fit">
