@@ -54,7 +54,7 @@ env:
   - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
     value: xtrafleet-qa
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    value: AIzaSyAjTqIrVL9HJgW66qEOS4dQtCzJPGThQRA
+    value: AIzaSyAjTqlrVL9HJgW66qEOS4dQtCzJPGThQRA
   - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
     value: xtrafleet-qa.firebaseapp.com
   - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
