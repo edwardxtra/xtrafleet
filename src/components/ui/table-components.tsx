@@ -49,11 +49,11 @@ export function TableStatusBadge({ status, variant = 'default' }: TableStatusBad
   let badgeVariant: 'default' | 'secondary' | 'destructive' | 'outline' = variant;
   
   const lowerStatus = status.toLowerCase();
-  if (lowerStatus.includes('available') || lowerStatus.includes('active') || lowerStatus.includes('completed')) {
+  if (lowerStatus.includes('available') || lowerStatus.includes('active') || lowerStatus.includes('completed') || lowerStatus.includes('signed')) {
     badgeVariant = 'default';
-  } else if (lowerStatus.includes('pending') || lowerStatus.includes('in-transit')) {
+  } else if (lowerStatus.includes('pending') || lowerStatus.includes('in-transit') || lowerStatus.includes('on-trip') || lowerStatus.includes('in_progress')) {
     badgeVariant = 'secondary';
-  } else if (lowerStatus.includes('inactive') || lowerStatus.includes('declined') || lowerStatus.includes('unavailable')) {
+  } else if (lowerStatus.includes('inactive') || lowerStatus.includes('declined') || lowerStatus.includes('unavailable') || lowerStatus.includes('rejected') || lowerStatus.includes('cancelled')) {
     badgeVariant = 'destructive';
   } else {
     badgeVariant = 'outline';
