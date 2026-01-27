@@ -66,8 +66,12 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow list: if isSignedIn();
         allow create: if isSignedIn() && isOwner(ownerOperatorId);
-        // TEMPORARY: Allow any signed-in user to update for debugging
-        allow update: if isSignedIn();
+        allow update: if isSignedIn() && (
+          isOwner(ownerOperatorId) || // Owner can always update
+          isAdmin() || // Admins can update
+          // Allow updating to Matched status (for match acceptance by driver owner)
+          request.resource.data.status == 'Matched'
+        );
         allow delete: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
       }
 
