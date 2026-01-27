@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from '@/components/logo';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { Home, User, History, LogOut, Settings, Loader2 } from 'lucide-react';
 
 function SidebarNavLink({ 
@@ -197,6 +198,7 @@ export default function DriverDashboardLayout({
             <SidebarTrigger className="md:hidden" />
             <h1 className="text-lg font-semibold">Driver Dashboard</h1>
           </div>
+          <ThemeToggle />
         </header>
 
         <main className="flex-1 overflow-auto p-4 md:p-6">
