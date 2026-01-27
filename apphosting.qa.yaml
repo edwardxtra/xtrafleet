@@ -9,13 +9,13 @@ runConfig:
 
 env:
   - variable: NEXT_PUBLIC_APP_URL
-    value: https://YOUR_QA_DOMAIN.web.app
+    value: https://xtrafleet-qa--xtrafleet-qa.us-central1.hosted.app
 
   # Firebase Admin SDK - Individual variables (use QA project values)
   - variable: FB_PROJECT_ID
-    value: YOUR_QA_PROJECT_ID
+    value: xtrafleet-qa
   - variable: FB_CLIENT_EMAIL
-    value: firebase-adminsdk-xxxxx@YOUR_QA_PROJECT_ID.iam.gserviceaccount.com
+    value: firebase-adminsdk-fbsvc@xtrafleet-qa.iam.gserviceaccount.com
   - variable: FB_PRIVATE_KEY
     secret: FB_PRIVATE_KEY
 
@@ -28,13 +28,13 @@ env:
   - variable: STRIPE_WEBHOOK_SECRET
     secret: STRIPE_WEBHOOK_SECRET
   - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-    value: pk_test_YOUR_STRIPE_TEST_KEY
+    value: pk_test_51Sn7v5JkUn3hXOyqkTTuouQcJDxztUdcpnrJ2RhteANOjJBKcmeUTeQLPXmC45QGDjlIiKBuCmPHuDcQ5nPMVL9U00SaZvo8p5
   - variable: NEXT_PUBLIC_STRIPE_PRICE_MONTHLY
-    value: price_YOUR_TEST_PRICE_MONTHLY
+    value: price_1SpDgoJkUn3hXOyqyWvriBDO
   - variable: NEXT_PUBLIC_STRIPE_PRICE_SIX_MONTH
-    value: price_YOUR_TEST_PRICE_SIX_MONTH
+    value: price_1SpDhVJkUn3hXOyqHesWbtho
   - variable: NEXT_PUBLIC_STRIPE_PRICE_ANNUAL
-    value: price_YOUR_TEST_PRICE_ANNUAL
+    value: price_1SpDi9JkUn3hXOyqHPI4bF5H
 
   # Upstash Redis for Rate Limiting (can share with prod or create separate)
   - variable: UPSTASH_REDIS_REST_URL
@@ -49,3 +49,19 @@ env:
   # QA Environment flag (useful for conditional logic)
   - variable: NEXT_PUBLIC_ENV
     value: qa
+
+  # Firebase Client SDK Configuration (QA project)
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: xtrafleet-qa
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyAjTqlrVl9HJgW66qEOS4dQtCzJPGThQRA
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: xtrafleet-qa.firebaseapp.com
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: xtrafleet-qa.firebasestorage.app
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "773440045393"
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:773440045393:web:b4e2c50789f3403552d370
+  - variable: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+    value: G-VH5P84TH3D
