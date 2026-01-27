@@ -42,6 +42,10 @@ env:
   - variable: UPSTASH_REDIS_REST_TOKEN
     secret: UPSTASH_REDIS_REST_TOKEN
 
+  # Radar API for Truck Routing
+  - variable: RADAR_SECRET_KEY
+    secret: RADAR_SECRET_KEY
+
   # Firebase Service Account (full JSON - recommended)
   - variable: FIREBASE_SERVICE_ACCOUNT
     secret: FIREBASE_SERVICE_ACCOUNT
@@ -54,7 +58,7 @@ env:
   - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
     value: xtrafleet-qa
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    value: AIzaSyAjTqlrVl9HJgW66qEOS4dQtCzJPGThQRA
+    value: AIzaSyAjTqlrVL9HJgW66qEOS4dQtCzJPGThQRA
   - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
     value: xtrafleet-qa.firebaseapp.com
   - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
