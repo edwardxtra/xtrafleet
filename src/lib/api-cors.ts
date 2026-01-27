@@ -11,9 +11,12 @@ import { NextRequest, NextResponse } from 'next/server';
  * This prevents other websites from calling your APIs.
  */
 const ALLOWED_ORIGINS = [
+  // Production domains
   'https://xtrafleet.com',
   'https://www.xtrafleet.com',
   'https://xtrafleet-prd--studio-5112915880-e9ca2.us-central1.hosted.app',
+  // QA domain
+  'https://xtrafleet-qa--xtrafleet-qa.us-central1.hosted.app',
   // Add localhost for development
   ...(process.env.NODE_ENV === 'development' ? [
     'http://localhost:3000',
