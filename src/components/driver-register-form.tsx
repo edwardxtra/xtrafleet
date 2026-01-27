@@ -25,6 +25,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { Loader2, Check, X } from "lucide-react";
 import { passwordSchema, passwordRequirements } from "@/lib/password-validation";
+import { TRAILER_TYPES } from "@/lib/trailer-types";
+
+// Get all trailer type values for the schema
+const trailerTypeValues = TRAILER_TYPES.map(t => t.value) as [string, ...string[]];
 
 // Simplified schema with enhanced password validation
 const quickProfileSchema = z.object({
@@ -32,7 +36,7 @@ const quickProfileSchema = z.object({
   lastName: z.string().min(1, "Last name is required"),
   phoneNumber: z.string().min(1, "Phone number is required"),
   location: z.string().min(1, "Your current city/state is required"),
-  vehicleType: z.enum(['Dry Van', 'Reefer', 'Flatbed']),
+  vehicleType: z.enum(trailerTypeValues),
   password: passwordSchema, // Enhanced password validation
 });
 
@@ -119,9 +123,9 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <p className="text-sm text-blue-900 font-medium">✨ Quick Setup</p>
-          <p className="text-sm text-blue-700 mt-1">
+        <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+          <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">✨ Quick Setup</p>
+          <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
             Create your account in under 2 minutes. You'll complete your compliance documents after logging in.
           </p>
         </div>
@@ -236,9 +240,11 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="Dry Van">Dry Van</SelectItem>
-                    <SelectItem value="Reefer">Reefer (Refrigerated)</SelectItem>
-                    <SelectItem value="Flatbed">Flatbed</SelectItem>
+                    {TRAILER_TYPES.map((type) => (
+                      <SelectItem key={type.value} value={type.value}>
+                        {type.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <FormMessage />
