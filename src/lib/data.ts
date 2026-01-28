@@ -40,6 +40,14 @@ export type Driver = {
   reviews?: Review[];
 };
 
+export type RouteInfo = {
+  distanceMiles: number;
+  distanceText: string;
+  durationSeconds: number;
+  durationText: string;
+  calculatedAt: string;
+};
+
 export type Load = {
   id: string;
   origin: string;
@@ -53,6 +61,7 @@ export type Load = {
   ownerId?: string;
   price?: number;
   pickupDate?: string;
+  route?: RouteInfo; // Truck route calculation from Radar API
 };
 
 export type BillingHistoryItem = {
@@ -176,7 +185,7 @@ export type TLA = {
   lessor: {
     ownerOperatorId: string;
     legalName: string;
-    address: string;
+    address?: string;
     dotNumber?: string;
     mcNumber?: string;
     contactEmail: string;
@@ -185,7 +194,7 @@ export type TLA = {
   lessee: {
     ownerOperatorId: string;
     legalName: string;
-    address: string;
+    address?: string;
     dotNumber?: string;
     mcNumber?: string;
     contactEmail: string;
