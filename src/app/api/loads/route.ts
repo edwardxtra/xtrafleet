@@ -103,10 +103,10 @@ async function verifyToken(auth: any, tokenValue: string) {
 async function handlePost(req: NextRequest) {
   try {
     console.log('[Loads] POST request received');
-    
+
     // Get Firebase Admin
     const { auth, db } = await getFirebaseAdmin();
-    
+
     // Get token from cookie
     const token = req.cookies.get('fb-id-token');
     if (!token) {
@@ -130,7 +130,7 @@ async function handlePost(req: NextRequest) {
         { status: 429 }
       );
     }
-    
+
     // Parse and validate request body
     const body = await req.json();
     const validation = loadSchema.safeParse(body);
@@ -139,7 +139,7 @@ async function handlePost(req: NextRequest) {
       const errorMessage = Object.values(validation.error.flatten().fieldErrors).flat().join(', ');
       throw new Error(errorMessage);
     }
-    
+
     // Normalize trailerType field (form sends as requiredTrailerType)
     const { requiredTrailerType, ...restData } = validation.data;
     const trailerType = validation.data.trailerType || requiredTrailerType;
@@ -163,20 +163,20 @@ async function handlePost(req: NextRequest) {
     return handleApiSuccess({ id: docRef.id, ...newLoadData }, 201);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    
+
     if (errorMessage === 'Unauthorized' || errorMessage === 'Invalid authentication token') {
       return handleApiError('unauthorized', error instanceof Error ? error : new Error(errorMessage), {
         endpoint: 'POST /api/loads',
         userId: 'unknown'
       });
     }
-    
+
     if (errorMessage.includes('required') || errorMessage.includes('positive')) {
       return handleApiError('validation', error instanceof Error ? error : new Error(errorMessage), {
         endpoint: 'POST /api/loads'
       });
     }
-    
+
     return handleApiError('server', error instanceof Error ? error : new Error(errorMessage), {
       endpoint: 'POST /api/loads'
     });
@@ -186,10 +186,10 @@ async function handlePost(req: NextRequest) {
 async function handleGet(req: NextRequest) {
   try {
     console.log('[Loads] GET request received');
-    
+
     // Get Firebase Admin
     const { auth, db } = await getFirebaseAdmin();
-    
+
     // Get token from cookie
     const token = req.cookies.get('fb-id-token');
     if (!token) {
@@ -199,7 +199,7 @@ async function handleGet(req: NextRequest) {
     // Verify token (handles both session cookies and ID tokens)
     const decodedToken = await verifyToken(auth, token.value);
     console.log('[Loads] User authenticated:', decodedToken.uid);
-        
+
     // Get loads
     const loadsCollection = db.collection(`owner_operators/${decodedToken.uid}/loads`);
     const querySnapshot = await loadsCollection.get();
@@ -210,13 +210,13 @@ async function handleGet(req: NextRequest) {
     return handleApiSuccess(loads);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    
+
     if (errorMessage === 'Unauthorized' || errorMessage === 'Invalid authentication token') {
       return handleApiError('unauthorized', error instanceof Error ? error : new Error(errorMessage), {
         endpoint: 'GET /api/loads'
       });
     }
-    
+
     return handleApiError('server', error instanceof Error ? error : new Error(errorMessage), {
       endpoint: 'GET /api/loads'
     });
