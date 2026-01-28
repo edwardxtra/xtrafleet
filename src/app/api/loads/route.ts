@@ -4,6 +4,7 @@ import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
 import { rateLimiters, getIdentifier, formatTimeRemaining } from '@/lib/rate-limit';
+import { calculateTruckDistance } from '@/lib/radar';
 
 const loadSchema = z.object({
   origin: z.string().min(1, 'Origin is required'),
@@ -80,13 +81,35 @@ async function handlePost(req: NextRequest) {
     // Normalize trailerType field (form sends as requiredTrailerType)
     const { requiredTrailerType, ...restData } = validation.data;
     const trailerType = validation.data.trailerType || requiredTrailerType;
+
+    // Calculate truck routing distance using Radar API
+    let distance: number | undefined;
+    let estimatedDuration: number | undefined;
+
+    try {
+      const distanceResult = await calculateTruckDistance(
+        validation.data.origin,
+        validation.data.destination
+      );
+
+      if (distanceResult) {
+        distance = distanceResult.distanceMiles;
+        estimatedDuration = distanceResult.durationMinutes;
+        console.log('[Loads] Distance calculated:', distance, 'miles');
+      }
+    } catch (error) {
+      console.warn('[Loads] Distance calculation failed, continuing without distance:', error);
+    }
+
     const newLoadData = {
       ...restData,
       trailerType,
+      distance,
+      estimatedDuration,
       ownerOperatorId: decodedToken.uid,
       createdAt: new Date().toISOString(),
     };
-    
+
     console.log('[Loads] Creating load for user:', decodedToken.uid);
     const docRef = await db.collection(`owner_operators/${decodedToken.uid}/loads`).add(newLoadData);
     console.log('[Loads] Load created:', docRef.id);
