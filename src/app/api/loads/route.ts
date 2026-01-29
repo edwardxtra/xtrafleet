@@ -9,6 +9,39 @@ import type { RouteInfo } from '@/lib/data';
 const RADAR_SECRET_KEY = process.env.RADAR_SECRET_KEY;
 
 /**
+ * Geocode address to get coordinates using Radar API
+ */
+async function geocodeAddress(address: string): Promise<{ latitude: number; longitude: number } | null> {
+  try {
+    const params = new URLSearchParams({ query: address });
+    const response = await fetch(`https://api.radar.io/v1/geocode/forward?${params}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': RADAR_SECRET_KEY!,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Loads] Geocoding error:', errorText);
+      return null;
+    }
+
+    const data = await response.json();
+    
+    if (data.addresses && data.addresses.length > 0) {
+      const { latitude, longitude } = data.addresses[0];
+      return { latitude, longitude };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[Loads] Geocoding failed:', error);
+    return null;
+  }
+}
+
+/**
  * Calculate truck route using Radar API
  */
 async function calculateRoute(origin: string, destination: string): Promise<RouteInfo | null> {
@@ -18,9 +51,21 @@ async function calculateRoute(origin: string, destination: string): Promise<Rout
   }
 
   try {
+    // Geocode origin and destination first
+    const [originCoords, destCoords] = await Promise.all([
+      geocodeAddress(origin),
+      geocodeAddress(destination),
+    ]);
+
+    if (!originCoords || !destCoords) {
+      console.warn('[Loads] Could not geocode addresses:', { origin: !!originCoords, destination: !!destCoords });
+      return null;
+    }
+
+    // Use coordinates for route calculation
     const params = new URLSearchParams({
-      origin,
-      destination,
+      origin: `${originCoords.latitude},${originCoords.longitude}`,
+      destination: `${destCoords.latitude},${destCoords.longitude}`,
       modes: 'truck',
       units: 'imperial',
     });
