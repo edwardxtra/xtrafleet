@@ -38,9 +38,10 @@ async function calculateRoute(origin: string, destination: string): Promise<Rout
     }
 
     const data = await response.json();
+    console.log('[Loads] Radar response:', JSON.stringify(data));
 
     if (data.meta?.code !== 200 || !data.routes?.length) {
-      console.warn('[Loads] No route found for:', origin, '→', destination);
+      console.warn('[Loads] No route found for:', origin, '→', destination, 'Response:', JSON.stringify(data.meta));
       return null;
     }
 
