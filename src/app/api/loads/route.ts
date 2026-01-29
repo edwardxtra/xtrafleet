@@ -85,12 +85,13 @@ async function calculateRoute(origin: string, destination: string): Promise<Rout
     const data = await response.json();
     console.log('[Loads] Radar response:', JSON.stringify(data));
 
-    if (data.meta?.code !== 200 || !data.routes?.length) {
-      console.warn('[Loads] No route found for:', origin, '→', destination, 'Response:', JSON.stringify(data.meta));
+    // Radar returns routes as an object with 'truck' and 'geodesic' keys, not an array
+    if (data.meta?.code !== 200 || !data.routes?.truck) {
+      console.warn('[Loads] No truck route found for:', origin, '→', destination, 'Response:', JSON.stringify(data.meta));
       return null;
     }
 
-    const route = data.routes[0];
+    const route = data.routes.truck;
     const distanceMiles = Math.round(route.distance.value / 1609.34);
 
     return {
