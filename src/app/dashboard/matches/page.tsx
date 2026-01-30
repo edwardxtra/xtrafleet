@@ -201,7 +201,6 @@ export default function MatchesPage() {
     setSelectionMode('load');
     setSelectedLoad(load);
     setSelectedMyDriver(null);
-    setSelectedOtherDriver(null);
   };
 
   // Handle selecting MY driver (to find loads for them)
@@ -209,7 +208,6 @@ export default function MatchesPage() {
     setSelectionMode('driver');
     setSelectedMyDriver(driver);
     setSelectedLoad(null);
-    setSelectedOtherDriver(null);
   };
 
   // Handle selecting a driver match (load owner initiating)
@@ -515,6 +513,9 @@ export default function MatchesPage() {
                                   </div>
                                   <CardDescription className="truncate text-xs">
                                     {match.load.cargo} • {match.load.weight?.toLocaleString()} lbs
+                                    {match.load.route?.distanceText && (
+                                      <> • {match.load.route.distanceText}</>
+                                    )}
                                   </CardDescription>
                                   {loadOwnerName && (
                                     <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
