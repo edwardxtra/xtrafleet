@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Logo } from "@/components/logo";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useUser, useAuth, useFirestore } from "@/firebase";
@@ -81,7 +82,7 @@ function RegisterContent() {
       const newUser = userCredential.user;
       
       if (db && newUser) {
-        // Create owner_operators doc
+        // Create owner_operators doc with consents
         await setDoc(doc(db, "owner_operators", newUser.uid), {
           id: newUser.uid,
           companyName: companyName,
@@ -89,6 +90,18 @@ function RegisterContent() {
           phone: phone || '',
           subscriptionStatus: 'inactive',
           createdAt: new Date().toISOString(),
+          consents: {
+            userAgreement: {
+              accepted: true,
+              acceptedAt: new Date().toISOString(),
+              version: "2025-10-17",
+            },
+            esignAgreement: {
+              accepted: true,
+              acceptedAt: new Date().toISOString(),
+              version: "2025-01-29",
+            },
+          },
         });
         
         // Create users doc with role
@@ -211,7 +224,7 @@ function RegisterContent() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="mx-auto w-full max-w-sm">
+      <Card className="mx-auto w-full max-w-lg">
         <CardHeader className="space-y-4 text-center">
           <Link href="/" passHref className="inline-block">
             <Logo />
@@ -302,6 +315,50 @@ function RegisterContent() {
                   </div>
                 )}
               </div>
+
+              {/* Legal Consents */}
+              <div className="space-y-4 pt-4 border-t">
+                <p className="text-sm font-medium">Legal Agreements</p>
+                
+                {/* User Agreement Consent */}
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="userAgreement"
+                    name="userAgreement"
+                    required
+                    disabled={loading}
+                    className="mt-1"
+                  />
+                  <Label htmlFor="userAgreement" className="text-sm leading-relaxed cursor-pointer">
+                    I understand that XtraFleet is a technology platform only and that I remain 
+                    solely responsible for regulatory compliance, insurance adequacy, and trip safety.{' '}
+                    <Link href="/legal/user-agreement" target="_blank" className="underline text-primary hover:text-primary/80">
+                      View User Agreement
+                    </Link>
+                  </Label>
+                </div>
+
+                {/* E-Sign Consent */}
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="esignConsent"
+                    name="esignConsent"
+                    required
+                    disabled={loading}
+                    className="mt-1"
+                  />
+                  <Label htmlFor="esignConsent" className="text-sm leading-relaxed cursor-pointer">
+                    You acknowledge that Electronic Records may include payment settlements, 
+                    compliance attestations, and tax-related documentation. You represent and 
+                    warrant that You are authorized to bind the entity on whose behalf You are 
+                    acting and to consent to Electronic Records on its behalf.{' '}
+                    <Link href="/legal/esign-consent" target="_blank" className="underline text-primary hover:text-primary/80">
+                      View E-Sign Agreement
+                    </Link>
+                  </Label>
+                </div>
+              </div>
+
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (
                   <>
