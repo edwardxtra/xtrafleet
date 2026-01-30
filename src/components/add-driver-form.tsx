@@ -83,7 +83,7 @@ export function AddDriverForm() {
         body: JSON.stringify({ 
           email,
           driverType,
-          hasConfirmedDQF: driverType === "existing" ? hasConfirmedDQF : undefined,
+          hasConfirmedDQF: driverType === "existing" ? hasConfirmedDQF : true,
         }),
       });
 
