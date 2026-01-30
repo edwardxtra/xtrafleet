@@ -51,9 +51,10 @@ interface DriverRegisterFormProps {
   driverId: string;
   ownerId: string;
   invitationEmail: string;
+  driverType?: 'existing' | 'newHire';
 }
 
-export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: DriverRegisterFormProps) {
+export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverType }: DriverRegisterFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
@@ -84,6 +85,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
           password: password,
           token: driverId,
           ownerId: ownerId,
+          driverType: driverType,
           profileData: {
             ...profileData,
             name: `${firstName} ${lastName}`,
