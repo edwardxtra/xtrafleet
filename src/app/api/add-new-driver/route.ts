@@ -15,12 +15,16 @@ const inviteSchema = z.object({
   driverType: z.enum(['existing', 'newHire'], {
     errorMap: () => ({ message: 'Driver type must be either "existing" or "newHire"' })
   }),
-  hasConfirmedDQF: z.boolean().optional(),
+  hasConfirmedDQF: z.boolean({
+    required_error: 'DQF confirmation is required',
+    invalid_type_error: 'DQF confirmation must be a boolean'
+  }),
 }).refine((data) => {
   // If driver type is "existing", hasConfirmedDQF must be true
   if (data.driverType === 'existing' && data.hasConfirmedDQF !== true) {
     return false;
   }
+  // For new hires, hasConfirmedDQF can be any boolean (we expect true)
   return true;
 }, {
   message: 'Must confirm DQF on file for existing drivers',
@@ -77,9 +81,12 @@ async function handlePost(req: NextRequest) {
 
     // Parse and validate request body
     const body = await req.json();
+    console.log('[Invite Driver] Request body:', JSON.stringify(body));
+    
     const validation = inviteSchema.safeParse(body);
 
     if (!validation.success) {
+      console.error('[Invite Driver] Validation failed:', validation.error);
       const errorMessage = Object.values(validation.error.flatten().fieldErrors).flat().join(', ');
       throw new Error(errorMessage);
     }
@@ -87,7 +94,7 @@ async function handlePost(req: NextRequest) {
     const { email, driverType, hasConfirmedDQF } = validation.data;
     const ownerOperatorId = ownerUser.uid;
 
-    console.log('[Invite Driver] Checking for existing invitation:', email, 'Type:', driverType);
+    console.log('[Invite Driver] Validated data:', { email, driverType, hasConfirmedDQF });
 
     // Check if invitation already exists
     const existingInvite = await db.collection('driver_invitations')
@@ -118,8 +125,8 @@ async function handlePost(req: NextRequest) {
       email: email,
       ownerId: ownerOperatorId,
       ownerCompanyName: companyName,
-      driverType: driverType, // NEW: Store driver type
-      hasConfirmedDQF: driverType === 'existing' ? hasConfirmedDQF : undefined, // NEW: Store DQF confirmation
+      driverType: driverType,
+      hasConfirmedDQF: driverType === 'existing' ? hasConfirmedDQF : undefined,
       createdAt: FieldValue.serverTimestamp(),
       expiresAt: Timestamp.fromDate(expiresAt),
       status: 'pending',
