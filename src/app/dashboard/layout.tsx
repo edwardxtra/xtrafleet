@@ -34,7 +34,6 @@ import { HelpWidget } from "@/components/help-widget";
 import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare, Send } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
-import { Footer } from "@/components/footer";
 
 function SidebarNavLink({ href, children, tooltip, badge }: { href: string; children: React.ReactNode; tooltip: string; badge?: number }) {
   const { setOpenMobile, isMobile } = useSidebar();
@@ -208,7 +207,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
         <main className="flex-1 overflow-auto p-3 md:p-6">{children}</main>
-        <Footer />
+        {/* Footer removed - inherited from root layout */}
       </SidebarInset>
       
       {/* Help Widget - Available on all dashboard pages */}
