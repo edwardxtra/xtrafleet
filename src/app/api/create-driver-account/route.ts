@@ -21,7 +21,7 @@ async function handlePost(request: NextRequest) {
       );
     }
 
-    const { email, password, token, ownerId, profileData } = await request.json();
+    const { email, password, token, ownerId, profileData, consents } = await request.json();
 
     console.log('[Create Driver] Request received:', { email, token, ownerId });
 
@@ -55,6 +55,8 @@ async function handlePost(request: NextRequest) {
       availability: 'Available',
       createdAt: FieldValue.serverTimestamp(),
       userId: userRecord.uid,
+      // Add consents if provided
+      ...(consents && { consents }),
     });
 
     console.log('[Create Driver] Profile saved to Firestore');
