@@ -12,6 +12,19 @@ const resend = process.env.RESEND_API_KEY
 
 const inviteSchema = z.object({
   email: z.string().email('Invalid email address'),
+  driverType: z.enum(['existing', 'newHire'], {
+    errorMap: () => ({ message: 'Driver type must be either "existing" or "newHire"' })
+  }),
+  hasConfirmedDQF: z.boolean().optional(),
+}).refine((data) => {
+  // If driver type is "existing", hasConfirmedDQF must be true
+  if (data.driverType === 'existing' && data.hasConfirmedDQF !== true) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Must confirm DQF on file for existing drivers',
+  path: ['hasConfirmedDQF'],
 });
 
 /**
@@ -71,10 +84,10 @@ async function handlePost(req: NextRequest) {
       throw new Error(errorMessage);
     }
 
-    const { email } = validation.data;
+    const { email, driverType, hasConfirmedDQF } = validation.data;
     const ownerOperatorId = ownerUser.uid;
 
-    console.log('[Invite Driver] Checking for existing invitation:', email);
+    console.log('[Invite Driver] Checking for existing invitation:', email, 'Type:', driverType);
 
     // Check if invitation already exists
     const existingInvite = await db.collection('driver_invitations')
@@ -100,11 +113,13 @@ async function handlePost(req: NextRequest) {
 
     console.log('[Invite Driver] Creating invitation token');
 
-    // Save invitation to Firestore
+    // Save invitation to Firestore with driver type
     await db.collection('driver_invitations').doc(invitationToken).set({
       email: email,
       ownerId: ownerOperatorId,
       ownerCompanyName: companyName,
+      driverType: driverType, // NEW: Store driver type
+      hasConfirmedDQF: driverType === 'existing' ? hasConfirmedDQF : undefined, // NEW: Store DQF confirmation
       createdAt: FieldValue.serverTimestamp(),
       expiresAt: Timestamp.fromDate(expiresAt),
       status: 'pending',
@@ -128,14 +143,24 @@ async function handlePost(req: NextRequest) {
 
     console.log('[Invite Driver] Sending email to:', email);
 
+    // Customize email based on driver type
+    const emailSubject = driverType === 'newHire' 
+      ? `Welcome to ${companyName} - Complete Your Driver Profile`
+      : `Invitation to Join ${companyName} on XtraFleet`;
+
+    const emailContent = driverType === 'newHire'
+      ? `<p><strong>${companyName}</strong> has hired you as a new driver!</p>
+         <p>Click the button below to create your profile and complete your Driver Qualification File (DQF):</p>`
+      : `<p><strong>${companyName}</strong> has invited you to join their fleet on XtraFleet.</p>
+         <p>Click the button below to create your driver profile:</p>`;
+
     const { error: emailError } = await resend.emails.send({
       from: 'XtraFleet <noreply@xtrafleet.com>',
       to: [email],
-      subject: 'Invitation to Join ' + companyName + ' on XtraFleet',
+      subject: emailSubject,
       html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h1 style="color: #4F46E5;">You're Invited to XtraFleet!</h1>
-        <p><strong>${companyName}</strong> has invited you to join their fleet on XtraFleet.</p>
-        <p>Click the button below to create your driver profile:</p>
+        ${emailContent}
         <div style="text-align: center; margin: 30px 0;">
         <a href="${inviteLink}" style="display: inline-block; padding: 14px 28px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">Create Your Profile</a>
         </div>
@@ -167,7 +192,7 @@ async function handlePost(req: NextRequest) {
       });
     }
     
-    if (errorMessage.includes('Invalid email') || errorMessage.includes('email address')) {
+    if (errorMessage.includes('Invalid email') || errorMessage.includes('email address') || errorMessage.includes('Driver type') || errorMessage.includes('DQF')) {
       return handleApiError('validation', error instanceof Error ? error : new Error(errorMessage), {
         endpoint: 'POST /api/add-new-driver'
       });
