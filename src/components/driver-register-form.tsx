@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Form,
   FormControl,
@@ -14,6 +16,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -38,6 +41,8 @@ const quickProfileSchema = z.object({
   location: z.string().min(1, "Your current city/state is required"),
   vehicleType: z.enum(trailerTypeValues),
   password: passwordSchema, // Enhanced password validation
+  userAgreement: z.boolean().refine(val => val === true, "You must accept the User Agreement"),
+  esignConsent: z.boolean().refine(val => val === true, "You must accept the E-Sign Agreement"),
 });
 
 type QuickProfileValues = z.infer<typeof quickProfileSchema>;
@@ -56,6 +61,10 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
   const form = useForm<QuickProfileValues>({
     resolver: zodResolver(quickProfileSchema),
     mode: "onChange",
+    defaultValues: {
+      userAgreement: false,
+      esignConsent: false,
+    }
   });
 
   const passwordValue = form.watch("password") || "";
@@ -64,7 +73,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
     setIsSubmitting(true);
 
     try {
-      const { password, firstName, lastName, ...profileData } = values;
+      const { password, firstName, lastName, userAgreement, esignConsent, ...profileData } = values;
 
       // Create account
       const response = await fetch('/api/create-driver-account', {
@@ -82,6 +91,18 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
             lastName,
             profileComplete: false,
             profileCompletionStep: 'basic_info_complete',
+          },
+          consents: {
+            userAgreement: {
+              accepted: true,
+              acceptedAt: new Date().toISOString(),
+              version: "2025-10-17",
+            },
+            esignAgreement: {
+              accepted: true,
+              acceptedAt: new Date().toISOString(),
+              version: "2025-01-29",
+            },
           },
         }),
       });
@@ -145,26 +166,28 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
                 <FormMessage />
                 
                 {/* Password Requirements Checklist */}
-                <div className="mt-2 space-y-1">
-                  <p className="text-xs text-muted-foreground mb-1">Password must have:</p>
-                  {[
-                    { label: "At least 8 characters", met: passwordChecks.length },
-                    { label: "One uppercase letter", met: passwordChecks.uppercase },
-                    { label: "One lowercase letter", met: passwordChecks.lowercase },
-                    { label: "One number", met: passwordChecks.number },
-                  ].map((req, idx) => (
-                    <div key={idx} className="flex items-center gap-2 text-xs">
-                      {req.met ? (
-                        <Check className="h-3 w-3 text-green-600" />
-                      ) : (
-                        <X className="h-3 w-3 text-muted-foreground" />
-                      )}
-                      <span className={req.met ? "text-green-600" : "text-muted-foreground"}>
-                        {req.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                {passwordValue && (
+                  <div className="mt-2 space-y-1">
+                    <p className="text-xs text-muted-foreground mb-1">Password must have:</p>
+                    {[
+                      { label: "At least 8 characters", met: passwordChecks.length },
+                      { label: "One uppercase letter", met: passwordChecks.uppercase },
+                      { label: "One lowercase letter", met: passwordChecks.lowercase },
+                      { label: "One number", met: passwordChecks.number },
+                    ].map((req, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs">
+                        {req.met ? (
+                          <Check className="h-3 w-3 text-green-600" />
+                        ) : (
+                          <X className="h-3 w-3 text-muted-foreground" />
+                        )}
+                        <span className={req.met ? "text-green-600" : "text-muted-foreground"}>
+                          {req.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </FormItem>
             )}
           />
@@ -248,6 +271,69 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
                   </SelectContent>
                 </Select>
                 <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* Legal Consents */}
+        <div className="space-y-4 pt-4 border-t">
+          <p className="text-sm font-medium">Legal Agreements</p>
+          
+          {/* User Agreement Consent */}
+          <FormField
+            control={form.control}
+            name="userAgreement"
+            render={({ field }) => (
+              <FormItem>
+                <div className="flex items-start gap-3">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      className="mt-1"
+                    />
+                  </FormControl>
+                  <div className="space-y-1">
+                    <Label className="text-sm leading-relaxed cursor-pointer">
+                      I understand that XtraFleet is a technology platform only and that I remain 
+                      solely responsible for regulatory compliance, insurance adequacy, and trip safety.{' '}
+                      <Link href="/legal/user-agreement" target="_blank" className="underline text-primary hover:text-primary/80">
+                        View User Agreement
+                      </Link>
+                    </Label>
+                    <FormMessage />
+                  </div>
+                </div>
+              </FormItem>
+            )}
+          />
+
+          {/* E-Sign Consent - Driver Version */}
+          <FormField
+            control={form.control}
+            name="esignConsent"
+            render={({ field }) => (
+              <FormItem>
+                <div className="flex items-start gap-3">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      className="mt-1"
+                    />
+                  </FormControl>
+                  <div className="space-y-1">
+                    <Label className="text-sm leading-relaxed cursor-pointer">
+                      You consent to receive Electronic Records related to driver qualification, 
+                      safety compliance, background screening, and employment eligibility.{' '}
+                      <Link href="/legal/esign-consent" target="_blank" className="underline text-primary hover:text-primary/80">
+                        View E-Sign Agreement
+                      </Link>
+                    </Label>
+                    <FormMessage />
+                  </div>
+                </div>
               </FormItem>
             )}
           />
