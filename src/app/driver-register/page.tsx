@@ -21,6 +21,7 @@ interface InvitationData {
   ownerId: string;
   status: string;
   expiresAt: { seconds: number };
+  driverType?: 'existing' | 'newHire';
 }
 
 function DriverRegisterContent() {
@@ -93,10 +94,11 @@ function DriverRegisterContent() {
             </Alert>
           )}
           {!error && invitation && token && (
-            <DriverRegisterForm 
-              driverId={token} 
+            <DriverRegisterForm
+              driverId={token}
               ownerId={invitation.ownerId}
               invitationEmail={invitation.email}
+              driverType={invitation.driverType}
             />
           )}
         </CardContent>

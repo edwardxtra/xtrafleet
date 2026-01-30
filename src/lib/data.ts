@@ -38,6 +38,11 @@ export type Driver = {
   drugAndAlcoholScreeningUrl?: string;
   rating?: number;
   reviews?: Review[];
+  driverType?: 'existing' | 'newHire';
+  dqfStatus?: 'not_required' | 'pending' | 'submitted' | 'approved' | 'rejected';
+  dqfSubmittedAt?: string | null;
+  dqfApprovedAt?: string | null;
+  dqfApprovedBy?: string | null;
 };
 
 export type RouteInfo = {
