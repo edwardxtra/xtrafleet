@@ -120,17 +120,24 @@ async function handlePost(req: NextRequest) {
 
     console.log('[Invite Driver] Creating invitation token');
 
-    // Save invitation to Firestore with driver type
-    await db.collection('driver_invitations').doc(invitationToken).set({
+    // Build invitation data - only include hasConfirmedDQF for existing drivers
+    const invitationData: any = {
       email: email,
       ownerId: ownerOperatorId,
       ownerCompanyName: companyName,
       driverType: driverType,
-      hasConfirmedDQF: driverType === 'existing' ? hasConfirmedDQF : undefined,
       createdAt: FieldValue.serverTimestamp(),
       expiresAt: Timestamp.fromDate(expiresAt),
       status: 'pending',
-    });
+    };
+
+    // Only add hasConfirmedDQF for existing drivers (Firestore doesn't allow undefined)
+    if (driverType === 'existing') {
+      invitationData.hasConfirmedDQF = hasConfirmedDQF;
+    }
+
+    // Save invitation to Firestore with driver type
+    await db.collection('driver_invitations').doc(invitationToken).set(invitationData);
 
     console.log('[Invite Driver] Invitation saved to Firestore');
 
