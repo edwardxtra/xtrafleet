@@ -41,6 +41,8 @@ async function handleGet(request: NextRequest) {
       invitation: {
         email: invitation?.email,
         ownerId: invitation?.ownerId,
+        ownerCompanyName: invitation?.ownerCompanyName,
+        driverType: invitation?.driverType || 'existing', // NEW: Return driver type (default to existing for backwards compatibility)
         status: invitation?.status,
         expiresAt: invitation?.expiresAt,
       },
