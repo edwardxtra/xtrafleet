@@ -60,6 +60,7 @@ import { format, parseISO, differenceInDays } from 'date-fns';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { TRAILER_TYPES } from '@/lib/trailer-types';
 import { TableAvatar, TableStatusBadge } from '@/components/ui/table-components';
+import { DQFReviewCard } from '@/components/dqf-review-card';
 
 const ComplianceItem = ({ 
     label, 
@@ -307,6 +308,11 @@ const DriversTable = ({
                     {isInactive && (
                       <Badge variant="outline" className="text-xs">Inactive</Badge>
                     )}
+                    {driver.dqfStatus === 'submitted' && (
+                      <Badge variant="outline" className="text-xs border-blue-500 text-blue-600 dark:text-blue-400">
+                        DQF Pending
+                      </Badge>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -441,6 +447,12 @@ export default function DriversPage() {
       offDuty: drivers.filter(d => (d.availability === "Off-duty" || !d.availability) && d.isActive !== false).length,
       inactive: drivers.filter(d => d.isActive === false).length,
     };
+  }, [drivers]);
+
+  // Count drivers with pending DQFs
+  const pendingDQFCount = useMemo(() => {
+    if (!drivers) return 0;
+    return drivers.filter(d => d.dqfStatus === 'submitted').length;
   }, [drivers]);
 
   const selectedDriverQuery = useMemoFirebase(() => {
@@ -682,6 +694,8 @@ export default function DriversPage() {
             </CardContent>
           </Card>
         </div>
+
+        <DQFReviewCard driver={selectedDriver} onRefresh={() => setSelectedDriverId(selectedDriverId)} />
         
         <EditDriverModal open={!!editingDriver} onOpenChange={(open) => !open && setEditingDriver(null)} driver={editingDriver} onSuccess={() => setSelectedDriverId(selectedDriverId)}/>
       </div>
@@ -705,6 +719,30 @@ export default function DriversPage() {
               Failed to load drivers. 
               <Button variant="link" className="p-0 h-auto ml-2" onClick={() => window.location.reload()}>
                 <RefreshCw className="h-3 w-3 mr-1" />Refresh
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {pendingDQFCount > 0 && (
+          <Alert className="border-blue-500 bg-blue-50 dark:bg-blue-950">
+            <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <AlertDescription className="flex items-center justify-between">
+              <span className="text-blue-900 dark:text-blue-100">
+                <strong>{pendingDQFCount}</strong> driver{pendingDQFCount !== 1 ? 's' : ''} waiting for DQF approval
+              </span>
+              <Button 
+                size="sm" 
+                variant="outline"
+                className="ml-4"
+                onClick={() => {
+                  const pending = drivers?.filter(d => d.dqfStatus === 'submitted');
+                  if (pending && pending.length > 0) {
+                    setSelectedDriverId(pending[0].id);
+                  }
+                }}
+              >
+                Review Now
               </Button>
             </AlertDescription>
           </Alert>
