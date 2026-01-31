@@ -28,18 +28,20 @@ interface RadarResponse {
     code: number;
   };
   routes: {
-    distance: {
-      value: number;
-      text: string;
+    truck: {
+      distance: {
+        value: number;
+        text: string;
+      };
+      duration: {
+        value: number;
+        text: string;
+      };
+      geometry?: {
+        coordinates: number[][];
+      };
     };
-    duration: {
-      value: number;
-      text: string;
-    };
-    geometry?: {
-      coordinates: number[][];
-    };
-  }[];
+  };
   origin?: {
     latitude: number;
     longitude: number;
@@ -48,6 +50,43 @@ interface RadarResponse {
     latitude: number;
     longitude: number;
   };
+}
+
+/**
+ * Geocode address to get coordinates using Radar API
+ */
+async function geocodeAddress(address: string): Promise<{ latitude: number; longitude: number } | null> {
+  if (!RADAR_SECRET_KEY) {
+    return null;
+  }
+
+  try {
+    const params = new URLSearchParams({ query: address });
+    const response = await fetch(`https://api.radar.io/v1/geocode/forward?${params}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': RADAR_SECRET_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Calculate-Route] Geocoding error:', errorText);
+      return null;
+    }
+
+    const data = await response.json();
+    
+    if (data.addresses && data.addresses.length > 0) {
+      const { latitude, longitude } = data.addresses[0];
+      return { latitude, longitude };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[Calculate-Route] Geocoding failed:', error);
+    return null;
+  }
 }
 
 function formatDistance(meters: number): string {
@@ -86,10 +125,23 @@ async function handlePost(request: NextRequest) {
       );
     }
 
-    // Call Radar API with truck routing mode
+    // Geocode origin and destination first
+    const [originCoords, destCoords] = await Promise.all([
+      geocodeAddress(origin),
+      geocodeAddress(destination),
+    ]);
+
+    if (!originCoords || !destCoords) {
+      return NextResponse.json(
+        { error: 'Could not geocode addresses. Please check the city names and try again.' },
+        { status: 400 }
+      );
+    }
+
+    // Call Radar API with truck routing mode using coordinates
     const params = new URLSearchParams({
-      origin: origin,
-      destination: destination,
+      origin: `${originCoords.latitude},${originCoords.longitude}`,
+      destination: `${destCoords.latitude},${destCoords.longitude}`,
       modes: 'truck',
       units: 'imperial',
     });
@@ -103,7 +155,7 @@ async function handlePost(request: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Radar API error:', errorText);
+      console.error('[Calculate-Route] Radar API error:', errorText);
       return NextResponse.json(
         { error: 'Failed to calculate route', details: errorText },
         { status: response.status }
@@ -112,14 +164,15 @@ async function handlePost(request: NextRequest) {
 
     const data: RadarResponse = await response.json();
 
-    if (data.meta?.code !== 200 || !data.routes?.length) {
+    // Radar returns routes as an object with 'truck' and 'geodesic' keys
+    if (data.meta?.code !== 200 || !data.routes?.truck) {
       return NextResponse.json(
         { error: 'Could not find route between locations' },
         { status: 404 }
       );
     }
 
-    const route = data.routes[0];
+    const route = data.routes.truck;
 
     const result: RouteResult = {
       distance: {
@@ -130,13 +183,13 @@ async function handlePost(request: NextRequest) {
         value: route.duration.value,
         text: route.duration.text || formatDuration(route.duration.value),
       },
-      origin: data.origin || { latitude: 0, longitude: 0 },
-      destination: data.destination || { latitude: 0, longitude: 0 },
+      origin: originCoords,
+      destination: destCoords,
     };
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Route calculation error:', error);
+    console.error('[Calculate-Route] Error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
