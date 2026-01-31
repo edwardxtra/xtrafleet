@@ -1,469 +1,243 @@
-"use client";
+'use client';
 
-import { useEffect, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
-import { File, PlusCircle, Upload, WifiOff, AlertCircle, RefreshCw, Package, Download, Pencil, Search as SearchIcon, Trash2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sheet, SheetTrigger } from "@/components/ui/sheet";
-import { AddLoadForm } from "@/components/add-load-form";
-import { EditLoadModal } from "@/components/edit-load-modal";
-import { MoreHorizontal } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import type { Load } from "@/lib/data";
-import { UploadLoadsCSV } from "@/components/upload-loads-csv";
-import { useUser, useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, doc, deleteDoc } from "firebase/firestore";
-import { showSuccess, showError } from "@/lib/toast-utils";
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
 import { 
-  TableAvatar, 
-  TableStatusBadge, 
-  TableCurrency, 
-  TableDate 
-} from "@/components/ui/table-components";
+  PlusCircle, 
+  MapPin, 
+  Package, 
+  Truck, 
+  Clock, 
+  DollarSign,
+  AlertCircle,
+  Calendar,
+  Weight
+} from 'lucide-react';
+import { showError } from '@/lib/toast-utils';
+import type { Load } from '@/lib/data';
+import { format, parseISO } from 'date-fns';
 
-const TableSkeleton = () => (
-  <>
-    {[1, 2, 3, 4, 5].map((i) => (
-      <TableRow key={i}>
-        <TableCell>
-          <div className="flex items-center gap-3">
-            <Skeleton className="h-8 w-8 rounded-full" />
-            <div>
-              <Skeleton className="h-4 w-32 mb-1" />
-              <Skeleton className="h-3 w-24" />
+const LoadCard = ({ load }: { load: Load }) => {
+  const getStatusBadge = (status: Load['status']) => {
+    const variants = {
+      'Pending': 'secondary',
+      'Matched': 'default',
+      'In-transit': 'default',
+      'Delivered': 'outline',
+    } as const;
+
+    return (
+      <Badge variant={variants[status] || 'secondary'}>
+        {status}
+      </Badge>
+    );
+  };
+
+  return (
+    <Card className="hover:shadow-md transition-shadow">
+      <CardHeader>
+        <div className="flex items-start justify-between">
+          <div className="space-y-1 flex-1">
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <span className="font-semibold">{load.origin}</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <span className="ml-6">→</span>
+              <span>{load.destination}</span>
             </div>
           </div>
-        </TableCell>
-        <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-        <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
-        <TableCell className="text-right"><Skeleton className="h-4 w-16" /></TableCell>
-        <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-        <TableCell><Skeleton className="h-8 w-8" /></TableCell>
-      </TableRow>
-    ))}
-  </>
-);
-
-const LoadsTable = ({ 
-  loads, 
-  isLoading, 
-  isUserLoading, 
-  loadsError, 
-  isOnline,
-  emptyMessage = "No loads found",
-  onEdit,
-  onDelete,
-  onFindMatch,
-}: { 
-  loads: Load[] | null;
-  isLoading: boolean;
-  isUserLoading: boolean;
-  loadsError: Error | null;
-  isOnline: boolean;
-  emptyMessage?: string;
-  onEdit: (load: Load) => void;
-  onDelete: (load: Load) => void;
-  onFindMatch: (load: Load) => void;
-}) => {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Route</TableHead>
-          <TableHead>Cargo & Weight</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead className="text-right">Rate</TableHead>
-          <TableHead>Posted</TableHead>
-          <TableHead>
-            <span className="sr-only">Actions</span>
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {isLoading || isUserLoading ? (
-          <TableSkeleton />
-        ) : loadsError ? (
-          <TableRow>
-            <TableCell colSpan={6} className="h-24 text-center">
-              <div className="flex flex-col items-center gap-2">
-                <AlertCircle className="h-8 w-8 text-destructive" />
-                <p className="text-muted-foreground">Failed to load loads</p>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => window.location.reload()}
-                >
-                  <RefreshCw className="h-3 w-3 mr-1" />
-                  Retry
-                </Button>
-              </div>
-            </TableCell>
-          </TableRow>
-        ) : loads && loads.length > 0 ? (
-          loads.map((load) => (
-            <TableRow key={load.id} className="hover:bg-muted/50">
-              <TableCell>
-                <TableAvatar
-                  name={`${load.origin} → ${load.destination}`}
-                  subtitle={load.route?.distanceText || undefined}
-                />
-              </TableCell>
-              <TableCell>
-                <div className="space-y-0.5">
-                  <p className="font-medium text-sm">{load.cargo || 'General Freight'}</p>
-                  <p className="text-xs text-muted-foreground">{load.weight?.toLocaleString() || 0} lbs</p>
-                </div>
-              </TableCell>
-              <TableCell>
-                <TableStatusBadge status={load.status.toLowerCase()} />
-              </TableCell>
-              <TableCell className="text-right">
-                <TableCurrency amount={load.price || 0} />
-              </TableCell>
-              <TableCell>
-                <TableDate date={load.createdAt || load.pickupDate} />
-              </TableCell>
-              <TableCell>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      aria-haspopup="true"
-                      size="icon"
-                      variant="ghost"
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                      <span className="sr-only">Toggle menu</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                    <DropdownMenuItem 
-                      disabled={!isOnline || load.status !== "Pending"}
-                      onClick={() => onEdit(load)}
-                    >
-                      <Pencil className="h-4 w-4 mr-2" />
-                      Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      disabled={!isOnline || load.status !== "Pending"}
-                      onClick={() => onFindMatch(load)}
-                    >
-                      <SearchIcon className="h-4 w-4 mr-2" />
-                      Find Match
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem 
-                      className="text-destructive" 
-                      disabled={!isOnline || load.status === "In-transit"}
-                      onClick={() => onDelete(load)}
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))
-        ) : (
-          <TableRow>
-            <TableCell colSpan={6} className="h-24 text-center">
-              <div className="flex flex-col items-center gap-2">
-                <Package className="h-8 w-8 text-muted-foreground" />
-                <p className="text-muted-foreground">{emptyMessage}</p>
-              </div>
-            </TableCell>
-          </TableRow>
+          {getStatusBadge(load.status)}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Route Information */}
+        {load.route && (
+          <div className="flex items-center gap-4 text-sm bg-muted/50 p-3 rounded-lg">
+            <div className="flex items-center gap-2">
+              <Truck className="h-4 w-4 text-primary" />
+              <span className="font-medium">{load.route.distanceText}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-primary" />
+              <span className="font-medium">{load.route.durationText}</span>
+            </div>
+          </div>
         )}
-      </TableBody>
-    </Table>
+
+        {/* Load Details */}
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="flex items-center gap-2">
+            <Package className="h-4 w-4 text-muted-foreground" />
+            <span className="text-muted-foreground">Cargo:</span>
+            <span className="font-medium">{load.cargo}</span>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Weight className="h-4 w-4 text-muted-foreground" />
+            <span className="text-muted-foreground">Weight:</span>
+            <span className="font-medium">{load.weight.toLocaleString()} lbs</span>
+          </div>
+
+          {load.price && (
+            <div className="flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              <span className="text-muted-foreground">Price:</span>
+              <span className="font-medium">${load.price.toLocaleString()}</span>
+            </div>
+          )}
+
+          {load.pickupDate && (
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <span className="text-muted-foreground">Pickup:</span>
+              <span className="font-medium">
+                {format(parseISO(load.pickupDate), 'MMM d, yyyy')}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Trailer Type */}
+        {load.trailerType && (
+          <div className="pt-2 border-t">
+            <Badge variant="outline" className="text-xs">
+              {load.trailerType.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+            </Badge>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 
+const LoadSkeleton = () => (
+  <Card>
+    <CardHeader>
+      <div className="flex items-start justify-between">
+        <div className="space-y-2 flex-1">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-4 w-40" />
+        </div>
+        <Skeleton className="h-6 w-20" />
+      </div>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      <Skeleton className="h-12 w-full" />
+      <div className="grid grid-cols-2 gap-4">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-full" />
+      </div>
+    </CardContent>
+  </Card>
+);
+
 export default function LoadsPage() {
-  const { user, isUserLoading } = useUser();
-  const firestore = useFirestore();
-  const router = useRouter();
-  const [isOnline, setIsOnline] = useState(true);
-  const [activeTab, setActiveTab] = useState("all");
-  const [editingLoad, setEditingLoad] = useState<Load | null>(null);
-  const [deletingLoad, setDeletingLoad] = useState<Load | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [loads, setLoads] = useState<Load[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      showSuccess('You\'re back online!');
-    };
-    const handleOffline = () => {
-      setIsOnline(false);
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    setIsOnline(navigator.onLine);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
+    fetchLoads();
   }, []);
 
-  const loadsQuery = useMemoFirebase(() => {
-    if (!firestore || !user?.uid) return null;
-    return collection(firestore, `owner_operators/${user.uid}/loads`);
-  }, [firestore, user?.uid]);
-
-  const { data: loads, isLoading, error: loadsError } = useCollection<Load>(loadsQuery);
-
-  const filteredLoads = useMemo(() => {
-    if (!loads) return null;
-    
-    switch (activeTab) {
-      case "pending":
-        return loads.filter(load => load.status === "Pending");
-      case "in-transit":
-        return loads.filter(load => load.status === "In-transit");
-      case "delivered":
-        return loads.filter(load => load.status === "Delivered");
-      default:
-        return loads;
-    }
-  }, [loads, activeTab]);
-
-  const counts = useMemo(() => {
-    if (!loads) return { all: 0, pending: 0, inTransit: 0, delivered: 0 };
-    return {
-      all: loads.length,
-      pending: loads.filter(l => l.status === "Pending").length,
-      inTransit: loads.filter(l => l.status === "In-transit").length,
-      delivered: loads.filter(l => l.status === "Delivered").length,
-    };
-  }, [loads]);
-
-  useEffect(() => {
-    if (loadsError) {
-      showError('Failed to load loads. Please try again.');
-    }
-  }, [loadsError]);
-
-  const handleExport = () => {
-    if (!filteredLoads || filteredLoads.length === 0) {
-      showError('No loads to export');
-      return;
-    }
-
-    const headers = ['Origin', 'Destination', 'Cargo', 'Weight (lbs)', 'Status', 'Price', 'Pickup Date'];
-    const csvContent = [
-      headers.join(','),
-      ...filteredLoads.map(load => [
-        `"${load.origin || ''}"`,
-        `"${load.destination || ''}"`,
-        `"${load.cargo || ''}"`,
-        load.weight || 0,
-        `"${load.status || ''}"`,
-        load.price || 0,
-        `"${load.pickupDate || ''}"`,
-      ].join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `loads-${activeTab}-${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    
-    showSuccess('Loads exported successfully!');
-  };
-
-  const handleDelete = async () => {
-    if (!deletingLoad || !firestore || !user?.uid) return;
-    
-    setIsDeleting(true);
+  const fetchLoads = async () => {
     try {
-      await deleteDoc(doc(firestore, `owner_operators/${user.uid}/loads/${deletingLoad.id}`));
-      showSuccess('Load deleted successfully');
-      setDeletingLoad(null);
-    } catch (error: any) {
-      showError(error.message || 'Failed to delete load');
+      setIsLoading(true);
+      setError(null);
+
+      const response = await fetch('/api/loads');
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch loads');
+      }
+
+      const data = await response.json();
+      setLoads(data);
+    } catch (err) {
+      console.error('Error fetching loads:', err);
+      setError('Failed to load your freight loads');
+      showError('Failed to load freight loads');
     } finally {
-      setIsDeleting(false);
+      setIsLoading(false);
     }
   };
 
-  const handleFindMatch = (load: Load) => {
-    router.push(`/dashboard/matches?loadId=${load.id}`);
-  };
-  
   return (
-    <Sheet>
-      <main className="grid flex-1 items-start gap-4 sm:py-0 md:gap-8">
-        {!isOnline && (
-          <Alert variant="destructive">
-            <WifiOff className="h-4 w-4" />
-            <AlertDescription>
-              You're currently offline. Data may not be up to date.
-            </AlertDescription>
-          </Alert>
-        )}
+    <div className="container py-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold font-headline">Freight Loads</h1>
+          <p className="text-muted-foreground mt-1">
+            Manage your posted freight loads and track their status
+          </p>
+        </div>
+        <Link href="/dashboard/loads/new">
+          <Button>
+            <PlusCircle className="h-4 w-4 mr-2" />
+            Post New Load
+          </Button>
+        </Link>
+      </div>
 
-        {loadsError && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Failed to load loads. 
-              <Button 
-                variant="link" 
-                className="p-0 h-auto ml-2" 
-                onClick={() => window.location.reload()}
-              >
-                <RefreshCw className="h-3 w-3 mr-1" />
-                Refresh
+      {/* Error Alert */}
+      {error && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Loading State */}
+      {isLoading && (
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <LoadSkeleton key={i} />
+          ))}
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!isLoading && !error && loads.length === 0 && (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Truck className="h-16 w-16 text-muted-foreground mb-4" />
+            <h3 className="text-xl font-semibold mb-2">No loads posted yet</h3>
+            <p className="text-muted-foreground text-center mb-6">
+              Get started by posting your first freight load
+            </p>
+            <Link href="/dashboard/loads/new">
+              <Button>
+                <PlusCircle className="h-4 w-4 mr-2" />
+                Post Your First Load
               </Button>
-            </AlertDescription>
-          </Alert>
-        )}
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="flex items-center">
-            <TabsList>
-              <TabsTrigger value="all">
-                All {counts.all > 0 && `(${counts.all})`}
-              </TabsTrigger>
-              <TabsTrigger value="pending">
-                Pending {counts.pending > 0 && `(${counts.pending})`}
-              </TabsTrigger>
-              <TabsTrigger value="in-transit">
-                In-transit {counts.inTransit > 0 && `(${counts.inTransit})`}
-              </TabsTrigger>
-              <TabsTrigger value="delivered">
-                Delivered {counts.delivered > 0 && `(${counts.delivered})`}
-              </TabsTrigger>
-            </TabsList>
-            <div className="ml-auto flex items-center gap-2">
-              <Button 
-                size="sm" 
-                variant="outline" 
-                className="h-8 gap-1" 
-                disabled={!isOnline || !filteredLoads?.length}
-                onClick={handleExport}
-              >
-                <Download className="h-3.5 w-3.5" />
-                <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                  Export
-                </span>
-              </Button>
-               <UploadLoadsCSV>
-                 <Button size="sm" variant="outline" className="h-8 gap-1" disabled={!isOnline}>
-                    <Upload className="h-3.5 w-3.5" />
-                    <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                        Upload CSV
-                    </span>
-                </Button>
-              </UploadLoadsCSV>
-              <SheetTrigger asChild>
-                <Button size="sm" className="h-8 gap-1" disabled={!isOnline}>
-                  <PlusCircle className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">
-                    Add Load
-                  </span>
-                </Button>
-              </SheetTrigger>
-            </div>
-          </div>
-
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle className="font-headline">Loads</CardTitle>
-              <CardDescription>
-                Manage your loads and view their details.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <LoadsTable 
-                loads={filteredLoads}
-                isLoading={isLoading}
-                isUserLoading={isUserLoading}
-                loadsError={loadsError}
-                isOnline={isOnline}
-                emptyMessage={
-                  activeTab === "all" 
-                    ? "No loads found. Add your first load!" 
-                    : `No ${activeTab} loads found.`
-                }
-                onEdit={setEditingLoad}
-                onDelete={setDeletingLoad}
-                onFindMatch={handleFindMatch}
-              />
-            </CardContent>
-          </Card>
-        </Tabs>
-      </main>
-      
-      <AddLoadForm />
-      
-      <EditLoadModal
-        open={!!editingLoad}
-        onOpenChange={(open) => !open && setEditingLoad(null)}
-        load={editingLoad}
-      />
-
-      <AlertDialog open={!!deletingLoad} onOpenChange={(open) => !open && setDeletingLoad(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Load</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this load from {deletingLoad?.origin} to {deletingLoad?.destination}? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Sheet>
+      {/* Loads Grid */}
+      {!isLoading && !error && loads.length > 0 && (
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {loads.map((load) => (
+            <LoadCard key={load.id} load={load} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
