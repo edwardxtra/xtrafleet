@@ -22,6 +22,8 @@ import { useRouter } from "next/navigation";
 import { Loader2, Check, X } from "lucide-react";
 import { passwordSchema } from "@/lib/password-validation";
 import { TRAILER_TYPES } from "@/lib/trailer-types";
+import { useAuth } from "@/firebase";
+import { signInWithEmailAndPassword, setPersistence, browserLocalPersistence } from "firebase/auth";
 
 const trailerTypeValues = TRAILER_TYPES.map(t => t.value) as [string, ...string[]];
 
@@ -58,6 +60,7 @@ export function DriverRegisterForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
+  const auth = useAuth();
 
   const form = useForm<QuickProfileValues>({
     resolver: zodResolver(quickProfileSchema),
@@ -118,12 +121,29 @@ export function DriverRegisterForm({
         throw new Error(data.error || 'Failed to create account');
       }
 
+      // Auto-login: sign in with the credentials just used to register
       toast({
-        title: "Welcome to XtraFleet! 🎉",
-        description: "Your account has been created. Redirecting to login...",
+        title: "Welcome to XtraFleet!",
+        description: "Account created. Signing you in...",
       });
 
-      router.push(`/login?email=${encodeURIComponent(invitationEmail)}&message=Account created successfully. Please log in.`);
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+        const userCredential = await signInWithEmailAndPassword(auth, invitationEmail, password);
+        const idToken = await userCredential.user.getIdToken();
+
+        await fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: idToken }),
+        });
+
+        window.location.href = '/driver-dashboard';
+      } catch (loginError) {
+        // If auto-login fails, fall back to the login page
+        console.error('Auto-login failed, redirecting to login:', loginError);
+        router.push(`/login?email=${encodeURIComponent(invitationEmail)}&message=Account created successfully. Please log in.`);
+      }
 
     } catch (error: any) {
       console.error('Failed to create driver profile:', error);
