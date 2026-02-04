@@ -113,16 +113,15 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
     setIsSubmitting(true);
 
     try {
-      const ipAddress = await getIPAddress();
-      const deviceFingerprint = getDeviceFingerprint();
+      const deviceInfo = getDeviceFingerprint();
       const timestamp = new Date().toISOString();
 
+      // Build payload matching API expectations: { profileData, consents, deviceInfo }
       const response = await fetch('/api/submit-driver-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          driverId,
-          cdlInfo: {
+          profileData: {
             dateOfBirth: values.dateOfBirth,
             cdlNumber: values.cdlNumber,
             cdlState: values.cdlState,
@@ -130,13 +129,34 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
             endorsements: values.endorsements,
             medicalCertExpiration: values.medicalCertExpiration,
           },
-          driverConsents: {
-            accuracy: { accepted: values.accuracyConsent, timestamp, version: "1.0", ipAddress, deviceFingerprint },
-            verification: { accepted: values.verificationConsent, timestamp, version: "1.0", ipAddress, deviceFingerprint },
-            employment: { accepted: values.employmentConsent, timestamp, version: "1.0", ipAddress, deviceFingerprint },
-            tripLeasing: { accepted: values.tripLeasingConsent, timestamp, version: "1.0", ipAddress, deviceFingerprint },
-            electronicRecords: { accepted: values.electronicRecordsConsent, timestamp, version: "1.0", ipAddress, deviceFingerprint },
+          consents: {
+            accuracy: { 
+              accepted: values.accuracyConsent, 
+              timestamp, 
+              version: "1.0"
+            },
+            verification: { 
+              accepted: values.verificationConsent, 
+              timestamp, 
+              version: "1.0"
+            },
+            employment: { 
+              accepted: values.employmentConsent, 
+              timestamp, 
+              version: "1.0"
+            },
+            tripLeasing: { 
+              accepted: values.tripLeasingConsent, 
+              timestamp, 
+              version: "1.0"
+            },
+            electronicRecords: { 
+              accepted: values.electronicRecordsConsent, 
+              timestamp, 
+              version: "1.0"
+            },
           },
+          deviceInfo,
         }),
       });
 
