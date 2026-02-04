@@ -178,8 +178,8 @@ export default function DriverDashboard() {
         )}
 
         {/* Profile completion section */}
-        {needsProfileCompletion && (
-          <DriverProfileCompletion onComplete={handleProfileComplete} />
+        {needsProfileCompletion && user && (
+          <DriverProfileCompletion driverId={user.uid} onComplete={handleProfileComplete} />
         )}
 
         {/* Status alerts based on profile status */}
