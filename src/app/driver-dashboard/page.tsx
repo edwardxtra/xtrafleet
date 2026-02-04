@@ -23,6 +23,8 @@ import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
 import { useOnlineStatus } from '@/hooks/use-online-status';
 import { DQFCompletionModal } from '@/components/dqf-completion-modal';
+import { DriverProfileCompletion } from '@/components/driver-profile-completion';
+import { DriverStatusBadge } from '@/components/driver-status-badge';
 
 interface Match {
   id: string;
@@ -47,6 +49,8 @@ export default function DriverDashboard() {
   const [ownerId, setOwnerId] = useState<string>('');
   const [driverName, setDriverName] = useState<string>('');
   const [dqfStatus, setDqfStatus] = useState<string>('');
+  const [profileStatus, setProfileStatus] = useState<string>('');
+  const [profileComplete, setProfileComplete] = useState<boolean>(false);
   const [showDqfModal, setShowDqfModal] = useState(false);
   const isOnline = useOnlineStatus();
 
@@ -71,6 +75,8 @@ export default function DriverDashboard() {
           const driverData = driverDoc.data();
           setDriverName(driverData.name);
           setDqfStatus(driverData.dqfStatus || 'not_required');
+          setProfileStatus(driverData.profileStatus || '');
+          setProfileComplete(driverData.profileComplete || false);
           
           if (driverData.dqfStatus === 'pending') {
             setShowDqfModal(true);
@@ -89,6 +95,11 @@ export default function DriverDashboard() {
   const handleDqfComplete = () => {
     setShowDqfModal(false);
     setDqfStatus('submitted');
+  };
+
+  const handleProfileComplete = () => {
+    setProfileStatus('pending_confirmation');
+    router.refresh();
   };
 
   const matchesQuery = useMemoFirebase(() => {
@@ -145,6 +156,9 @@ export default function DriverDashboard() {
     );
   }
 
+  // Show profile completion if incomplete
+  const needsProfileCompletion = !profileStatus || profileStatus === 'incomplete';
+
   return (
     <>
       <DQFCompletionModal 
@@ -159,6 +173,39 @@ export default function DriverDashboard() {
             <WifiOff className="h-4 w-4" />
             <AlertDescription>
               You are currently offline. Data may not be up to date.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Profile completion section */}
+        {needsProfileCompletion && (
+          <DriverProfileCompletion onComplete={handleProfileComplete} />
+        )}
+
+        {/* Status alerts based on profile status */}
+        {profileStatus === 'pending_confirmation' && (
+          <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+            <Clock className="h-4 w-4" />
+            <AlertDescription>
+              ⏳ Your profile has been submitted and is awaiting confirmation from your fleet.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {profileStatus === 'confirmed' && profileComplete && (
+          <Alert className="border-green-500 bg-green-50 dark:bg-green-950">
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>
+              ✅ Your profile is confirmed! You're eligible for leasing opportunities.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {profileStatus === 'rejected' && (
+          <Alert variant="destructive">
+            <XCircle className="h-4 w-4" />
+            <AlertDescription>
+              Your profile was not approved. Please contact your fleet manager for more information.
             </AlertDescription>
           </Alert>
         )}
@@ -184,9 +231,18 @@ export default function DriverDashboard() {
           </Alert>
         )}
 
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Welcome back{driverName && `, ${driverName.split(' ')[0]}`}!</h1>
-          <p className="text-muted-foreground">Here's an overview of your activity</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">Welcome back{driverName && `, ${driverName.split(' ')[0]}`}!</h1>
+            <p className="text-muted-foreground">Here's an overview of your activity</p>
+          </div>
+          {/* Show status badge */}
+          {profileStatus && (
+            <DriverStatusBadge 
+              profileStatus={profileStatus}
+              profileComplete={profileComplete}
+            />
+          )}
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
