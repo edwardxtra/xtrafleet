@@ -169,8 +169,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const handleSignOut = async () => {
     try {
       setIsLoggingOut(true);
+      // auth.signOut() triggers onIdTokenChanged in the provider,
+      // which handles deleting the session cookie — no need to call DELETE here
       await auth.signOut();
-      await fetch('/api/auth/session', { method: 'DELETE' });
       router.push('/login');
     } catch (error) {
       console.error("Failed to sign out:", error);

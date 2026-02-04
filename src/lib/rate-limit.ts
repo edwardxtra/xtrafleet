@@ -9,12 +9,20 @@ const redis = new Redis({
 
 // Define rate limiters for different use cases
 export const rateLimiters = {
-  // Login/Auth: 5 attempts per 15 minutes
+  // Login/Auth: 20 attempts per 15 minutes
   auth: new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(5, '15 m'),
+    limiter: Ratelimit.slidingWindow(20, '15 m'),
     analytics: true,
     prefix: 'ratelimit:auth',
+  }),
+
+  // Token refresh: 30 per 15 minutes (higher limit for session refreshes)
+  tokenRefresh: new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(30, '15 m'),
+    analytics: true,
+    prefix: 'ratelimit:tokenRefresh',
   }),
 
   // Driver invitations: 10 per hour
