@@ -17,30 +17,21 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { Loader2, Check, X } from "lucide-react";
-import { passwordSchema, passwordRequirements } from "@/lib/password-validation";
+import { passwordSchema } from "@/lib/password-validation";
 import { TRAILER_TYPES } from "@/lib/trailer-types";
 
-// Get all trailer type values for the schema
 const trailerTypeValues = TRAILER_TYPES.map(t => t.value) as [string, ...string[]];
 
-// Simplified schema with enhanced password validation
 const quickProfileSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   phoneNumber: z.string().min(1, "Phone number is required"),
   location: z.string().min(1, "Your current city/state is required"),
-  vehicleType: z.enum(trailerTypeValues),
-  password: passwordSchema, // Enhanced password validation
+  trailerTypes: z.array(z.enum(trailerTypeValues)).min(1, "Select at least one trailer type"),
+  password: passwordSchema,
   userAgreement: z.boolean().refine(val => val === true, "You must accept the User Agreement"),
   esignConsent: z.boolean().refine(val => val === true, "You must accept the E-Sign Agreement"),
 });
@@ -51,10 +42,19 @@ interface DriverRegisterFormProps {
   driverId: string;
   ownerId: string;
   invitationEmail: string;
+  firstName?: string;
+  lastName?: string;
   driverType?: 'existing' | 'newHire';
 }
 
-export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverType }: DriverRegisterFormProps) {
+export function DriverRegisterForm({ 
+  driverId, 
+  ownerId, 
+  invitationEmail, 
+  firstName = '',
+  lastName = '',
+  driverType 
+}: DriverRegisterFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
@@ -63,12 +63,16 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
     resolver: zodResolver(quickProfileSchema),
     mode: "onChange",
     defaultValues: {
+      firstName,
+      lastName,
+      trailerTypes: [],
       userAgreement: false,
       esignConsent: false,
     }
   });
 
   const passwordValue = form.watch("password") || "";
+  const selectedTrailers = form.watch("trailerTypes") || [];
 
   const onSubmit = async (values: QuickProfileValues) => {
     setIsSubmitting(true);
@@ -76,7 +80,6 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
     try {
       const { password, firstName, lastName, userAgreement, esignConsent, ...profileData } = values;
 
-      // Create account
       const response = await fetch('/api/create-driver-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -120,7 +123,6 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
         description: "Your account has been created. Redirecting to login...",
       });
 
-      // Redirect to login page with email pre-filled
       router.push(`/login?email=${encodeURIComponent(invitationEmail)}&message=Account created successfully. Please log in.`);
 
     } catch (error: any) {
@@ -135,12 +137,20 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
     }
   };
 
-  // Check which password requirements are met
   const passwordChecks = {
     length: passwordValue.length >= 8,
     uppercase: /[A-Z]/.test(passwordValue),
     lowercase: /[a-z]/.test(passwordValue),
     number: /[0-9]/.test(passwordValue),
+  };
+
+  const toggleTrailerType = (trailerValue: string) => {
+    const current = form.getValues("trailerTypes");
+    if (current.includes(trailerValue)) {
+      form.setValue("trailerTypes", current.filter(t => t !== trailerValue), { shouldValidate: true });
+    } else {
+      form.setValue("trailerTypes", [...current, trailerValue], { shouldValidate: true });
+    }
   };
 
   return (
@@ -166,8 +176,6 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
                   <Input type="password" placeholder="••••••••" {...field} />
                 </FormControl>
                 <FormMessage />
-                
-                {/* Password Requirements Checklist */}
                 {passwordValue && (
                   <div className="mt-2 space-y-1">
                     <p className="text-xs text-muted-foreground mb-1">Password must have:</p>
@@ -202,7 +210,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
                 <FormItem>
                   <FormLabel>First Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., John" {...field} />
+                    <Input {...field} disabled readOnly className="bg-muted" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -215,7 +223,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
                 <FormItem>
                   <FormLabel>Last Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., Doe" {...field} />
+                    <Input {...field} disabled readOnly className="bg-muted" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -254,35 +262,38 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
 
           <FormField
             control={form.control}
-            name="vehicleType"
-            render={({ field }) => (
+            name="trailerTypes"
+            render={() => (
               <FormItem>
-                <FormLabel>Primary Vehicle Type</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your main vehicle type" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {TRAILER_TYPES.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mb-4">
+                  <FormLabel className="text-base">Trailer Types You Can Haul</FormLabel>
+                  <p className="text-sm text-muted-foreground">Select all that apply</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-96 overflow-y-auto border rounded-md p-4">
+                  {TRAILER_TYPES.map((type) => (
+                    <div key={type.value} className="flex items-start space-x-3 p-2 hover:bg-muted rounded">
+                      <Checkbox
+                        checked={selectedTrailers.includes(type.value)}
+                        onCheckedChange={() => toggleTrailerType(type.value)}
+                      />
+                      <div className="flex-1">
+                        <Label className="font-medium cursor-pointer">
+                          {type.label}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">{type.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
 
-        {/* Legal Consents */}
         <div className="space-y-4 pt-4 border-t">
           <p className="text-sm font-medium">Legal Agreements</p>
           
-          {/* User Agreement Consent */}
           <FormField
             control={form.control}
             name="userAgreement"
@@ -290,11 +301,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
               <FormItem>
                 <div className="flex items-start gap-3">
                   <FormControl>
-                    <Checkbox
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                      className="mt-1"
-                    />
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} className="mt-1" />
                   </FormControl>
                   <div className="space-y-1">
                     <Label className="text-sm leading-relaxed cursor-pointer">
@@ -311,7 +318,6 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
             )}
           />
 
-          {/* E-Sign Consent - Driver Version */}
           <FormField
             control={form.control}
             name="esignConsent"
@@ -319,11 +325,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail, driverT
               <FormItem>
                 <div className="flex items-start gap-3">
                   <FormControl>
-                    <Checkbox
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                      className="mt-1"
-                    />
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} className="mt-1" />
                   </FormControl>
                   <div className="space-y-1">
                     <Label className="text-sm leading-relaxed cursor-pointer">
