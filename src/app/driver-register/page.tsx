@@ -18,10 +18,11 @@ import { Button } from '@/components/ui/button';
 
 interface InvitationData {
   email: string;
+  firstName: string;
+  lastName: string;
   ownerId: string;
   status: string;
   expiresAt: { seconds: number };
-  driverType?: 'existing' | 'newHire';
 }
 
 function DriverRegisterContent() {
@@ -98,7 +99,8 @@ function DriverRegisterContent() {
               driverId={token}
               ownerId={invitation.ownerId}
               invitationEmail={invitation.email}
-              driverType={invitation.driverType}
+              firstName={invitation.firstName}
+              lastName={invitation.lastName}
             />
           )}
         </CardContent>
