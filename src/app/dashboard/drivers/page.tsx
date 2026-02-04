@@ -42,6 +42,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { AddDriverForm } from "@/components/add-driver-form";
 import { EditDriverModal } from "@/components/edit-driver-modal";
+import { DriverStatusBadge } from "@/components/driver-status-badge";
+import { DriverConfirmationCard } from "@/components/driver-confirmation-card";
 import { MoreHorizontal } from "lucide-react";
 import {
   Avatar,
@@ -313,6 +315,10 @@ const DriversTable = ({
                         DQF Pending
                       </Badge>
                     )}
+                    <DriverStatusBadge 
+                      profileStatus={driver.profileStatus}
+                      profileComplete={driver.profileComplete}
+                    />
                   </div>
                 </TableCell>
                 <TableCell>
@@ -433,19 +439,22 @@ export default function DriversPage() {
         return drivers.filter(driver => driver.availability === "Off-duty" || !driver.availability);
       case "inactive":
         return drivers.filter(driver => driver.isActive === false);
+      case "pending":
+        return drivers.filter(driver => driver.profileStatus === 'pending_confirmation');
       default:
         return drivers;
     }
   }, [drivers, activeTab]);
 
   const counts = useMemo(() => {
-    if (!drivers) return { all: 0, available: 0, onTrip: 0, offDuty: 0, inactive: 0 };
+    if (!drivers) return { all: 0, available: 0, onTrip: 0, offDuty: 0, inactive: 0, pending: 0 };
     return {
       all: drivers.length,
       available: drivers.filter(d => d.availability === "Available" && d.isActive !== false).length,
       onTrip: drivers.filter(d => d.availability === "On-trip").length,
       offDuty: drivers.filter(d => (d.availability === "Off-duty" || !d.availability) && d.isActive !== false).length,
       inactive: drivers.filter(d => d.isActive === false).length,
+      pending: drivers.filter(d => d.profileStatus === 'pending_confirmation').length,
     };
   }, [drivers]);
 
@@ -614,6 +623,10 @@ export default function DriversPage() {
                 {selectedDriver.isActive === false && (
                   <Badge variant="outline">Inactive</Badge>
                 )}
+                <DriverStatusBadge 
+                  profileStatus={selectedDriver.profileStatus}
+                  profileComplete={selectedDriver.profileComplete}
+                />
               </h1>
               <p className="text-muted-foreground">{selectedDriver.location}</p>
             </div>
@@ -696,6 +709,15 @@ export default function DriversPage() {
         </div>
 
         <DQFReviewCard driver={selectedDriver} onRefresh={() => setSelectedDriverId(selectedDriverId)} />
+
+        {selectedDriver.profileStatus === 'pending_confirmation' && (
+          <DriverConfirmationCard 
+            driver={selectedDriver}
+            onConfirmed={() => {
+              setSelectedDriverId(selectedDriverId);
+            }}
+          />
+        )}
         
         <EditDriverModal open={!!editingDriver} onOpenChange={(open) => !open && setEditingDriver(null)} driver={editingDriver} onSuccess={() => setSelectedDriverId(selectedDriverId)}/>
       </div>
@@ -748,6 +770,25 @@ export default function DriversPage() {
           </Alert>
         )}
 
+        {counts.pending > 0 && (
+          <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+            <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+            <AlertDescription className="flex items-center justify-between">
+              <span className="text-yellow-900 dark:text-yellow-100">
+                <strong>{counts.pending}</strong> driver{counts.pending !== 1 ? 's' : ''} awaiting profile confirmation
+              </span>
+              <Button 
+                size="sm" 
+                variant="outline"
+                className="ml-4"
+                onClick={() => setActiveTab('pending')}
+              >
+                Review Profiles
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center">
             <TabsList>
@@ -755,6 +796,7 @@ export default function DriversPage() {
               <TabsTrigger value="available">Available {counts.available > 0 && `(${counts.available})`}</TabsTrigger>
               <TabsTrigger value="on-trip">On-trip {counts.onTrip > 0 && `(${counts.onTrip})`}</TabsTrigger>
               <TabsTrigger value="off-duty">Off-duty {counts.offDuty > 0 && `(${counts.offDuty})`}</TabsTrigger>
+              {counts.pending > 0 && <TabsTrigger value="pending">Pending Confirmation {`(${counts.pending})`}</TabsTrigger>}
               {counts.inactive > 0 && (<TabsTrigger value="inactive">Inactive {`(${counts.inactive})`}</TabsTrigger>)}
             </TabsList>
             <div className="ml-auto flex items-center gap-2">
@@ -777,7 +819,7 @@ export default function DriversPage() {
               <CardDescription>Manage your drivers and view their status.</CardDescription>
             </CardHeader>
             <CardContent>
-              <DriversTable drivers={filteredDrivers} isLoading={isLoading} isUserLoading={isUserLoading} driversError={driversError} isOnline={isOnline} emptyMessage={activeTab === "all" ? "No drivers found. Invite your first driver!" : activeTab === "inactive" ? "No inactive drivers." : `No ${activeTab} drivers found.`} onSelectDriver={setSelectedDriverId} onEditDriver={setEditingDriver} onToggleActive={setTogglingDriver}/>
+              <DriversTable drivers={filteredDrivers} isLoading={isLoading} isUserLoading={isUserLoading} driversError={driversError} isOnline={isOnline} emptyMessage={activeTab === "all" ? "No drivers found. Invite your first driver!" : activeTab === "inactive" ? "No inactive drivers." : activeTab === "pending" ? "No drivers waiting for confirmation." : `No ${activeTab} drivers found.`} onSelectDriver={setSelectedDriverId} onEditDriver={setEditingDriver} onToggleActive={setTogglingDriver}/>
             </CardContent>
           </Card>
         </Tabs>
