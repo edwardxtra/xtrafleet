@@ -11,10 +11,7 @@ async function handleGet(request: NextRequest) {
       throw new Error('Missing token');
     }
 
-    // Get Firebase Admin
     const { db } = await getFirebaseAdmin();
-
-    // Get invitation from Firestore
     const invitationDoc = await db.collection('driver_invitations').doc(token).get();
 
     if (!invitationDoc.exists) {
@@ -22,8 +19,6 @@ async function handleGet(request: NextRequest) {
     }
 
     const invitation = invitationDoc.data();
-
-    // Check if expired
     const now = new Date();
     const expiresAt = invitation?.expiresAt?.toDate();
 
@@ -31,7 +26,6 @@ async function handleGet(request: NextRequest) {
       throw new Error('Invitation expired');
     }
 
-    // Check if already used
     if (invitation?.status !== 'pending') {
       throw new Error('Invitation already used');
     }
@@ -40,9 +34,10 @@ async function handleGet(request: NextRequest) {
       success: true,
       invitation: {
         email: invitation?.email,
+        firstName: invitation?.firstName || '',
+        lastName: invitation?.lastName || '',
         ownerId: invitation?.ownerId,
         ownerCompanyName: invitation?.ownerCompanyName,
-        driverType: invitation?.driverType || 'existing', // NEW: Return driver type (default to existing for backwards compatibility)
         status: invitation?.status,
         expiresAt: invitation?.expiresAt,
       },
@@ -75,5 +70,4 @@ async function handleGet(request: NextRequest) {
   }
 }
 
-// Export with CORS protection
 export const GET = withCors(handleGet);
