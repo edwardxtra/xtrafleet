@@ -126,7 +126,7 @@ async function handlePost(req: NextRequest) {
       ownerId: ownerOperatorId,
       ownerCompanyName: companyName,
       driverType: driverType,
-      hasConfirmedDQF: driverType === 'existing' ? hasConfirmedDQF : undefined,
+      ...(driverType === 'existing' && { hasConfirmedDQF }),
       createdAt: FieldValue.serverTimestamp(),
       expiresAt: Timestamp.fromDate(expiresAt),
       status: 'pending',
