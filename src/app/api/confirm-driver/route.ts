@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getFirebaseAdmin, FieldValue } from '@/lib/firebase-admin-singleton';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
+import { sendDriverConfirmedEmail } from '@/lib/send-notification-email';
+import { logAuditEvent, AuditActions } from '@/lib/audit-logger';
 
 async function verifyToken(auth: any, tokenValue: string) {
   try {
@@ -26,6 +28,10 @@ async function handlePost(req: NextRequest) {
     }
 
     const driverRef = db.collection('owner_operators').doc(user.uid).collection('drivers').doc(driverId);
+    const driverDoc = await driverRef.get();
+    const driverData = driverDoc.data();
+
+    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';
 
     if (confirmed) {
       await driverRef.update({
@@ -34,6 +40,39 @@ async function handlePost(req: NextRequest) {
         confirmedAt: FieldValue.serverTimestamp(),
         confirmedBy: user.uid,
       });
+
+      // Log audit event
+      await logAuditEvent({
+        action: AuditActions.DRIVER_PROFILE_CONFIRMED,
+        userId: user.uid,
+        userRole: 'owner_operator',
+        targetId: driverId,
+        targetType: 'driver',
+        metadata: {
+          driverName: driverData?.firstName && driverData?.lastName
+            ? `${driverData.firstName} ${driverData.lastName}`
+            : driverData?.name,
+        },
+        ipAddress,
+        userAgent: req.headers.get('user-agent') || undefined,
+      });
+
+      // Send email notification to driver
+      if (driverData?.email) {
+        const driverName = driverData?.firstName && driverData?.lastName
+          ? `${driverData.firstName} ${driverData.lastName}`
+          : driverData?.name || 'Driver';
+
+        // Get owner company name
+        const ownerDoc = await db.collection('owner_operators').doc(user.uid).get();
+        const ownerData = ownerDoc.data();
+
+        await sendDriverConfirmedEmail({
+          driverEmail: driverData.email,
+          driverName,
+          ownerCompanyName: ownerData?.legalName || ownerData?.companyName || 'Your Fleet',
+        });
+      }
 
       return handleApiSuccess({
         success: true,
@@ -45,6 +84,22 @@ async function handlePost(req: NextRequest) {
         profileStatus: 'rejected',
         rejectedAt: FieldValue.serverTimestamp(),
         rejectedBy: user.uid,
+      });
+
+      // Log audit event
+      await logAuditEvent({
+        action: AuditActions.DRIVER_PROFILE_REJECTED,
+        userId: user.uid,
+        userRole: 'owner_operator',
+        targetId: driverId,
+        targetType: 'driver',
+        metadata: {
+          driverName: driverData?.firstName && driverData?.lastName
+            ? `${driverData.firstName} ${driverData.lastName}`
+            : driverData?.name,
+        },
+        ipAddress,
+        userAgent: req.headers.get('user-agent') || undefined,
       });
 
       return handleApiSuccess({
