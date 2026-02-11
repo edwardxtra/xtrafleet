@@ -18,6 +18,13 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -31,9 +38,16 @@ import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HelpWidget } from "@/components/help-widget";
-import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare, Send } from "lucide-react";
+import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare, Send, User, ChevronDown } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
+
+interface OnboardingStatus {
+  profileComplete?: boolean;
+  complianceAttested?: boolean;
+  fmcsaDesignated?: boolean | string;
+  completedAt?: string | null;
+}
 
 function SidebarNavLink({ href, children, tooltip, badge }: { href: string; children: React.ReactNode; tooltip: string; badge?: number }) {
   const { setOpenMobile, isMobile } = useSidebar();
@@ -106,6 +120,9 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
+            <SidebarNavLink href="/dashboard/profile" tooltip="Profile"><User /><span>Profile</span></SidebarNavLink>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
             <SidebarNavLink href="/dashboard/settings" tooltip="Settings"><Settings /><span>Settings</span></SidebarNavLink>
           </SidebarMenuItem>
           <SidebarMenuItem>
@@ -123,6 +140,18 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
   );
 }
 
+/**
+ * Determines the next incomplete onboarding step.
+ * Returns the redirect path or null if onboarding is complete.
+ */
+function getOnboardingRedirect(status: OnboardingStatus | undefined): string | null {
+  if (!status) return '/create-profile';
+  if (!status.profileComplete) return '/create-profile';
+  if (!status.complianceAttested) return '/onboarding/compliance';
+  if (!status.fmcsaDesignated || status.fmcsaDesignated === false) return '/onboarding/fmcsa-clearinghouse';
+  return null;
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, isUserLoading } = useUser();
   const auth = useAuth();
@@ -134,14 +163,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
-    // Don't redirect during logout process
     if (!isUserLoading && !user && !isLoggingOut) {
       router.push('/login?error=You must be logged in to access this page.');
     }
   }, [user, isUserLoading, isLoggingOut, router]);
 
   useEffect(() => {
-    async function checkRole() {
+    async function checkRoleAndOnboarding() {
       if (!user || !db) return;
       try {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
@@ -156,6 +184,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         if (ownerDoc.exists()) {
           const ownerData = ownerDoc.data();
           setIsAdmin(ownerData.isAdmin === true);
+
+          // Check onboarding status and redirect if incomplete
+          const onboardingRedirect = getOnboardingRedirect(ownerData.onboardingStatus);
+          if (onboardingRedirect) {
+            router.push(onboardingRedirect);
+            return;
+          }
         }
         setRoleChecked(true);
       } catch (error) {
@@ -163,14 +198,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setRoleChecked(true);
       }
     }
-    if (user && db) checkRole();
+    if (user && db) checkRoleAndOnboarding();
   }, [user, db, router]);
 
   const handleSignOut = async () => {
     try {
       setIsLoggingOut(true);
-      // auth.signOut() triggers onIdTokenChanged in the provider,
-      // which handles deleting the session cookie — no need to call DELETE here
       await auth.signOut();
       router.push('/login');
     } catch (error) {
@@ -204,14 +237,41 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <SidebarTrigger className="md:hidden" />
           <div className="ml-auto flex items-center gap-2">
             <ThemeToggle />
-            <div className="text-xs md:text-sm text-muted-foreground hidden sm:block truncate max-w-[150px] md:max-w-none">{user?.email}</div>
+            {/* User Dropdown Menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex items-center gap-1 text-xs md:text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer outline-none">
+                <User className="h-4 w-4" />
+                <span className="hidden sm:inline truncate max-w-[150px] md:max-w-none">{user?.email}</span>
+                <ChevronDown className="h-3 w-3" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem asChild>
+                  <Link href="/dashboard/profile" className="cursor-pointer">
+                    <User className="h-4 w-4 mr-2" />
+                    Profile
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/dashboard/settings" className="cursor-pointer">
+                    <Settings className="h-4 w-4 mr-2" />
+                    Settings
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => setShowLogoutDialog(true)}
+                  className="cursor-pointer text-destructive focus:text-destructive"
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
         <main className="flex-1 overflow-auto p-3 md:p-6">{children}</main>
-        {/* Footer removed - inherited from root layout */}
       </SidebarInset>
       
-      {/* Help Widget - Available on all dashboard pages */}
       <HelpWidget />
       
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
