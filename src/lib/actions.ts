@@ -37,20 +37,35 @@ export async function createCompanyProfile(formData: FormData) {
   }
   
   const contactEmail = formData.get('contactEmail') as string || user.email || '';
-  const companyName = formData.get('legalName') as string || '';
+  const legalName = formData.get('legalName') as string || '';
   
+  // Parse operating states from JSON string
+  let operatingStates: string[] = [];
+  const operatingStatesRaw = formData.get('operatingStates') as string;
+  if (operatingStatesRaw) {
+    try {
+      operatingStates = JSON.parse(operatingStatesRaw);
+    } catch {
+      operatingStates = [];
+    }
+  }
+
   const profileData = {
       id: user.uid,
-      legalName: companyName,
+      legalName: legalName,
       contactEmail: contactEmail,
-      dba: formData.get('dba'),
       phone: formData.get('phone') || '',
       dotNumber: formData.get('dotNumber'),
       mcNumber: formData.get('mcNumber'),
-      ein: formData.get('ein'),
       hqAddress: formData.get('hqAddress'),
-      loadLocation: formData.get('loadLocation'),
-      serviceRegions: formData.get('serviceRegions'),
+      operatingStates: operatingStates,
+      onboardingStatus: {
+        profileComplete: true,
+        profileCompletedAt: new Date().toISOString(),
+        complianceAttested: false,
+        fmcsaDesignated: false,
+        completedAt: null,
+      },
   };
   
   try {
@@ -60,7 +75,7 @@ export async function createCompanyProfile(formData: FormData) {
       
       // Send welcome email to new owner operator
       if (contactEmail) {
-        await sendOwnerRegistrationEmail(contactEmail, companyName).catch(err => {
+        await sendOwnerRegistrationEmail(contactEmail, legalName).catch(err => {
           console.error('Failed to send welcome email:', err);
         });
       }
@@ -265,7 +280,7 @@ export async function sendPasswordReset(
       };
     }
 
-    console.log('✅ Password reset email sent to:', email);
+    console.log('Password reset email sent to:', email);
 
     return {
       message: 'If an account exists for this email, a reset link has been sent.',
@@ -300,19 +315,14 @@ export async function inviteDriver(
   formData: FormData
 ): Promise<AddDriverState> {
   try {
-    console.log('🔵 inviteDriver called');
-    
     const user = await authenticateServerAction();
     
     if (!user) {
-      console.log('❌ No authenticated user');
       return {
         message: '',
         error: 'You must be logged in to invite a driver.',
       };
     }
-
-    console.log('✅ User authenticated:', user.uid);
 
     const email = formData.get('email') as string;
     
@@ -323,10 +333,8 @@ export async function inviteDriver(
       };
     }
 
-    console.log('📧 Sending invitation to:', email);
-
     if (!resend) {
-      console.error('❌ Resend not configured');
+      console.error('Resend not configured');
       return {
         message: '',
         error: 'Email service not configured. Please contact support.',
@@ -360,10 +368,8 @@ export async function inviteDriver(
         expiresAt: Timestamp.fromDate(expiresAt),
         status: 'pending',
       });
-
-      console.log('✅ Invitation saved to Firestore');
     } catch (dbError) {
-      console.error('❌ Database error:', dbError);
+      console.error('Database error:', dbError);
       return {
         message: '',
         error: 'Failed to create invitation.',
@@ -390,7 +396,7 @@ export async function inviteDriver(
     });
 
     if (error) {
-      console.error('❌ Resend error:', error);
+      console.error('Resend error:', error);
 
       try {
         const { db: cleanupDb } = await getFirebaseAdmin();
@@ -405,8 +411,6 @@ export async function inviteDriver(
       };
     }
 
-    console.log('✅ Invitation email sent successfully:', data);
-
     // Send confirmation email to owner
     if (ownerEmail) {
       await sendDriverInvitationConfirmationEmail(ownerEmail, email, companyName).catch(err => {
@@ -420,7 +424,7 @@ export async function inviteDriver(
     };
 
   } catch (error: any) {
-    console.error('❌ inviteDriver error:', error);
+    console.error('inviteDriver error:', error);
     return {
       message: '',
       error: error.message || 'An unexpected error occurred.',
