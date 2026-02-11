@@ -24,6 +24,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { useEffect } from "react";
 import { US_STATES } from "@/lib/us-states";
 import { X, Search, ChevronDown } from "lucide-react";
+import { COIUploadSection, type COIData } from "@/components/coi-upload-section";
 
 const profileFormSchema = z.object({
   legalName: z.string().min(1, "Legal name is required"),
@@ -43,6 +44,7 @@ export function CompanyProfileForm() {
   const db = useFirestore();
   const [stateSearch, setStateSearch] = useState("");
   const [stateDropdownOpen, setStateDropdownOpen] = useState(false);
+  const [coiData, setCoiData] = useState<COIData>({});
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -109,6 +111,7 @@ export function CompanyProfileForm() {
       formData.append('mcNumber', values.mcNumber);
       formData.append('hqAddress', values.hqAddress);
       formData.append('operatingStates', JSON.stringify(values.operatingStates));
+      formData.append('coiData', JSON.stringify(coiData));
       
       try {
         await createCompanyProfile(formData);
@@ -342,6 +345,9 @@ export function CompanyProfileForm() {
             </FormItem>
           )}
         />
+
+        {/* COI Upload Section */}
+        <COIUploadSection onCoiChange={setCoiData} />
 
         <div className="flex justify-end">
           <Button type="submit" disabled={!formState.isValid || isPending}>
