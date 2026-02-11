@@ -5,39 +5,19 @@ import { useRouter, usePathname } from "next/navigation";
 import { useUser, useAuth, useFirestore } from "@/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import {
-  SidebarProvider,
-  Sidebar,
-  SidebarTrigger,
-  SidebarInset,
-  SidebarHeader,
-  SidebarContent,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-  SidebarFooter,
-  useSidebar,
+  SidebarProvider, Sidebar, SidebarTrigger, SidebarInset, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter, useSidebar,
 } from "@/components/ui/sidebar";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HelpWidget } from "@/components/help-widget";
+import { OnboardingBanner } from "@/components/onboarding-banner";
 import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare, Send, User, ChevronDown } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
@@ -58,11 +38,7 @@ function SidebarNavLink({ href, children, tooltip, badge }: { href: string; chil
     <SidebarMenuButton asChild tooltip={tooltip} isActive={isActive}>
       <Link href={href} onClick={handleClick} className="flex items-center justify-between w-full">
         <span className="flex items-center gap-2">{children}</span>
-        {badge && badge > 0 && (
-          <Badge variant="default" className="ml-auto h-5 min-w-5 px-1.5 bg-red-600 hover:bg-red-600">
-            {badge > 99 ? '99+' : badge}
-          </Badge>
-        )}
+        {badge && badge > 0 && <Badge variant="default" className="ml-auto h-5 min-w-5 px-1.5 bg-red-600 hover:bg-red-600">{badge > 99 ? '99+' : badge}</Badge>}
       </Link>
     </SidebarMenuButton>
   );
@@ -72,84 +48,32 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
   const { setOpenMobile, isMobile } = useSidebar();
   const handleSignOutClick = () => { if (isMobile) setOpenMobile(false); onSignOutClick(); };
   const unreadCount = useUnreadMessagesCount();
-  
   return (
     <>
       <SidebarContent>
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarNavLink href="/dashboard" tooltip="Dashboard"><Home /><span>Dashboard</span></SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem data-tour="sidebar-drivers">
-            <SidebarNavLink href="/dashboard/drivers" tooltip="Drivers"><Users /><span>Drivers</span></SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem data-tour="sidebar-loads">
-            <SidebarNavLink href="/dashboard/loads" tooltip="Loads"><Truck /><span>Loads</span></SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem data-tour="sidebar-matches">
-            <SidebarNavLink href="/dashboard/matches" tooltip="Find Matches"><BarChart /><span>Find Matches</span></SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarNavLink href="/dashboard/incoming-matches" tooltip="Incoming Requests"><Inbox /><span>Incoming Requests</span></SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarNavLink href="/dashboard/sent-requests" tooltip="Sent Requests"><Send /><span>Sent Requests</span></SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarNavLink href="/dashboard/messages" tooltip="Messages" badge={unreadCount}>
-              <MessageSquare /><span>Messages</span>
-            </SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarNavLink href="/dashboard/agreements" tooltip="Agreements"><FileText /><span>Agreements</span></SidebarNavLink>
-          </SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard" tooltip="Dashboard"><Home /><span>Dashboard</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem data-tour="sidebar-drivers"><SidebarNavLink href="/dashboard/drivers" tooltip="Drivers"><Users /><span>Drivers</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem data-tour="sidebar-loads"><SidebarNavLink href="/dashboard/loads" tooltip="Loads"><Truck /><span>Loads</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem data-tour="sidebar-matches"><SidebarNavLink href="/dashboard/matches" tooltip="Find Matches"><BarChart /><span>Find Matches</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/incoming-matches" tooltip="Incoming Requests"><Inbox /><span>Incoming Requests</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/sent-requests" tooltip="Sent Requests"><Send /><span>Sent Requests</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/messages" tooltip="Messages" badge={unreadCount}><MessageSquare /><span>Messages</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/agreements" tooltip="Agreements"><FileText /><span>Agreements</span></SidebarNavLink></SidebarMenuItem>
         </SidebarMenu>
-        {isAdmin && (
-          <>
-            <Separator className="my-2" />
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarNavLink href="/admin" tooltip="Admin Console">
-                  <Shield className="text-red-500" /><span className="text-red-500 font-medium">Admin Console</span>
-                </SidebarNavLink>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </>
-        )}
+        {isAdmin && (<><Separator className="my-2" /><SidebarMenu><SidebarMenuItem><SidebarNavLink href="/admin" tooltip="Admin Console"><Shield className="text-red-500" /><span className="text-red-500 font-medium">Admin Console</span></SidebarNavLink></SidebarMenuItem></SidebarMenu></>)}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarNavLink href="/dashboard/profile" tooltip="Profile"><User /><span>Profile</span></SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarNavLink href="/dashboard/settings" tooltip="Settings"><Settings /><span>Settings</span></SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarNavLink href="/dashboard/billing" tooltip="Billing"><LifeBuoy /><span>Billing & Support</span></SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarNavLink href="/dashboard/contact" tooltip="Contact Us"><HelpCircle /><span>Contact Us</span></SidebarNavLink>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton onClick={handleSignOutClick} tooltip="Logout"><LogOut /><span>Logout</span></SidebarMenuButton>
-          </SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/profile" tooltip="Profile"><User /><span>Profile</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/settings" tooltip="Settings"><Settings /><span>Settings</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/billing" tooltip="Billing"><LifeBuoy /><span>Billing & Support</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/contact" tooltip="Contact Us"><HelpCircle /><span>Contact Us</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarMenuButton onClick={handleSignOutClick} tooltip="Logout"><LogOut /><span>Logout</span></SidebarMenuButton></SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
     </>
   );
-}
-
-/**
- * Determines the next incomplete onboarding step.
- * Returns the redirect path or null if onboarding is complete.
- */
-function getOnboardingRedirect(status: OnboardingStatus | undefined): string | null {
-  if (!status) return '/create-profile';
-  if (!status.profileComplete) return '/create-profile';
-  if (!status.complianceAttested) return '/onboarding/compliance';
-  if (!status.fmcsaDesignated || status.fmcsaDesignated === false) return '/onboarding/fmcsa-clearinghouse';
-  return null;
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -161,6 +85,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isAdmin, setIsAdmin] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | undefined>(undefined);
 
   useEffect(() => {
     if (!isUserLoading && !user && !isLoggingOut) {
@@ -175,22 +100,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data();
-          if (userData.role === 'driver') {
-            router.push('/driver-dashboard');
-            return;
-          }
+          if (userData.role === 'driver') { router.push('/driver-dashboard'); return; }
         }
         const ownerDoc = await getDoc(doc(db, 'owner_operators', user.uid));
         if (ownerDoc.exists()) {
           const ownerData = ownerDoc.data();
           setIsAdmin(ownerData.isAdmin === true);
-
-          // Check onboarding status and redirect if incomplete
-          const onboardingRedirect = getOnboardingRedirect(ownerData.onboardingStatus);
-          if (onboardingRedirect) {
-            router.push(onboardingRedirect);
-            return;
-          }
+          setOnboardingStatus(ownerData.onboardingStatus);
         }
         setRoleChecked(true);
       } catch (error) {
@@ -202,34 +118,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [user, db, router]);
 
   const handleSignOut = async () => {
-    try {
-      setIsLoggingOut(true);
-      await auth.signOut();
-      router.push('/login');
-    } catch (error) {
-      console.error("Failed to sign out:", error);
-      setIsLoggingOut(false);
-    }
+    try { setIsLoggingOut(true); await auth.signOut(); router.push('/login'); } catch (error) { console.error("Failed to sign out:", error); setIsLoggingOut(false); }
   };
 
-  if (isUserLoading) {
-    return (<div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>);
-  }
-
-  if (!user) {
-    return (<div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>);
-  }
-
-  if (!roleChecked) {
-    return (<div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>);
-  }
+  if (isUserLoading || !user || !roleChecked) return <div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>;
 
   return (
     <SidebarProvider>
       <Sidebar>
-        <SidebarHeader>
-          <Logo linkTo="/" forceLight />
-        </SidebarHeader>
+        <SidebarHeader><Logo linkTo="/" forceLight /></SidebarHeader>
         <SidebarNav onSignOutClick={() => setShowLogoutDialog(true)} isAdmin={isAdmin} />
       </Sidebar>
       <SidebarInset>
@@ -237,7 +134,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <SidebarTrigger className="md:hidden" />
           <div className="ml-auto flex items-center gap-2">
             <ThemeToggle />
-            {/* User Dropdown Menu */}
             <DropdownMenu>
               <DropdownMenuTrigger className="flex items-center gap-1 text-xs md:text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer outline-none">
                 <User className="h-4 w-4" />
@@ -245,35 +141,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <ChevronDown className="h-3 w-3" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/profile" className="cursor-pointer">
-                    <User className="h-4 w-4 mr-2" />
-                    Profile
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/settings" className="cursor-pointer">
-                    <Settings className="h-4 w-4 mr-2" />
-                    Settings
-                  </Link>
-                </DropdownMenuItem>
+                <DropdownMenuItem asChild><Link href="/dashboard/profile" className="cursor-pointer"><User className="h-4 w-4 mr-2" />Profile</Link></DropdownMenuItem>
+                <DropdownMenuItem asChild><Link href="/dashboard/settings" className="cursor-pointer"><Settings className="h-4 w-4 mr-2" />Settings</Link></DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => setShowLogoutDialog(true)}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Sign Out
-                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowLogoutDialog(true)} className="cursor-pointer text-destructive focus:text-destructive"><LogOut className="h-4 w-4 mr-2" />Sign Out</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </header>
-        <main className="flex-1 overflow-auto p-3 md:p-6">{children}</main>
+        <main className="flex-1 overflow-auto p-3 md:p-6">
+          <OnboardingBanner onboardingStatus={onboardingStatus} />
+          {children}
+        </main>
       </SidebarInset>
-      
       <HelpWidget />
-      
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
