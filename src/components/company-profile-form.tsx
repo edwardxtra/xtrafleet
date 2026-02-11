@@ -85,11 +85,15 @@ export function CompanyProfileForm() {
   );
 
   const onSubmit = (values: ProfileFormValues) => {
+    // COI is complete if file uploaded OR all manual fields filled
+    const hasCoiData = !!(coiData.fileUrl || (coiData.insurerName && coiData.policyNumber && coiData.expiryDate));
+
     const missingFields: string[] = [];
     if (!values.dotNumber) missingFields.push('DOT #');
     if (!values.mcNumber) missingFields.push('MC #');
     if (!values.hqAddress) missingFields.push('HQ Address');
     if (!values.operatingStates?.length) missingFields.push('Operating States');
+    if (!hasCoiData) missingFields.push('Certificate of Insurance');
 
     if (missingFields.length > 0) {
       toast({ title: "Incomplete Profile", description: `Missing: ${missingFields.join(', ')}. Your progress has been saved \u2014 complete these fields to unlock all features.`, variant: "default" });
@@ -104,7 +108,7 @@ export function CompanyProfileForm() {
       formData.append('hqAddress', values.hqAddress || '');
       formData.append('operatingStates', JSON.stringify(values.operatingStates || []));
       formData.append('coiData', JSON.stringify(coiData));
-      const isComplete = !!(values.dotNumber && values.mcNumber && values.hqAddress && values.operatingStates?.length);
+      const isComplete = !!(values.dotNumber && values.mcNumber && values.hqAddress && values.operatingStates?.length && hasCoiData);
       formData.append('isProfileComplete', String(isComplete));
       try {
         await createCompanyProfile(formData);
