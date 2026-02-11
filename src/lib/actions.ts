@@ -50,7 +50,18 @@ export async function createCompanyProfile(formData: FormData) {
     }
   }
 
-  const profileData = {
+  // Parse COI data from JSON string
+  let coiData: Record<string, any> = {};
+  const coiDataRaw = formData.get('coiData') as string;
+  if (coiDataRaw) {
+    try {
+      coiData = JSON.parse(coiDataRaw);
+    } catch {
+      coiData = {};
+    }
+  }
+
+  const profileData: Record<string, any> = {
       id: user.uid,
       legalName: legalName,
       contactEmail: contactEmail,
@@ -67,6 +78,14 @@ export async function createCompanyProfile(formData: FormData) {
         completedAt: null,
       },
   };
+
+  // Add COI data if provided
+  if (Object.keys(coiData).length > 0) {
+    profileData.coi = {
+      ...coiData,
+      updatedAt: new Date().toISOString(),
+    };
+  }
   
   try {
       const { db } = await getFirebaseAdmin();
@@ -87,11 +106,8 @@ export async function createCompanyProfile(formData: FormData) {
 
   revalidatePath('/dashboard/getting-started');
   
-  if (process.env.STRIPE_SECRET_KEY) {
-    redirect('/payment');
-  } else {
-    redirect('/dashboard/getting-started');
-  }
+  // After profile, redirect to compliance attestations
+  redirect('/onboarding/compliance');
 }
 
 export async function updateCompanyProfile(values: unknown): Promise<{ error?: string; message?: string }> {
@@ -205,12 +221,10 @@ export async function sendPasswordReset(
   try {
     const { auth } = await getFirebaseAdmin();
 
-    // Generate the Firebase reset link (this goes to Firebase's default handler)
     const firebaseResetLink = await auth.generatePasswordResetLink(email, {
       url: 'https://xtrafleet.com/login',
     });
 
-    // Extract the oobCode from Firebase's link and construct our custom URL
     const firebaseUrl = new URL(firebaseResetLink);
     const oobCode = firebaseUrl.searchParams.get('oobCode');
     const apiKey = firebaseUrl.searchParams.get('apiKey');
@@ -219,7 +233,6 @@ export async function sendPasswordReset(
       throw new Error('Failed to generate reset code');
     }
 
-    // Construct our custom reset URL pointing to xtrafleet.com
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://xtrafleet.com';
     const resetLink = `${baseUrl}/auth/action?mode=resetPassword&oobCode=${oobCode}&apiKey=${apiKey}`;
 
@@ -279,8 +292,6 @@ export async function sendPasswordReset(
         error: '',
       };
     }
-
-    console.log('Password reset email sent to:', email);
 
     return {
       message: 'If an account exists for this email, a reset link has been sent.',
@@ -345,14 +356,12 @@ export async function inviteDriver(
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    // Get owner info for confirmation email
     let ownerEmail = user.email || '';
     let companyName = '';
     
     try {
       const { db } = await getFirebaseAdmin();
 
-      // Get owner data
       const ownerDoc = await db.collection('owner_operators').doc(user.uid).get();
       if (ownerDoc.exists) {
         const ownerData = ownerDoc.data();
@@ -360,7 +369,6 @@ export async function inviteDriver(
         companyName = ownerData?.legalName || ownerData?.companyName || '';
       }
 
-      // Save invitation
       await db.collection('driver_invitations').doc(invitationToken).set({
         email: email,
         ownerId: user.uid,
@@ -378,7 +386,6 @@ export async function inviteDriver(
 
     const invitationLink = `https://xtrafleet.com/driver-register?token=${invitationToken}`;
     
-    // Send invitation email to driver
     const { data, error } = await resend.emails.send({
       from: 'XtraFleet <noreply@xtrafleet.com>',
       to: [email],
@@ -411,7 +418,6 @@ export async function inviteDriver(
       };
     }
 
-    // Send confirmation email to owner
     if (ownerEmail) {
       await sendDriverInvitationConfirmationEmail(ownerEmail, email, companyName).catch(err => {
         console.error('Failed to send invitation confirmation to owner:', err);
