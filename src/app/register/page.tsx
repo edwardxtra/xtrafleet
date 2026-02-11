@@ -58,7 +58,6 @@ function RegisterContent() {
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
     const companyName = formData.get('companyName') as string;
-    const phone = formData.get('phone') as string;
 
     if (!email || !password || !companyName) {
       setError("Company name, email, and password are required.");
@@ -82,14 +81,20 @@ function RegisterContent() {
       const newUser = userCredential.user;
       
       if (db && newUser) {
-        // Create owner_operators doc with consents
+        // Create owner_operators doc with consents and onboarding status
         await setDoc(doc(db, "owner_operators", newUser.uid), {
           id: newUser.uid,
           companyName: companyName,
+          legalName: companyName,
           contactEmail: newUser.email,
-          phone: phone || '',
           subscriptionStatus: 'inactive',
           createdAt: new Date().toISOString(),
+          onboardingStatus: {
+            profileComplete: false,
+            complianceAttested: false,
+            fmcsaDesignated: false,
+            completedAt: null,
+          },
           consents: {
             userAgreement: {
               accepted: true,
@@ -112,10 +117,8 @@ function RegisterContent() {
         });
 
         // Set the session cookie
-        console.log('🔵 Getting ID token for session...');
         const token = await newUser.getIdToken();
         
-        console.log('🔵 Calling session API...');
         const response = await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -126,7 +129,6 @@ function RegisterContent() {
           throw new Error('Failed to create session');
         }
 
-        console.log('✅ Session created successfully');
         showSuccess('Account created successfully!');
         
         // Redirect to create profile
@@ -253,16 +255,6 @@ function RegisterContent() {
                   name="companyName" 
                   placeholder="Acme Trucking LLC" 
                   required 
-                  disabled={loading}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="phone">Phone Number</Label>
-                <Input 
-                  id="phone" 
-                  name="phone" 
-                  type="tel"
-                  placeholder="(555) 123-4567" 
                   disabled={loading}
                 />
               </div>
