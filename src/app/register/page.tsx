@@ -66,7 +66,6 @@ function RegisterContent() {
       return;
     }
 
-    // Validate password with enhanced requirements
     const passwordValidation = passwordSchema.safeParse(password);
     if (!passwordValidation.success) {
       const errorMessage = passwordValidation.error.errors[0].message;
@@ -81,7 +80,6 @@ function RegisterContent() {
       const newUser = userCredential.user;
       
       if (db && newUser) {
-        // Create owner_operators doc with consents and onboarding status
         await setDoc(doc(db, "owner_operators", newUser.uid), {
           id: newUser.uid,
           companyName: companyName,
@@ -109,14 +107,12 @@ function RegisterContent() {
           },
         });
         
-        // Create users doc with role
         await setDoc(doc(db, "users", newUser.uid), {
           role: 'owner_operator',
           email: newUser.email,
           createdAt: new Date().toISOString(),
         });
 
-        // Set the session cookie
         const token = await newUser.getIdToken();
         
         const response = await fetch('/api/auth/session', {
@@ -129,9 +125,14 @@ function RegisterContent() {
           throw new Error('Failed to create session');
         }
 
+        // Send welcome/registration email (fire-and-forget)
+        fetch('/api/send-welcome-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: newUser.email, companyName }),
+        }).catch(err => console.error('Failed to send welcome email:', err));
+
         showSuccess('Account created successfully!');
-        
-        // Redirect to create profile
         router.push('/create-profile');
         
       } else {
@@ -157,7 +158,6 @@ function RegisterContent() {
     }
   };
 
-  // Check which password requirements are met
   const passwordChecks = {
     length: passwordValue.length >= 8,
     uppercase: /[A-Z]/.test(passwordValue),
@@ -173,7 +173,6 @@ function RegisterContent() {
     );
   }
 
-  // If user is already logged in, show options instead of auto-redirecting
   if (user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -283,7 +282,6 @@ function RegisterContent() {
                   onChange={(e) => setPasswordValue(e.target.value)}
                 />
                 
-                {/* Password Requirements Checklist */}
                 {passwordValue && (
                   <div className="mt-2 space-y-1">
                     <p className="text-xs text-muted-foreground mb-1">Password must have:</p>
@@ -308,11 +306,9 @@ function RegisterContent() {
                 )}
               </div>
 
-              {/* Legal Consents */}
               <div className="space-y-4 pt-4 border-t">
                 <p className="text-sm font-medium">Legal Agreements</p>
                 
-                {/* User Agreement Consent */}
                 <div className="flex items-start gap-3">
                   <Checkbox
                     id="userAgreement"
@@ -330,7 +326,6 @@ function RegisterContent() {
                   </Label>
                 </div>
 
-                {/* E-Sign Consent */}
                 <div className="flex items-start gap-3">
                   <Checkbox
                     id="esignConsent"
