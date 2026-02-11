@@ -129,6 +129,13 @@ function RegisterContent() {
           throw new Error('Failed to create session');
         }
 
+        // Send welcome/registration email (fire-and-forget)
+        fetch('/api/send-welcome-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: newUser.email, companyName }),
+        }).catch(err => console.error('Failed to send welcome email:', err));
+
         showSuccess('Account created successfully!');
         
         // Redirect to create profile
