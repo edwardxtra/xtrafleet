@@ -427,7 +427,7 @@ export function TLASignForm({ tla, tlaId, signingRole, onSignSuccess }: TLASignF
         <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-md">
           <p className="font-medium mb-1">Signature Audit Trail:</p>
           <p>
-            Your signature will include your name, current date/time, IP address, and device information
+            Your signature will include your name and current date/time
             for legal compliance and verification purposes.
           </p>
         </div>
