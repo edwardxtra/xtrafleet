@@ -47,11 +47,7 @@ const profileSchema = z.object({
   cdlClass: z.enum(CDL_CLASSES, { errorMap: () => ({ message: "Please select CDL class" }) }),
   endorsements: z.array(z.string()),
   medicalCertExpiration: z.string().min(1, "Medical certificate expiration is required"),
-  accuracyConsent: z.boolean().refine(val => val === true, "Required"),
-  verificationConsent: z.boolean().refine(val => val === true, "Required"),
-  employmentConsent: z.boolean().refine(val => val === true, "Required"),
-  tripLeasingConsent: z.boolean().refine(val => val === true, "Required"),
-  electronicRecordsConsent: z.boolean().refine(val => val === true, "Required"),
+  authorizationConsent: z.boolean().refine(val => val === true, "You must accept the Driver Authorization & Disclosure to continue"),
 });
 
 type ProfileValues = z.infer<typeof profileSchema>;
@@ -70,11 +66,7 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
     mode: "onChange",
     defaultValues: {
       endorsements: [],
-      accuracyConsent: false,
-      verificationConsent: false,
-      employmentConsent: false,
-      tripLeasingConsent: false,
-      electronicRecordsConsent: false,
+      authorizationConsent: false,
     }
   });
 
@@ -99,16 +91,6 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
     };
   };
 
-  const getIPAddress = async () => {
-    try {
-      const response = await fetch('https://api.ipify.org?format=json');
-      const data = await response.json();
-      return data.ip;
-    } catch {
-      return 'unknown';
-    }
-  };
-
   const onSubmit = async (values: ProfileValues) => {
     setIsSubmitting(true);
 
@@ -116,7 +98,6 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
       const deviceInfo = getDeviceFingerprint();
       const timestamp = new Date().toISOString();
 
-      // Build payload matching API expectations: { profileData, consents, deviceInfo }
       const response = await fetch('/api/submit-driver-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -130,30 +111,11 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
             medicalCertExpiration: values.medicalCertExpiration,
           },
           consents: {
-            accuracy: { 
-              accepted: values.accuracyConsent, 
-              timestamp, 
-              version: "1.0"
-            },
-            verification: { 
-              accepted: values.verificationConsent, 
-              timestamp, 
-              version: "1.0"
-            },
-            employment: { 
-              accepted: values.employmentConsent, 
-              timestamp, 
-              version: "1.0"
-            },
-            tripLeasing: { 
-              accepted: values.tripLeasingConsent, 
-              timestamp, 
-              version: "1.0"
-            },
-            electronicRecords: { 
-              accepted: values.electronicRecordsConsent, 
-              timestamp, 
-              version: "1.0"
+            driverAuthorization: {
+              accepted: values.authorizationConsent,
+              timestamp,
+              version: "2.0",
+              text: "I authorize XtraFleet Technologies Inc. and its authorized compliance partners to obtain, use, and disclose my motor vehicle record (MVR), license status, endorsements, restrictions, and related safety and compliance information from federal, state, and third-party sources for commercial transportation and compliance verification purposes. I certify that the information I have provided is accurate and complete to the best of my knowledge and understand that this authorization applies on a transaction-specific, time-limited basis in accordance with applicable law.",
             },
           },
           deviceInfo,
@@ -167,8 +129,8 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
       }
 
       toast({
-        title: "Profile Submitted! 🎉",
-        description: "Your information has been submitted. Awaiting fleet attestation.",
+        title: "Profile Submitted!",
+        description: "Your information has been submitted. Awaiting fleet confirmation.",
       });
 
       if (onComplete) onComplete();
@@ -189,7 +151,7 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
       <CardHeader>
         <CardTitle>Complete Your Driver Profile</CardTitle>
         <CardDescription>
-          Enter your CDL information and consent to verification. No document uploads required.
+          Enter your CDL information and authorize verification to get started.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -315,97 +277,22 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
             </div>
 
             <div className="space-y-4 pt-4 border-t">
-              <h3 className="font-semibold text-lg">Required Consents</h3>
-              <p className="text-sm text-muted-foreground">All consents are required to complete your profile.</p>
+              <h3 className="font-semibold text-lg">Driver Authorization & Disclosure</h3>
 
               <FormField
                 control={form.control}
-                name="accuracyConsent"
+                name="authorizationConsent"
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-start space-x-3 space-y-0 border rounded-md p-4">
                     <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                      <Checkbox checked={field.value} onCheckedChange={field.onChange} className="mt-0.5" />
                     </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>Accuracy Certification</FormLabel>
-                      <FormDescription>
-                        I certify that the information I have provided about myself, including my date of birth, commercial driver's license information, endorsements, and medical certificate expiration date, is true and accurate to the best of my knowledge.
+                    <div className="space-y-2 leading-relaxed">
+                      <FormDescription className="text-sm text-foreground">
+                        I authorize XtraFleet Technologies Inc. and its authorized compliance partners to obtain, use, and disclose my motor vehicle record (MVR), license status, endorsements, restrictions, and related safety and compliance information from federal, state, and third-party sources for commercial transportation and compliance verification purposes.
                       </FormDescription>
-                      <FormMessage />
-                    </div>
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="verificationConsent"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 border rounded-md p-4">
-                    <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>Verification Consent</FormLabel>
-                      <FormDescription>
-                        I authorize XtraFleet Technologies Inc. to verify my commercial driver's license status, endorsements, and eligibility through applicable government and third-party databases, including the FMCSA Drug & Alcohol Clearinghouse, as permitted by law.
-                      </FormDescription>
-                      <FormMessage />
-                    </div>
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="employmentConsent"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 border rounded-md p-4">
-                    <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>Employment Acknowledgment</FormLabel>
-                      <FormDescription>
-                        I acknowledge that I remain an employee or contractor of my employing carrier and that XtraFleet is not my employer, dispatcher, broker, or agent.
-                      </FormDescription>
-                      <FormMessage />
-                    </div>
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="tripLeasingConsent"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 border rounded-md p-4">
-                    <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>Trip Leasing Acknowledgment</FormLabel>
-                      <FormDescription>
-                        I understand that I may be temporarily leased to another carrier for specific trips and that responsibility for my qualification and employment remains with my employing carrier.
-                      </FormDescription>
-                      <FormMessage />
-                    </div>
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="electronicRecordsConsent"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 border rounded-md p-4">
-                    <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>Electronic Records & Signature Consent</FormLabel>
-                      <FormDescription>
-                        I consent to the use of electronic records and signatures in connection with my participation on the XtraFleet platform.
+                      <FormDescription className="text-sm text-foreground">
+                        I certify that the information I have provided is accurate and complete to the best of my knowledge and understand that this authorization applies on a transaction-specific, time-limited basis in accordance with applicable law.
                       </FormDescription>
                       <FormMessage />
                     </div>

@@ -23,7 +23,6 @@ import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
 import { useOnlineStatus } from '@/hooks/use-online-status';
 import { DQFCompletionModal } from '@/components/dqf-completion-modal';
-import { DriverProfileCompletion } from '@/components/driver-profile-completion';
 import { DriverStatusBadge } from '@/components/driver-status-badge';
 
 interface Match {
@@ -51,6 +50,7 @@ export default function DriverDashboard() {
   const [dqfStatus, setDqfStatus] = useState<string>('');
   const [profileStatus, setProfileStatus] = useState<string>('');
   const [profileComplete, setProfileComplete] = useState<boolean>(false);
+  const [isFirstLogin, setIsFirstLogin] = useState(false);
   const [showDqfModal, setShowDqfModal] = useState(false);
   const isOnline = useOnlineStatus();
 
@@ -77,6 +77,10 @@ export default function DriverDashboard() {
           setDqfStatus(driverData.dqfStatus || 'not_required');
           setProfileStatus(driverData.profileStatus || '');
           setProfileComplete(driverData.profileComplete || false);
+
+          // Check if first login (profile just submitted, no completed matches yet)
+          const isNew = driverData.profileStatus === 'pending_confirmation' && !driverData.hasLoggedInBefore;
+          setIsFirstLogin(isNew);
           
           if (driverData.dqfStatus === 'pending') {
             setShowDqfModal(true);
@@ -95,11 +99,6 @@ export default function DriverDashboard() {
   const handleDqfComplete = () => {
     setShowDqfModal(false);
     setDqfStatus('submitted');
-  };
-
-  const handleProfileComplete = () => {
-    setProfileStatus('pending_confirmation');
-    router.refresh();
   };
 
   const matchesQuery = useMemoFirebase(() => {
@@ -156,8 +155,10 @@ export default function DriverDashboard() {
     );
   }
 
-  // Show profile completion if incomplete
-  const needsProfileCompletion = !profileStatus || profileStatus === 'incomplete';
+  // Determine welcome message
+  const welcomeText = isFirstLogin
+    ? `Welcome${driverName ? `, ${driverName.split(' ')[0]}` : ''}!`
+    : `Welcome back${driverName ? `, ${driverName.split(' ')[0]}` : ''}!`;
 
   return (
     <>
@@ -177,17 +178,12 @@ export default function DriverDashboard() {
           </Alert>
         )}
 
-        {/* Profile completion section */}
-        {needsProfileCompletion && user && (
-          <DriverProfileCompletion driverId={user.uid} onComplete={handleProfileComplete} />
-        )}
-
         {/* Status alerts based on profile status */}
         {profileStatus === 'pending_confirmation' && (
           <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
             <Clock className="h-4 w-4" />
             <AlertDescription>
-              ⏳ Your profile has been submitted and is awaiting confirmation from your fleet.
+              Your profile has been submitted and is awaiting confirmation from your fleet.
             </AlertDescription>
           </Alert>
         )}
@@ -196,7 +192,7 @@ export default function DriverDashboard() {
           <Alert className="border-green-500 bg-green-50 dark:bg-green-950">
             <CheckCircle className="h-4 w-4" />
             <AlertDescription>
-              ✅ Your profile is confirmed! You're eligible for leasing opportunities.
+              Your profile is confirmed! You're eligible for leasing opportunities.
             </AlertDescription>
           </Alert>
         )}
@@ -233,10 +229,9 @@ export default function DriverDashboard() {
 
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Welcome back{driverName && `, ${driverName.split(' ')[0]}`}!</h1>
+            <h1 className="text-3xl font-bold mb-2">{welcomeText}</h1>
             <p className="text-muted-foreground">Here's an overview of your activity</p>
           </div>
-          {/* Show status badge */}
           {profileStatus && (
             <DriverStatusBadge 
               profileStatus={profileStatus}
@@ -302,7 +297,7 @@ export default function DriverDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <p className="font-medium">
-                          {match.loadSnapshot.origin} → {match.loadSnapshot.destination}
+                          {match.loadSnapshot.origin} \u2192 {match.loadSnapshot.destination}
                         </p>
                         {getStatusBadge(match.status)}
                       </div>
@@ -361,7 +356,7 @@ export default function DriverDashboard() {
                 </p>
                 <Button asChild>
                   <Link href="/driver-dashboard/profile">
-                    Complete Your Profile
+                    View Your Profile
                   </Link>
                 </Button>
               </div>
@@ -375,7 +370,7 @@ export default function DriverDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <p className="font-medium">
-                          {match.loadSnapshot.origin} → {match.loadSnapshot.destination}
+                          {match.loadSnapshot.origin} \u2192 {match.loadSnapshot.destination}
                         </p>
                         {getStatusBadge(match.status)}
                       </div>
