@@ -45,6 +45,7 @@ function FMCSAClearinghouseContent() {
         'onboardingStatus.fmcsaDesignated': alreadyDesignated ? true : 'pending',
         'onboardingStatus.fmcsaDesignatedAt': new Date().toISOString(),
         'onboardingStatus.completedAt': new Date().toISOString(),
+        clearinghouseCompletedAt: new Date().toISOString(),
         fmcsaClearinghouse: {
           alreadyDesignated: alreadyDesignated,
           acknowledgment: acknowledgment,

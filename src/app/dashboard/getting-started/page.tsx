@@ -8,24 +8,38 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Check, Edit, PlusCircle, Upload, Users, Truck, AlertCircle, Shield, Database } from "lucide-react";
+import { Check, Edit, PlusCircle, Upload, Users, Truck, AlertCircle, Shield, Database, Clock } from "lucide-react";
 import Link from "next/link";
 import { UploadDriversCSV } from "@/components/upload-drivers-csv";
 import { UploadLoadsCSV } from "@/components/upload-loads-csv";
 import { useUser, useDoc, useFirestore, useMemoFirebase } from "@/firebase";
 import { doc } from 'firebase/firestore';
 import { Skeleton } from "@/components/ui/skeleton";
+import { format, parseISO } from 'date-fns';
 
 interface OwnerOperatorProfile {
   legalName?: string;
   subscriptionStatus?: 'active' | 'inactive';
+  profileCompletedAt?: string;
+  clearinghouseCompletedAt?: string;
   onboardingStatus?: {
     profileComplete?: boolean;
+    profileCompletedAt?: string;
     complianceAttested?: boolean;
     fmcsaDesignated?: boolean | string;
+    fmcsaDesignatedAt?: string;
     completedAt?: string | null;
   };
 }
+
+const formatTimestamp = (dateString?: string | null) => {
+  if (!dateString) return null;
+  try {
+    return format(parseISO(dateString), "MMM d, yyyy 'at' h:mm a");
+  } catch {
+    return null;
+  }
+};
 
 export default function GettingStartedPage() {
   const { user, isUserLoading } = useUser();
@@ -42,6 +56,9 @@ export default function GettingStartedPage() {
   const isComplianceAttested = !!profile?.onboardingStatus?.complianceAttested;
   const isFmcsaDesignated = profile?.onboardingStatus?.fmcsaDesignated === true;
   const isFullyOnboarded = isProfileComplete && isComplianceAttested;
+
+  const profileCompletedAt = formatTimestamp(profile?.onboardingStatus?.profileCompletedAt || profile?.profileCompletedAt);
+  const clearinghouseCompletedAt = formatTimestamp(profile?.clearinghouseCompletedAt || profile?.onboardingStatus?.fmcsaDesignatedAt);
 
   const isLoading = isProfileLoading || isUserLoading;
 
@@ -66,7 +83,17 @@ export default function GettingStartedPage() {
           </CardHeader>
           <CardContent>
             {isLoading && <Skeleton className="h-10 w-full" />}
-            {!isLoading && isProfileComplete && <p className="text-sm text-muted-foreground">Your company profile is set up.</p>}
+            {!isLoading && isProfileComplete && (
+              <>
+                <p className="text-sm text-muted-foreground">Your company profile is set up.</p>
+                {profileCompletedAt && (
+                  <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Completed: {profileCompletedAt}
+                  </p>
+                )}
+              </>
+            )}
             {!isLoading && !isProfileComplete && (
               <>
                 <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">Your profile is incomplete.</p>
@@ -122,12 +149,22 @@ export default function GettingStartedPage() {
           </CardHeader>
           <CardContent>
             {isLoading && <Skeleton className="h-10 w-full" />}
-            {!isLoading && isFmcsaDesignated && <p className="text-sm text-muted-foreground">Clearinghouse designation confirmed.</p>}
+            {!isLoading && isFmcsaDesignated && (
+              <>
+                <p className="text-sm text-muted-foreground">Clearinghouse designation confirmed.</p>
+                {clearinghouseCompletedAt && (
+                  <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Completed: {clearinghouseCompletedAt}
+                  </p>
+                )}
+              </>
+            )}
             {!isLoading && !isFmcsaDesignated && (
               <>
                 <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">
                   {profile?.onboardingStatus?.fmcsaDesignated === 'pending' ? 'Pending confirmation.' : 
-                   profile?.onboardingStatus?.fmcsaDesignated === 'skipped' ? 'Skipped — complete when ready.' : 'Not yet started.'}
+                   profile?.onboardingStatus?.fmcsaDesignated === 'skipped' ? 'Skipped \u2014 complete when ready.' : 'Not yet started.'}
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">Designate XtraFleet for Drug & Alcohol eligibility checks.</p>
                 <Button asChild className="mt-4 w-full" variant="default">
