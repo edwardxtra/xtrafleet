@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { showSuccess, showError } from '@/lib/toast-utils';
-import { ArrowLeft, Loader2, Save, Send, Lock, AlertCircle, MapPin, FileText, Shield } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, Send, Lock, AlertCircle, MapPin, FileText, Shield, ArrowRight } from 'lucide-react';
 import { TRAILER_TYPES } from '@/lib/trailer-types';
 import { LOAD_TYPES, CDL_CLASSES, LOAD_ENDORSEMENTS, LOAD_STATUSES, isFullyEditable, isLimitedEditable } from '@/lib/load-types';
 import type { Load } from '@/lib/data';
@@ -116,7 +116,7 @@ export default function EditLoadPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-2xl font-headline">{canEdit ? 'Edit Load' : 'View Load'}</CardTitle>
-              <CardDescription>{load.origin} \u2192 {load.destination}</CardDescription>
+              <CardDescription>{load.origin} <ArrowRight className="inline h-3.5 w-3.5" /> {load.destination}</CardDescription>
             </div>
             <Badge variant={status === 'draft' ? 'secondary' : status === 'live' ? 'default' : status === 'cancelled' ? 'destructive' : 'outline'}>{statusLabel}</Badge>
           </div>
