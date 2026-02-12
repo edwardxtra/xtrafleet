@@ -18,13 +18,12 @@ import { TRAILER_TYPES } from '@/lib/trailer-types';
 import type { Load } from '@/lib/data';
 import { format, parseISO } from 'date-fns';
 
-type StatusFilter = 'all' | 'draft' | 'live' | 'match_pending' | 'completed' | 'cancelled';
+type StatusFilter = 'all' | 'draft' | 'live' | 'completed' | 'cancelled';
 
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'draft', label: 'Drafts' },
   { value: 'live', label: 'Live' },
-  { value: 'match_pending', label: 'Pending' },
   { value: 'completed', label: 'Completed' },
   { value: 'cancelled', label: 'Cancelled' },
 ];
@@ -168,12 +167,12 @@ export default function LoadsPage() {
                     <TableRow key={load.id} className="cursor-pointer hover:bg-muted/50" onClick={() => router.push(`/dashboard/loads/${load.id}/edit`)}>
                       <TableCell>
                         <div className="font-medium">{load.origin}</div>
-                        <div className="text-sm text-muted-foreground">\u2192 {load.destination}</div>
+                        <div className="text-sm text-muted-foreground">{`\u2192 ${load.destination}`}</div>
                       </TableCell>
-                      <TableCell className="text-sm">{load.pickupDate ? format(parseISO(load.pickupDate), 'MMM d, yyyy') : '\u2014'}</TableCell>
-                      <TableCell className="text-sm">{LOAD_TYPES.find(t => t.value === loadType)?.label || loadType || '\u2014'}</TableCell>
-                      <TableCell className="text-sm">{load.trailerType ? getTrailerTypeLabel(load.trailerType) : '\u2014'}</TableCell>
-                      <TableCell className="text-right font-medium">{compensation > 0 ? `$${compensation.toLocaleString()}` : '\u2014'}</TableCell>
+                      <TableCell className="text-sm">{load.pickupDate ? format(parseISO(load.pickupDate), 'MMM d, yyyy') : 'N/A'}</TableCell>
+                      <TableCell className="text-sm">{LOAD_TYPES.find(t => t.value === loadType)?.label || loadType || 'N/A'}</TableCell>
+                      <TableCell className="text-sm">{load.trailerType ? getTrailerTypeLabel(load.trailerType) : 'N/A'}</TableCell>
+                      <TableCell className="text-right font-medium">{compensation > 0 ? `$${compensation.toLocaleString()}` : 'N/A'}</TableCell>
                       <TableCell><Badge variant={getStatusBadgeVariant(status)}>{getStatusLabel(status)}</Badge></TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
