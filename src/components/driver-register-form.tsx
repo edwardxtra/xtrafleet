@@ -121,7 +121,6 @@ export function DriverRegisterForm({
         throw new Error(data.error || 'Failed to create account');
       }
 
-      // Auto-login: sign in with the credentials just used to register
       toast({
         title: "Welcome to XtraFleet!",
         description: "Account created. Signing you in...",
@@ -140,7 +139,6 @@ export function DriverRegisterForm({
 
         window.location.href = '/driver-dashboard';
       } catch (loginError) {
-        // If auto-login fails, fall back to the login page
         console.error('Auto-login failed, redirecting to login:', loginError);
         router.push(`/login?email=${encodeURIComponent(invitationEmail)}&message=Account created successfully. Please log in.`);
       }
@@ -177,9 +175,9 @@ export function DriverRegisterForm({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
-          <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">✨ Quick Setup</p>
+          <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">\u2728 Quick Setup</p>
           <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-            Create your account in under 2 minutes. You'll complete your compliance documents after logging in.
+            Create your account in under 2 minutes. You'll complete your CDL and compliance information after logging in.
           </p>
         </div>
 
@@ -193,7 +191,7 @@ export function DriverRegisterForm({
               <FormItem>
                 <FormLabel>Password</FormLabel>
                 <FormControl>
-                  <Input type="password" placeholder="••••••••" {...field} />
+                  <Input type="password" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" {...field} />
                 </FormControl>
                 <FormMessage />
                 {passwordValue && (
@@ -349,10 +347,10 @@ export function DriverRegisterForm({
                   </FormControl>
                   <div className="space-y-1">
                     <Label className="text-sm leading-relaxed cursor-pointer">
-                      You consent to receive Electronic Records related to driver qualification, 
-                      safety compliance, background screening, and employment eligibility.{' '}
+                      I consent to the use of electronic records and signatures in connection with 
+                      my participation on the XtraFleet platform.{' '}
                       <Link href="/legal/esign-consent" target="_blank" className="underline text-primary hover:text-primary/80">
-                        View E-Sign Agreement
+                        E-Sign Agreement
                       </Link>
                     </Label>
                     <FormMessage />
@@ -363,12 +361,6 @@ export function DriverRegisterForm({
           />
         </div>
 
-        <div className="bg-muted rounded-lg p-4">
-          <p className="text-sm text-muted-foreground">
-            📋 <strong>After signup:</strong> Complete your CDL info and compliance documents to start receiving loads.
-          </p>
-        </div>
-
         <div className="flex justify-end pt-4">
           <Button type="submit" disabled={isSubmitting} size="lg" className="w-full md:w-auto">
             {isSubmitting ? (
@@ -377,10 +369,17 @@ export function DriverRegisterForm({
                 Creating Account...
               </>
             ) : (
-              "Create Account & Continue →"
+              "Create Account & Continue \u2192"
             )}
           </Button>
         </div>
+
+        <p className="text-center text-xs text-muted-foreground">
+          By creating an account you also agree to our{' '}
+          <Link href="/legal/terms-of-service" target="_blank" className="underline text-primary hover:text-primary/80">
+            Terms of Service
+          </Link>
+        </p>
       </form>
     </Form>
   );
