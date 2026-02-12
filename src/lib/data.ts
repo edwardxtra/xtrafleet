@@ -1,4 +1,5 @@
 import type { TrailerType } from './trailer-types';
+import type { LoadType, CDLClass, LoadEndorsement, LoadStatus } from './load-types';
 
 export type Review = {
   id: string;
@@ -57,16 +58,33 @@ export type Load = {
   id: string;
   origin: string;
   destination: string;
-  cargo: string;
-  weight: number;
-  status: "Pending" | "Matched" | "In-transit" | "Delivered";
-  requiredQualifications: string[];
-  trailerType?: TrailerType; // New - standardized trailer type
+  loadType: string; // Standardized load type from LOAD_TYPES dropdown
+  cargo?: string; // Legacy free-text cargo field (kept for backward compatibility)
+  status: LoadStatus;
+  driverCompensation: number; // Replaces 'price'
+  price?: number; // Legacy field (kept for backward compatibility)
+  pickupDate: string;
+  estimatedDeliveryDate?: string;
+  trailerType?: TrailerType;
+  cdlClassRequired: string[]; // Required CDL classes (A, B, C)
+  endorsementsRequired?: string[]; // Optional endorsement requirements (H, N, T)
+  additionalDetails?: string;
+  requiredQualifications?: string[]; // Legacy field
   description?: string;
-  ownerId?: string;
-  price?: number;
-  pickupDate?: string;
-  route?: RouteInfo; // Truck route calculation from Radar API
+  ownerOperatorId?: string;
+  ownerId?: string; // Legacy alias
+  route?: RouteInfo;
+  // Consent tracking
+  verificationConsent?: {
+    accepted: boolean;
+    timestamp: string;
+    version: string;
+    text: string;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+  cancelledAt?: string;
+  cancelledReason?: string;
 };
 
 export type BillingHistoryItem = {
@@ -97,9 +115,8 @@ export type Match = {
   driverOwnerId: string;
   driverName?: string;
   driverOwnerName?: string;
-  // Bidirectional matching fields
   initiatedBy: 'load_owner' | 'driver_owner';
-  recipientOwnerId: string; // The owner who needs to respond
+  recipientOwnerId: string;
   status: MatchStatus;
   matchScore: number;
   originalTerms: {
@@ -148,27 +165,21 @@ export type OwnerOperator = {
   mcNumber?: string;
   isAdmin?: boolean;
   createdAt?: string;
-  // Certificate of Insurance (COI) fields
   insurance?: {
-    // General Liability Insurance
     liabilityCarrier?: string;
     liabilityPolicyNumber?: string;
     liabilityExpiry?: string;
     liabilityCoverageAmount?: number;
-    // Cargo Insurance
     cargoCarrier?: string;
     cargoPolicyNumber?: string;
     cargoExpiry?: string;
     cargoCoverageAmount?: number;
-    // Auto/Physical Damage Insurance
     autoCarrier?: string;
     autoPolicyNumber?: string;
     autoExpiry?: string;
-    // Workers Compensation (if applicable)
     workersCompCarrier?: string;
     workersCompPolicyNumber?: string;
     workersCompExpiry?: string;
-    // Document URL for uploaded COI
     coiDocumentUrl?: string;
     coiDocumentUploadedAt?: string;
   };
@@ -220,7 +231,6 @@ export type TLA = {
     startDate: string;
     endDate?: string;
   };
-  // Detailed location information (captured during lessee signing)
   locations?: {
     pickup?: {
       address: string;
