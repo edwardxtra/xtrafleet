@@ -1,5 +1,4 @@
 import type { TrailerType } from './trailer-types';
-import type { LoadType, CDLClass, LoadEndorsement, LoadStatus } from './load-types';
 
 export type Review = {
   id: string;
@@ -39,52 +38,25 @@ export type Driver = {
   drugAndAlcoholScreeningUrl?: string;
   rating?: number;
   reviews?: Review[];
-  driverType?: 'existing' | 'newHire';
-  dqfStatus?: 'not_required' | 'pending' | 'submitted' | 'approved' | 'rejected';
-  dqfSubmittedAt?: string | null;
-  dqfApprovedAt?: string | null;
-  dqfApprovedBy?: string | null;
-};
-
-export type RouteInfo = {
-  distanceMiles: number;
-  distanceText: string;
-  durationSeconds: number;
-  durationText: string;
-  calculatedAt: string;
+  phoneNumber?: string;
+  phone?: string;
+  endorsements?: string;
+  clearinghouseStatus?: string;
 };
 
 export type Load = {
   id: string;
   origin: string;
   destination: string;
-  loadType: string; // Standardized load type from LOAD_TYPES dropdown
-  cargo?: string; // Legacy free-text cargo field (kept for backward compatibility)
-  status: LoadStatus;
-  driverCompensation: number; // Replaces 'price'
-  price?: number; // Legacy field (kept for backward compatibility)
-  pickupDate: string;
-  estimatedDeliveryDate?: string;
-  trailerType?: TrailerType;
-  cdlClassRequired: string[]; // Required CDL classes (A, B, C)
-  endorsementsRequired?: string[]; // Optional endorsement requirements (H, N, T)
-  additionalDetails?: string;
-  requiredQualifications?: string[]; // Legacy field
+  cargo: string;
+  weight: number;
+  status: "Pending" | "Matched" | "In-transit" | "Delivered";
+  requiredQualifications: string[];
+  trailerType?: TrailerType; // New - standardized trailer type
   description?: string;
-  ownerOperatorId?: string;
-  ownerId?: string; // Legacy alias
-  route?: RouteInfo;
-  // Consent tracking
-  verificationConsent?: {
-    accepted: boolean;
-    timestamp: string;
-    version: string;
-    text: string;
-  };
-  createdAt?: string;
-  updatedAt?: string;
-  cancelledAt?: string;
-  cancelledReason?: string;
+  ownerId?: string;
+  price?: number;
+  pickupDate?: string;
 };
 
 export type BillingHistoryItem = {
@@ -115,8 +87,9 @@ export type Match = {
   driverOwnerId: string;
   driverName?: string;
   driverOwnerName?: string;
+  // Bidirectional matching fields
   initiatedBy: 'load_owner' | 'driver_owner';
-  recipientOwnerId: string;
+  recipientOwnerId: string; // The owner who needs to respond
   status: MatchStatus;
   matchScore: number;
   originalTerms: {
@@ -163,23 +136,18 @@ export type OwnerOperator = {
   zip?: string;
   dotNumber?: string;
   mcNumber?: string;
+  ein?: string;
+  dba?: string;
+  hqAddress?: string;
+  loadLocation?: string;
+  serviceRegions?: string;
   isAdmin?: boolean;
   createdAt?: string;
+  profileCompletedAt?: string;
+  clearinghouseCompletedAt?: string;
+  // Certificate of Insurance (COI) - simplified to just document upload
   insurance?: {
-    liabilityCarrier?: string;
-    liabilityPolicyNumber?: string;
-    liabilityExpiry?: string;
-    liabilityCoverageAmount?: number;
-    cargoCarrier?: string;
-    cargoPolicyNumber?: string;
-    cargoExpiry?: string;
-    cargoCoverageAmount?: number;
-    autoCarrier?: string;
-    autoPolicyNumber?: string;
-    autoExpiry?: string;
-    workersCompCarrier?: string;
-    workersCompPolicyNumber?: string;
-    workersCompExpiry?: string;
+    // Document URL for uploaded COI
     coiDocumentUrl?: string;
     coiDocumentUploadedAt?: string;
   };
@@ -191,6 +159,8 @@ export type TLASignature = {
   signedByRole: 'lessor' | 'lessee';
   signedAt: string;
   ipAddress?: string;
+  userAgent?: string;
+  consentToEsign?: boolean;
 };
 
 export type InsuranceOption = 'existing_policy' | 'trip_coverage';
@@ -201,7 +171,7 @@ export type TLA = {
   lessor: {
     ownerOperatorId: string;
     legalName: string;
-    address?: string;
+    address: string;
     dotNumber?: string;
     mcNumber?: string;
     contactEmail: string;
@@ -210,7 +180,7 @@ export type TLA = {
   lessee: {
     ownerOperatorId: string;
     legalName: string;
-    address?: string;
+    address: string;
     dotNumber?: string;
     mcNumber?: string;
     contactEmail: string;
@@ -222,6 +192,8 @@ export type TLA = {
     cdlNumber?: string;
     cdlState?: string;
     medicalCardExpiry?: string;
+    endorsements?: string;
+    clearinghouseStatus?: string;
   };
   trip: {
     origin: string;
@@ -231,6 +203,7 @@ export type TLA = {
     startDate: string;
     endDate?: string;
   };
+  // Detailed location information (captured during lessee signing)
   locations?: {
     pickup?: {
       address: string;
