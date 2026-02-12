@@ -124,7 +124,7 @@ export function CompanyProfileForm() {
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <FormField control={form.control} name="legalName" render={({ field }) => (
-          <FormItem><FormLabel>Legal Name</FormLabel><FormControl><Input {...field} disabled readOnly className="bg-muted" /></FormControl><p className="text-xs text-muted-foreground">Auto-filled from registration. Contact support to change.</p><FormMessage /></FormItem>
+          <FormItem><FormLabel>Legal Name *</FormLabel><FormControl><Input placeholder="e.g., ABC Trucking LLC" {...field} /></FormControl><FormMessage /></FormItem>
         )} />
 
         <FormField control={form.control} name="phone" render={({ field }) => (
