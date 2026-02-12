@@ -15,16 +15,29 @@ import { UploadLoadsCSV } from "@/components/upload-loads-csv";
 import { useUser, useDoc, useFirestore, useMemoFirebase } from "@/firebase";
 import { doc } from 'firebase/firestore';
 import { Skeleton } from "@/components/ui/skeleton";
+import { format, parseISO } from "date-fns";
 
 interface OwnerOperatorProfile {
   legalName?: string;
   subscriptionStatus?: 'active' | 'inactive';
   onboardingStatus?: {
     profileComplete?: boolean;
+    profileCompletedAt?: string | null;
     complianceAttested?: boolean;
+    complianceAttestedAt?: string | null;
     fmcsaDesignated?: boolean | string;
+    fmcsaDesignatedAt?: string | null;
     completedAt?: string | null;
   };
+}
+
+function formatTimestamp(dateString?: string | null): string {
+  if (!dateString) return '';
+  try {
+    return format(parseISO(dateString), "MMM d, yyyy 'at' h:mm a");
+  } catch {
+    return dateString;
+  }
 }
 
 export default function GettingStartedPage() {
@@ -66,7 +79,16 @@ export default function GettingStartedPage() {
           </CardHeader>
           <CardContent>
             {isLoading && <Skeleton className="h-10 w-full" />}
-            {!isLoading && isProfileComplete && <p className="text-sm text-muted-foreground">Your company profile is set up.</p>}
+            {!isLoading && isProfileComplete && (
+              <>
+                <p className="text-sm text-muted-foreground">Your company profile is set up.</p>
+                {profile?.onboardingStatus?.profileCompletedAt && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Completed: {formatTimestamp(profile.onboardingStatus.profileCompletedAt)}
+                  </p>
+                )}
+              </>
+            )}
             {!isLoading && !isProfileComplete && (
               <>
                 <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">Your profile is incomplete.</p>
@@ -94,7 +116,16 @@ export default function GettingStartedPage() {
           </CardHeader>
           <CardContent>
             {isLoading && <Skeleton className="h-10 w-full" />}
-            {!isLoading && isComplianceAttested && <p className="text-sm text-muted-foreground">Compliance attestations complete.</p>}
+            {!isLoading && isComplianceAttested && (
+              <>
+                <p className="text-sm text-muted-foreground">Compliance attestations complete.</p>
+                {profile?.onboardingStatus?.complianceAttestedAt && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Completed: {formatTimestamp(profile.onboardingStatus.complianceAttestedAt)}
+                  </p>
+                )}
+              </>
+            )}
             {!isLoading && !isComplianceAttested && (
               <>
                 <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">Attestations required.</p>
@@ -122,7 +153,16 @@ export default function GettingStartedPage() {
           </CardHeader>
           <CardContent>
             {isLoading && <Skeleton className="h-10 w-full" />}
-            {!isLoading && isFmcsaDesignated && <p className="text-sm text-muted-foreground">Clearinghouse designation confirmed.</p>}
+            {!isLoading && isFmcsaDesignated && (
+              <>
+                <p className="text-sm text-muted-foreground">Clearinghouse designation confirmed.</p>
+                {profile?.onboardingStatus?.fmcsaDesignatedAt && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Completed: {formatTimestamp(profile.onboardingStatus.fmcsaDesignatedAt)}
+                  </p>
+                )}
+              </>
+            )}
             {!isLoading && !isFmcsaDesignated && (
               <>
                 <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">
