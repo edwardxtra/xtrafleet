@@ -23,11 +23,6 @@ import { showSuccess, showError } from '@/lib/toast-utils';
 
 const ATTESTATIONS = [
   {
-    id: 'driverQualificationFiles',
-    title: 'Driver Qualification Files',
-    description: 'We confirm that we maintain Driver Qualification Files (DQFs) for all drivers we invite or make available on the XtraFleet platform, in accordance with applicable federal and state regulations.',
-  },
-  {
     id: 'employmentCompliance',
     title: 'Employment & Compliance Responsibility',
     description: 'We acknowledge that our company retains full responsibility for employment decisions, compliance determinations, and regulatory obligations related to our drivers.',
@@ -51,7 +46,6 @@ function ComplianceContent() {
   const { user, isUserLoading } = useUser();
   const db = useFirestore();
   const [checked, setChecked] = useState<Record<AttestationId, boolean>>({
-    driverQualificationFiles: false,
     employmentCompliance: false,
     verificationAuth: false,
     noRelianceDisclaimer: false,
@@ -69,7 +63,6 @@ function ComplianceContent() {
         'onboardingStatus.complianceAttested': true,
         'onboardingStatus.complianceAttestedAt': new Date().toISOString(),
         complianceAttestations: {
-          driverQualificationFiles: { accepted: true, acceptedAt: new Date().toISOString() },
           employmentCompliance: { accepted: true, acceptedAt: new Date().toISOString() },
           verificationAuth: { accepted: true, acceptedAt: new Date().toISOString() },
           noRelianceDisclaimer: { accepted: true, acceptedAt: new Date().toISOString() },
