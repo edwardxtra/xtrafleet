@@ -23,7 +23,7 @@ export function OnboardingBanner({ onboardingStatus }: OnboardingBannerProps) {
   if (!onboardingStatus) return null;
 
   const steps = [
-    { key: 'profile', label: 'Company Profile', complete: !!onboardingStatus.profileComplete, href: '/create-profile' },
+    { key: 'profile', label: 'Company Profile', complete: !!onboardingStatus.profileComplete, href: '/dashboard/profile' },
     { key: 'compliance', label: 'Compliance Attestations', complete: !!onboardingStatus.complianceAttested, href: '/onboarding/compliance' },
     { key: 'fmcsa', label: 'FMCSA Clearinghouse', complete: onboardingStatus.fmcsaDesignated === true, href: '/onboarding/fmcsa-clearinghouse' },
   ];

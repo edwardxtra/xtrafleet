@@ -2,69 +2,28 @@
 
 import { useEffect, useState } from 'react';
 import { useUser, useFirestore, useAuth } from '@/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Save, Eye, EyeOff, WifiOff, Building2, Lock, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+import { Loader2, Eye, EyeOff, WifiOff, Lock, CreditCard, Crown, Clock, AlertCircle, ExternalLink } from 'lucide-react';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
-
-interface InsuranceInfo {
-  liabilityCarrier?: string;
-  liabilityPolicyNumber?: string;
-  liabilityExpiry?: string;
-  liabilityCoverageAmount?: number;
-  cargoCarrier?: string;
-  cargoPolicyNumber?: string;
-  cargoExpiry?: string;
-  cargoCoverageAmount?: number;
-  autoCarrier?: string;
-  autoPolicyNumber?: string;
-  autoExpiry?: string;
-  workersCompCarrier?: string;
-  workersCompPolicyNumber?: string;
-  workersCompExpiry?: string;
-  coiDocumentUrl?: string;
-}
-
-interface CompanyProfile {
-  companyName?: string;
-  contactEmail?: string;
-  phone?: string;
-  dotNumber?: string;
-  mcNumber?: string;
-  legalName?: string;
-  dba?: string;
-  ein?: string;
-  hqAddress?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
-  insurance?: InsuranceInfo;
-}
+import { useSubscription } from '@/hooks/use-subscription';
+import { format, parseISO } from 'date-fns';
 
 export default function SettingsPage() {
   const { user, isUserLoading } = useUser();
   const db = useFirestore();
   const auth = useAuth();
-  
-  // Company profile state
-  const [profile, setProfile] = useState<CompanyProfile | null>(null);
-  const [editedProfile, setEditedProfile] = useState<CompanyProfile | null>(null);
-  const [loadingProfile, setLoadingProfile] = useState(true);
-  const [savingProfile, setSavingProfile] = useState(false);
+  const { subscription, isLoading: subLoading } = useSubscription();
 
-  // Insurance state
-  const [insurance, setInsurance] = useState<InsuranceInfo>({});
-  const [editedInsurance, setEditedInsurance] = useState<InsuranceInfo>({});
-  const [savingInsurance, setSavingInsurance] = useState(false);
-  
   // Password state
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -78,11 +37,13 @@ export default function SettingsPage() {
     newPassword?: string;
     confirmPassword?: string;
   }>({});
-  
+
+  // Billing state
+  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+
   // Network state
   const [isOnline, setIsOnline] = useState(true);
 
-  // Network status detection
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -91,176 +52,29 @@ export default function SettingsPage() {
     const handleOffline = () => {
       setIsOnline(false);
     };
-
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     setIsOnline(navigator.onLine);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-  // Load company profile
-  useEffect(() => {
-    async function loadProfile() {
-      if (!user || !db) return;
-
-      try {
-        const profileDoc = await getDoc(doc(db, 'owner_operators', user.uid));
-        if (profileDoc.exists()) {
-          const data = profileDoc.data() as CompanyProfile;
-          setProfile(data);
-          setEditedProfile(data);
-          // Load insurance data
-          if (data.insurance) {
-            setInsurance(data.insurance);
-            setEditedInsurance(data.insurance);
-          }
-        } else {
-          // Initialize empty profile if none exists
-          const emptyProfile: CompanyProfile = {
-            legalName: '',
-            dba: '',
-            contactEmail: user.email || '',
-            phone: '',
-            dotNumber: '',
-            mcNumber: '',
-            ein: '',
-            hqAddress: '',
-          };
-          setProfile(emptyProfile);
-          setEditedProfile(emptyProfile);
-        }
-      } catch (error) {
-        console.error('Error loading profile:', error);
-        showError('Failed to load profile settings');
-      } finally {
-        setLoadingProfile(false);
-      }
-    }
-
-    if (user && db) {
-      loadProfile();
-    }
-  }, [user, db]);
-
-  // Handle profile input change
-  const handleProfileChange = (field: keyof CompanyProfile, value: string) => {
-    if (editedProfile) {
-      setEditedProfile({ ...editedProfile, [field]: value });
-    }
-  };
-
-  // Handle insurance input change
-  const handleInsuranceChange = (field: keyof InsuranceInfo, value: string | number) => {
-    setEditedInsurance({ ...editedInsurance, [field]: value });
-  };
-
-  // Save insurance info
-  const handleSaveInsurance = async () => {
-    if (!db || !user) return;
-
-    if (!isOnline) {
-      showError('You\'re offline. Please check your connection.');
-      return;
-    }
-
-    setSavingInsurance(true);
-    try {
-      const profileRef = doc(db, 'owner_operators', user.uid);
-      await updateDoc(profileRef, {
-        insurance: {
-          ...editedInsurance,
-        },
-        insuranceUpdatedAt: new Date().toISOString(),
-      });
-
-      setInsurance(editedInsurance);
-      showSuccess('Insurance information saved successfully!');
-    } catch (error) {
-      console.error('Error saving insurance:', error);
-      const appError = parseError(error);
-      showError(appError.message, 'Failed to save insurance info');
-    } finally {
-      setSavingInsurance(false);
-    }
-  };
-
-  // Check if insurance has changes
-  const hasInsuranceChanges = JSON.stringify(insurance) !== JSON.stringify(editedInsurance);
-
-  // Check if any insurance policy is expiring soon (within 30 days)
-  const isExpiringSoon = (dateStr?: string): boolean => {
-    if (!dateStr) return false;
-    const expiry = new Date(dateStr);
-    const now = new Date();
-    const daysUntilExpiry = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    return daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
-  };
-
-  const isExpired = (dateStr?: string): boolean => {
-    if (!dateStr) return false;
-    const expiry = new Date(dateStr);
-    return expiry < new Date();
-  };
-
-  // Save company profile
-  const handleSaveProfile = async () => {
-    if (!editedProfile || !db || !user) return;
-
-    if (!isOnline) {
-      showError('You\'re offline. Please check your connection.');
-      return;
-    }
-
-    setSavingProfile(true);
-    try {
-      const profileRef = doc(db, 'owner_operators', user.uid);
-      await updateDoc(profileRef, {
-        legalName: editedProfile.legalName || '',
-        dba: editedProfile.dba || '',
-        contactEmail: editedProfile.contactEmail || '',
-        phone: editedProfile.phone || '',
-        dotNumber: editedProfile.dotNumber || '',
-        mcNumber: editedProfile.mcNumber || '',
-        ein: editedProfile.ein || '',
-        hqAddress: editedProfile.hqAddress || '',
-        updatedAt: new Date().toISOString(),
-      });
-
-      setProfile(editedProfile);
-      showSuccess('Company profile updated successfully!');
-    } catch (error) {
-      console.error('Error saving profile:', error);
-      const appError = parseError(error);
-      showError(appError.message, 'Failed to save profile');
-    } finally {
-      setSavingProfile(false);
-    }
-  };
-
   // Validate password form
   const validatePasswordForm = (): boolean => {
     const errors: typeof passwordErrors = {};
-
-    if (!currentPassword) {
-      errors.currentPassword = 'Current password is required';
-    }
-
+    if (!currentPassword) errors.currentPassword = 'Current password is required';
     if (!newPassword) {
       errors.newPassword = 'New password is required';
     } else if (newPassword.length < 6) {
       errors.newPassword = 'Password must be at least 6 characters';
     }
-
     if (!confirmPassword) {
       errors.confirmPassword = 'Please confirm your new password';
     } else if (newPassword !== confirmPassword) {
       errors.confirmPassword = 'Passwords do not match';
     }
-
     setPasswordErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -269,35 +83,23 @@ export default function SettingsPage() {
   const handleChangePassword = async () => {
     if (!validatePasswordForm()) return;
     if (!user || !auth.currentUser) return;
-
     if (!isOnline) {
       showError('You\'re offline. Please check your connection.');
       return;
     }
-
     setSavingPassword(true);
     try {
-      // Re-authenticate user
-      const credential = EmailAuthProvider.credential(
-        user.email!,
-        currentPassword
-      );
+      const credential = EmailAuthProvider.credential(user.email!, currentPassword);
       await reauthenticateWithCredential(auth.currentUser, credential);
-
-      // Update password
       await updatePassword(auth.currentUser, newPassword);
-
-      // Clear form
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       setPasswordErrors({});
-
       showSuccess('Password changed successfully!');
     } catch (error: unknown) {
       console.error('Error changing password:', error);
       const errorCode = (error as { code?: string })?.code;
-      
       if (errorCode === 'auth/wrong-password' || errorCode === 'auth/invalid-credential') {
         setPasswordErrors({ currentPassword: 'Current password is incorrect' });
         showError('Current password is incorrect');
@@ -315,404 +117,100 @@ export default function SettingsPage() {
     }
   };
 
-  // Check if profile has changes
-  const hasProfileChanges = JSON.stringify(profile) !== JSON.stringify(editedProfile);
+  // Manage billing portal
+  const handleManageBilling = async () => {
+    if (!user) return;
+    setIsOpeningPortal(true);
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/stripe/customer-portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error('Failed to open billing portal');
+      const { url } = await response.json();
+      window.location.href = url;
+    } catch (error: any) {
+      console.error('Error opening portal:', error);
+      showError('Failed to open billing portal');
+    } finally {
+      setIsOpeningPortal(false);
+    }
+  };
 
-  // Loading skeleton
-  if (isUserLoading || loadingProfile) {
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'N/A';
+    try { return format(parseISO(dateString), 'MMM d, yyyy'); } catch { return dateString; }
+  };
+
+  const getPlanDisplayName = (planType: string | null) => {
+    if (!planType) return 'No Plan';
+    const planNames: Record<string, string> = {
+      monthly: 'Monthly', 'Monthly Plan': 'Monthly',
+      six_month: '6-Month', '6-Month Plan': '6-Month',
+      annual: 'Annual', 'Yearly Plan': 'Annual',
+    };
+    return planNames[planType] || planType;
+  };
+
+  const getStatusBadge = () => {
+    if (subscription.isInTrial) return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">Free Trial</Badge>;
+    if (subscription.subscriptionStatus === 'active') return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800">Active</Badge>;
+    if (subscription.isPastDue) return <Badge variant="destructive">Past Due</Badge>;
+    if (subscription.isCanceled) return <Badge variant="secondary">Canceled</Badge>;
+    return <Badge variant="secondary">No Subscription</Badge>;
+  };
+
+  if (isUserLoading || subLoading) {
     return (
-      <div className="space-y-6">
-        <div>
-          <Skeleton className="h-8 w-48 mb-2" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <Skeleton className="h-64 w-full" />
+      <div className="space-y-6 max-w-2xl">
+        <div><Skeleton className="h-8 w-48 mb-2" /><Skeleton className="h-4 w-64" /></div>
+        <Skeleton className="h-48 w-full" />
         <Skeleton className="h-64 w-full" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-2xl">
       {/* Offline Banner */}
       {!isOnline && (
         <Alert variant="destructive">
           <WifiOff className="h-4 w-4" />
-          <AlertDescription>
-            You&apos;re currently offline. Changes cannot be saved.
-          </AlertDescription>
+          <AlertDescription>You&apos;re currently offline. Changes cannot be saved.</AlertDescription>
         </Alert>
       )}
 
       {/* Page Header */}
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-muted-foreground">Manage your account and company settings</p>
+        <p className="text-muted-foreground">Manage your account and billing</p>
       </div>
 
-      {/* Company Profile Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <CardTitle>Company Profile</CardTitle>
-              <CardDescription>Update your company information</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {editedProfile ? (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="legalName">Legal Name</Label>
-                  <Input
-                    id="legalName"
-                    value={editedProfile.legalName || ''}
-                    onChange={(e) => handleProfileChange('legalName', e.target.value)}
-                    placeholder="Your Company LLC"
-                    disabled={!isOnline}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="dba">DBA (Doing Business As)</Label>
-                  <Input
-                    id="dba"
-                    value={editedProfile.dba || ''}
-                    onChange={(e) => handleProfileChange('dba', e.target.value)}
-                    placeholder="Trade name"
-                    disabled={!isOnline}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="contactEmail">Contact Email</Label>
-                  <Input
-                    id="contactEmail"
-                    type="email"
-                    value={editedProfile.contactEmail || ''}
-                    onChange={(e) => handleProfileChange('contactEmail', e.target.value)}
-                    placeholder="contact@company.com"
-                    disabled={!isOnline}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    value={editedProfile.phone || ''}
-                    onChange={(e) => handleProfileChange('phone', e.target.value)}
-                    placeholder="(555) 123-4567"
-                    disabled={!isOnline}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="dotNumber">DOT Number</Label>
-                  <Input
-                    id="dotNumber"
-                    value={editedProfile.dotNumber || ''}
-                    onChange={(e) => handleProfileChange('dotNumber', e.target.value)}
-                    placeholder="1234567"
-                    disabled={!isOnline}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="mcNumber">MC Number</Label>
-                  <Input
-                    id="mcNumber"
-                    value={editedProfile.mcNumber || ''}
-                    onChange={(e) => handleProfileChange('mcNumber', e.target.value)}
-                    placeholder="MC-123456"
-                    disabled={!isOnline}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="ein">EIN</Label>
-                  <Input
-                    id="ein"
-                    value={editedProfile.ein || ''}
-                    onChange={(e) => handleProfileChange('ein', e.target.value)}
-                    placeholder="XX-XXXXXXX"
-                    disabled={!isOnline}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="hqAddress">Headquarters Address</Label>
-                  <Input
-                    id="hqAddress"
-                    value={editedProfile.hqAddress || ''}
-                    onChange={(e) => handleProfileChange('hqAddress', e.target.value)}
-                    placeholder="123 Main St, City, State ZIP"
-                    disabled={!isOnline}
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-4">
-                <Button 
-                  onClick={handleSaveProfile} 
-                  disabled={savingProfile || !hasProfileChanges || !isOnline}
-                >
-                  {savingProfile ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4 mr-2" />
-                      Save Changes
-                    </>
-                  )}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <p className="text-muted-foreground">No company profile found. Please complete your profile setup.</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Certificate of Insurance Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <CardTitle>Certificate of Insurance (COI)</CardTitle>
-              <CardDescription>Enter your insurance policy information for compliance verification</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Expiry Warnings */}
-          {(isExpired(editedInsurance.liabilityExpiry) || isExpired(editedInsurance.cargoExpiry) || isExpired(editedInsurance.autoExpiry)) && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                One or more of your insurance policies has expired. Please update your information.
-              </AlertDescription>
-            </Alert>
-          )}
-          {!isExpired(editedInsurance.liabilityExpiry) && !isExpired(editedInsurance.cargoExpiry) &&
-           (isExpiringSoon(editedInsurance.liabilityExpiry) || isExpiringSoon(editedInsurance.cargoExpiry) || isExpiringSoon(editedInsurance.autoExpiry)) && (
-            <Alert>
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                One or more of your insurance policies is expiring within 30 days.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* General Liability Insurance */}
-          <div className="space-y-4">
-            <h4 className="font-medium text-sm border-b pb-2">General Liability Insurance</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="liabilityCarrier">Insurance Carrier</Label>
-                <Input
-                  id="liabilityCarrier"
-                  value={editedInsurance.liabilityCarrier || ''}
-                  onChange={(e) => handleInsuranceChange('liabilityCarrier', e.target.value)}
-                  placeholder="e.g., Progressive, National Interstate"
-                  disabled={!isOnline}
-                />
-              </div>
-              <div>
-                <Label htmlFor="liabilityPolicyNumber">Policy Number</Label>
-                <Input
-                  id="liabilityPolicyNumber"
-                  value={editedInsurance.liabilityPolicyNumber || ''}
-                  onChange={(e) => handleInsuranceChange('liabilityPolicyNumber', e.target.value)}
-                  placeholder="e.g., LB-1234567"
-                  disabled={!isOnline}
-                />
-              </div>
-              <div>
-                <Label htmlFor="liabilityExpiry">Policy Expiration Date</Label>
-                <Input
-                  id="liabilityExpiry"
-                  type="date"
-                  value={editedInsurance.liabilityExpiry || ''}
-                  onChange={(e) => handleInsuranceChange('liabilityExpiry', e.target.value)}
-                  disabled={!isOnline}
-                  className={isExpired(editedInsurance.liabilityExpiry) ? 'border-red-500' : isExpiringSoon(editedInsurance.liabilityExpiry) ? 'border-yellow-500' : ''}
-                />
-              </div>
-              <div>
-                <Label htmlFor="liabilityCoverageAmount">Coverage Amount ($)</Label>
-                <Input
-                  id="liabilityCoverageAmount"
-                  type="number"
-                  value={editedInsurance.liabilityCoverageAmount || ''}
-                  onChange={(e) => handleInsuranceChange('liabilityCoverageAmount', parseInt(e.target.value) || 0)}
-                  placeholder="e.g., 1000000"
-                  disabled={!isOnline}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Cargo Insurance */}
-          <div className="space-y-4">
-            <h4 className="font-medium text-sm border-b pb-2">Cargo Insurance</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="cargoCarrier">Insurance Carrier</Label>
-                <Input
-                  id="cargoCarrier"
-                  value={editedInsurance.cargoCarrier || ''}
-                  onChange={(e) => handleInsuranceChange('cargoCarrier', e.target.value)}
-                  placeholder="e.g., Great West Casualty"
-                  disabled={!isOnline}
-                />
-              </div>
-              <div>
-                <Label htmlFor="cargoPolicyNumber">Policy Number</Label>
-                <Input
-                  id="cargoPolicyNumber"
-                  value={editedInsurance.cargoPolicyNumber || ''}
-                  onChange={(e) => handleInsuranceChange('cargoPolicyNumber', e.target.value)}
-                  placeholder="e.g., CG-9876543"
-                  disabled={!isOnline}
-                />
-              </div>
-              <div>
-                <Label htmlFor="cargoExpiry">Policy Expiration Date</Label>
-                <Input
-                  id="cargoExpiry"
-                  type="date"
-                  value={editedInsurance.cargoExpiry || ''}
-                  onChange={(e) => handleInsuranceChange('cargoExpiry', e.target.value)}
-                  disabled={!isOnline}
-                  className={isExpired(editedInsurance.cargoExpiry) ? 'border-red-500' : isExpiringSoon(editedInsurance.cargoExpiry) ? 'border-yellow-500' : ''}
-                />
-              </div>
-              <div>
-                <Label htmlFor="cargoCoverageAmount">Coverage Amount ($)</Label>
-                <Input
-                  id="cargoCoverageAmount"
-                  type="number"
-                  value={editedInsurance.cargoCoverageAmount || ''}
-                  onChange={(e) => handleInsuranceChange('cargoCoverageAmount', parseInt(e.target.value) || 0)}
-                  placeholder="e.g., 100000"
-                  disabled={!isOnline}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Auto/Physical Damage Insurance */}
-          <div className="space-y-4">
-            <h4 className="font-medium text-sm border-b pb-2">Auto/Physical Damage Insurance</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label htmlFor="autoCarrier">Insurance Carrier</Label>
-                <Input
-                  id="autoCarrier"
-                  value={editedInsurance.autoCarrier || ''}
-                  onChange={(e) => handleInsuranceChange('autoCarrier', e.target.value)}
-                  placeholder="Carrier name"
-                  disabled={!isOnline}
-                />
-              </div>
-              <div>
-                <Label htmlFor="autoPolicyNumber">Policy Number</Label>
-                <Input
-                  id="autoPolicyNumber"
-                  value={editedInsurance.autoPolicyNumber || ''}
-                  onChange={(e) => handleInsuranceChange('autoPolicyNumber', e.target.value)}
-                  placeholder="Policy number"
-                  disabled={!isOnline}
-                />
-              </div>
-              <div>
-                <Label htmlFor="autoExpiry">Expiration Date</Label>
-                <Input
-                  id="autoExpiry"
-                  type="date"
-                  value={editedInsurance.autoExpiry || ''}
-                  onChange={(e) => handleInsuranceChange('autoExpiry', e.target.value)}
-                  disabled={!isOnline}
-                  className={isExpired(editedInsurance.autoExpiry) ? 'border-red-500' : isExpiringSoon(editedInsurance.autoExpiry) ? 'border-yellow-500' : ''}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Workers Compensation */}
-          <div className="space-y-4">
-            <h4 className="font-medium text-sm border-b pb-2">Workers&apos; Compensation (if applicable)</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label htmlFor="workersCompCarrier">Insurance Carrier</Label>
-                <Input
-                  id="workersCompCarrier"
-                  value={editedInsurance.workersCompCarrier || ''}
-                  onChange={(e) => handleInsuranceChange('workersCompCarrier', e.target.value)}
-                  placeholder="Carrier name"
-                  disabled={!isOnline}
-                />
-              </div>
-              <div>
-                <Label htmlFor="workersCompPolicyNumber">Policy Number</Label>
-                <Input
-                  id="workersCompPolicyNumber"
-                  value={editedInsurance.workersCompPolicyNumber || ''}
-                  onChange={(e) => handleInsuranceChange('workersCompPolicyNumber', e.target.value)}
-                  placeholder="Policy number"
-                  disabled={!isOnline}
-                />
-              </div>
-              <div>
-                <Label htmlFor="workersCompExpiry">Expiration Date</Label>
-                <Input
-                  id="workersCompExpiry"
-                  type="date"
-                  value={editedInsurance.workersCompExpiry || ''}
-                  onChange={(e) => handleInsuranceChange('workersCompExpiry', e.target.value)}
-                  disabled={!isOnline}
-                  className={isExpired(editedInsurance.workersCompExpiry) ? 'border-red-500' : isExpiringSoon(editedInsurance.workersCompExpiry) ? 'border-yellow-500' : ''}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-end pt-4 border-t">
-            <Button
-              onClick={handleSaveInsurance}
-              disabled={savingInsurance || !hasInsuranceChanges || !isOnline}
-            >
-              {savingInsurance ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Insurance Info
-                </>
-              )}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Password Section */}
+      {/* Account Section */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
             <Lock className="h-5 w-5 text-muted-foreground" />
             <div>
-              <CardTitle>Change Password</CardTitle>
-              <CardDescription>Update your account password</CardDescription>
+              <CardTitle>Account</CardTitle>
+              <CardDescription>Your login credentials</CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="max-w-md space-y-4">
+        <CardContent className="space-y-6">
+          {/* Email Display */}
+          <div>
+            <Label className="text-xs text-muted-foreground">Email Address</Label>
+            <p className="text-sm font-medium mt-1">{user?.email || '—'}</p>
+            <p className="text-xs text-muted-foreground mt-1">Contact support to change your email address.</p>
+          </div>
+
+          <Separator />
+
+          {/* Password Change */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium">Change Password</h3>
             <div>
               <Label htmlFor="currentPassword">Current Password</Label>
               <div className="relative">
@@ -720,27 +218,16 @@ export default function SettingsPage() {
                   id="currentPassword"
                   type={showCurrentPassword ? 'text' : 'password'}
                   value={currentPassword}
-                  onChange={(e) => {
-                    setCurrentPassword(e.target.value);
-                    setPasswordErrors({ ...passwordErrors, currentPassword: undefined });
-                  }}
+                  onChange={(e) => { setCurrentPassword(e.target.value); setPasswordErrors({ ...passwordErrors, currentPassword: undefined }); }}
                   placeholder="Enter current password"
                   disabled={!isOnline}
                   className={passwordErrors.currentPassword ? 'border-red-500' : ''}
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                >
+                <Button type="button" variant="ghost" size="sm" className="absolute right-0 top-0 h-full px-3" onClick={() => setShowCurrentPassword(!showCurrentPassword)}>
                   {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
-              {passwordErrors.currentPassword && (
-                <p className="text-sm text-red-500 mt-1">{passwordErrors.currentPassword}</p>
-              )}
+              {passwordErrors.currentPassword && <p className="text-sm text-red-500 mt-1">{passwordErrors.currentPassword}</p>}
             </div>
 
             <div>
@@ -750,27 +237,16 @@ export default function SettingsPage() {
                   id="newPassword"
                   type={showNewPassword ? 'text' : 'password'}
                   value={newPassword}
-                  onChange={(e) => {
-                    setNewPassword(e.target.value);
-                    setPasswordErrors({ ...passwordErrors, newPassword: undefined });
-                  }}
+                  onChange={(e) => { setNewPassword(e.target.value); setPasswordErrors({ ...passwordErrors, newPassword: undefined }); }}
                   placeholder="Enter new password"
                   disabled={!isOnline}
                   className={passwordErrors.newPassword ? 'border-red-500' : ''}
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowNewPassword(!showNewPassword)}
-                >
+                <Button type="button" variant="ghost" size="sm" className="absolute right-0 top-0 h-full px-3" onClick={() => setShowNewPassword(!showNewPassword)}>
                   {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
-              {passwordErrors.newPassword && (
-                <p className="text-sm text-red-500 mt-1">{passwordErrors.newPassword}</p>
-              )}
+              {passwordErrors.newPassword && <p className="text-sm text-red-500 mt-1">{passwordErrors.newPassword}</p>}
               <p className="text-xs text-muted-foreground mt-1">Must be at least 6 characters</p>
             </div>
 
@@ -781,45 +257,107 @@ export default function SettingsPage() {
                   id="confirmPassword"
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
-                  onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                    setPasswordErrors({ ...passwordErrors, confirmPassword: undefined });
-                  }}
+                  onChange={(e) => { setConfirmPassword(e.target.value); setPasswordErrors({ ...passwordErrors, confirmPassword: undefined }); }}
                   placeholder="Confirm new password"
                   disabled={!isOnline}
                   className={passwordErrors.confirmPassword ? 'border-red-500' : ''}
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
+                <Button type="button" variant="ghost" size="sm" className="absolute right-0 top-0 h-full px-3" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
                   {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
-              {passwordErrors.confirmPassword && (
-                <p className="text-sm text-red-500 mt-1">{passwordErrors.confirmPassword}</p>
-              )}
+              {passwordErrors.confirmPassword && <p className="text-sm text-red-500 mt-1">{passwordErrors.confirmPassword}</p>}
             </div>
 
             <div className="pt-2">
-              <Button 
-                onClick={handleChangePassword} 
-                disabled={savingPassword || !isOnline || (!currentPassword && !newPassword && !confirmPassword)}
-              >
-                {savingPassword ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Changing Password...
-                  </>
-                ) : (
-                  'Change Password'
-                )}
+              <Button onClick={handleChangePassword} disabled={savingPassword || !isOnline || (!currentPassword && !newPassword && !confirmPassword)}>
+                {savingPassword ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Changing Password...</>) : 'Change Password'}
               </Button>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Billing Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <CardTitle>Billing</CardTitle>
+              <CardDescription>Your subscription and payment information</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Past Due Warning */}
+          {subscription.isPastDue && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                <strong>Payment failed.</strong> Please update your payment method to avoid service interruption.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Trial Warning */}
+          {subscription.isInTrial && subscription.daysUntilTrialEnd !== null && subscription.daysUntilTrialEnd <= 7 && (
+            <Alert>
+              <Clock className="h-4 w-4" />
+              <AlertDescription>
+                Your trial ends in <strong>{subscription.daysUntilTrialEnd} days</strong> ({formatDate(subscription.trialEndsAt)}).
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Subscription Info */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs text-muted-foreground">Plan</Label>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-sm font-medium">{getPlanDisplayName(subscription.planType)}</p>
+                {getStatusBadge()}
+              </div>
+            </div>
+            {subscription.isInTrial && subscription.trialEndsAt && (
+              <div>
+                <Label className="text-xs text-muted-foreground">Trial Ends</Label>
+                <p className="text-sm font-medium mt-1">{formatDate(subscription.trialEndsAt)}</p>
+              </div>
+            )}
+            {!subscription.isInTrial && subscription.subscriptionPeriodEnd && (
+              <div>
+                <Label className="text-xs text-muted-foreground">Next Billing Date</Label>
+                <p className="text-sm font-medium mt-1">{formatDate(subscription.subscriptionPeriodEnd)}</p>
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* Manage Billing Button */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Payment Method & Invoices</p>
+              <p className="text-xs text-muted-foreground">Update your card, view invoices, or change your plan</p>
+            </div>
+            <Button variant="outline" onClick={handleManageBilling} disabled={isOpeningPortal || !subscription.stripeCustomerId}>
+              {isOpeningPortal ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ExternalLink className="h-4 w-4 mr-2" />}
+              Manage Billing
+            </Button>
+          </div>
+
+          {!subscription.hasActiveSubscription && !subscription.isCanceled && (
+            <>
+              <Separator />
+              <div className="text-center py-4">
+                <p className="text-sm text-muted-foreground mb-3">No active subscription.</p>
+                <Button asChild>
+                  <a href="/dashboard/billing">View Plans & Subscribe</a>
+                </Button>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>
