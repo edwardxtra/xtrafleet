@@ -1,6 +1,16 @@
+'use client';
+
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 export function Footer() {
+  const pathname = usePathname();
+
+  // Hide global footer on dashboard pages (dashboard has its own inline footer)
+  if (pathname?.startsWith('/dashboard') || pathname?.startsWith('/admin') || pathname?.startsWith('/driver-dashboard')) {
+    return null;
+  }
+
   return (
     <footer className="border-t border-border bg-background mt-auto">
       <div className="container mx-auto px-4 py-6">
