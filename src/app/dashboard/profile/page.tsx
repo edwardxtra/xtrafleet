@@ -561,7 +561,7 @@ export default function ProfilePage() {
               : (
                 <div className="flex items-center gap-1.5">
                   <Info className="h-3.5 w-3.5 text-amber-500" />
-                  <span className="text-xs text-amber-600 dark:text-amber-400">Incomplete \u2014 fill in the fields above and save</span>
+                  <span className="text-xs text-amber-600 dark:text-amber-400">Incomplete &mdash; fill in the fields above and save</span>
                 </div>
               )
             }
