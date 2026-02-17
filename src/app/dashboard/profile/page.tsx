@@ -19,7 +19,7 @@ import { validateFile } from '@/lib/file-validation';
 import {
   Loader2, Building2, MapPin, FileText, Shield, Check, X, Upload,
   ExternalLink, Save, WifiOff, Clock, ArrowRight, Search, ChevronDown,
-  AlertTriangle, UploadCloud,
+  AlertTriangle, UploadCloud, Info,
 } from 'lucide-react';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
@@ -39,6 +39,7 @@ interface COIInfo {
 interface OnboardingStatus {
   profileComplete?: boolean;
   complianceAttested?: boolean;
+  complianceAttestedAt?: string;
   fmcsaDesignated?: boolean | string;
   completedAt?: string | null;
 }
@@ -612,9 +613,10 @@ export default function ProfilePage() {
             {profile.onboardingStatus?.profileComplete
               ? <Badge variant="default" className="bg-green-600">Complete</Badge>
               : (
-                <Button asChild size="sm" variant="outline">
-                  <Link href="/create-profile">Complete Profile <ArrowRight className="h-3 w-3 ml-1" /></Link>
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <Info className="h-3.5 w-3.5 text-amber-500" />
+                  <span className="text-xs text-amber-600 dark:text-amber-400">Incomplete — fill in the fields above and save</span>
+                </div>
               )
             }
           </div>
@@ -622,7 +624,14 @@ export default function ProfilePage() {
 
           {/* Compliance Attestations */}
           <div className="flex items-center justify-between">
-            <span className="text-sm">Compliance Attestations</span>
+            <div>
+              <span className="text-sm">Compliance Attestations</span>
+              {profile.onboardingStatus?.complianceAttestedAt && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                  <Clock className="h-3 w-3" /> Completed: {formatTimestamp(profile.onboardingStatus.complianceAttestedAt)}
+                </p>
+              )}
+            </div>
             {profile.onboardingStatus?.complianceAttested
               ? <Badge variant="default" className="bg-green-600">Attested</Badge>
               : (
