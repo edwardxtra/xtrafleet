@@ -18,7 +18,7 @@ import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HelpWidget } from "@/components/help-widget";
 import { OnboardingBanner } from "@/components/onboarding-banner";
-import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Inbox, Loader2, FileText, HelpCircle, Shield, MessageSquare, Send, User, ChevronDown } from "lucide-react";
+import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Loader2, FileText, HelpCircle, Shield, MessageSquare, User, ChevronDown, ArrowLeftRight } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
 
@@ -56,8 +56,7 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
           <SidebarMenuItem data-tour="sidebar-drivers"><SidebarNavLink href="/dashboard/drivers" tooltip="Drivers"><Users /><span>Drivers</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem data-tour="sidebar-loads"><SidebarNavLink href="/dashboard/loads" tooltip="Loads"><Truck /><span>Loads</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem data-tour="sidebar-matches"><SidebarNavLink href="/dashboard/matches" tooltip="Find Matches"><BarChart /><span>Find Matches</span></SidebarNavLink></SidebarMenuItem>
-          <SidebarMenuItem><SidebarNavLink href="/dashboard/incoming-matches" tooltip="Incoming Requests"><Inbox /><span>Incoming Requests</span></SidebarNavLink></SidebarMenuItem>
-          <SidebarMenuItem><SidebarNavLink href="/dashboard/sent-requests" tooltip="Sent Requests"><Send /><span>Sent Requests</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/requests" tooltip="Requests"><ArrowLeftRight /><span>Requests</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem><SidebarNavLink href="/dashboard/messages" tooltip="Messages" badge={unreadCount}><MessageSquare /><span>Messages</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem><SidebarNavLink href="/dashboard/agreements" tooltip="Agreements"><FileText /><span>Agreements</span></SidebarNavLink></SidebarMenuItem>
         </SidebarMenu>
@@ -153,6 +152,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <OnboardingBanner onboardingStatus={onboardingStatus} />
           {children}
         </main>
+        <footer className="border-t border-border bg-background px-4 py-3">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-muted-foreground">
+            <span>&copy; {new Date().getFullYear()} XtraFleet. All rights reserved.</span>
+            <nav className="flex flex-wrap justify-center gap-3">
+              <Link href="/legal/terms" className="hover:text-foreground transition-colors">Terms</Link>
+              <Link href="/legal/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
+              <Link href="/legal/user-agreement" className="hover:text-foreground transition-colors">User Agreement</Link>
+              <Link href="/legal/esign-consent" className="hover:text-foreground transition-colors">E-Sign</Link>
+            </nav>
+          </div>
+        </footer>
       </SidebarInset>
       <HelpWidget />
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
