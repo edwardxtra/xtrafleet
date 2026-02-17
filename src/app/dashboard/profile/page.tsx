@@ -1,25 +1,47 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useUser, useFirestore, useStorage } from '@/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import Link from 'next/link';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { US_STATES } from '@/lib/us-states';
 import { validateFile } from '@/lib/file-validation';
-import { Loader2, Building2, MapPin, FileText, Shield, Check, X, Upload, ExternalLink } from 'lucide-react';
+import {
+  Loader2, Building2, MapPin, FileText, Shield, Check, X, Upload,
+  ExternalLink, Save, WifiOff, Clock, ArrowRight, Search, ChevronDown,
+  AlertTriangle, UploadCloud,
+} from 'lucide-react';
 import { showSuccess, showError } from '@/lib/toast-utils';
+import { parseError } from '@/lib/error-utils';
+import { format, parseISO } from 'date-fns';
+
+interface COIInfo {
+  fileUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  uploadedAt?: string;
+  updatedAt?: string;
+  insurerName?: string;
+  policyNumber?: string;
+  expiryDate?: string;
+}
+
+interface OnboardingStatus {
+  profileComplete?: boolean;
+  complianceAttested?: boolean;
+  fmcsaDesignated?: boolean | string;
+  completedAt?: string | null;
+}
 
 interface OwnerProfile {
   legalName?: string;
@@ -30,38 +52,47 @@ interface OwnerProfile {
   mcNumber?: string;
   hqAddress?: string;
   operatingStates?: string[];
-  coi?: {
-    fileUrl?: string;
-    fileName?: string;
-    insurerName?: string;
-    policyNumber?: string;
-    expiryDate?: string;
-    updatedAt?: string;
-  };
-  onboardingStatus?: {
-    profileComplete?: boolean;
-    complianceAttested?: boolean;
-    fmcsaDesignated?: boolean | string;
-    completedAt?: string;
-  };
-  complianceAttestations?: Record<string, { accepted: boolean; acceptedAt: string }>;
-  fmcsaClearinghouse?: {
-    alreadyDesignated?: boolean;
-    submittedAt?: string;
-  };
+  coi?: COIInfo;
+  onboardingStatus?: OnboardingStatus;
+  profileCompletedAt?: string;
+  clearinghouseCompletedAt?: string;
 }
 
 export default function ProfilePage() {
-  const { user } = useUser();
+  const { user, isUserLoading } = useUser();
   const db = useFirestore();
   const storage = useStorage();
   const [profile, setProfile] = useState<OwnerProfile | null>(null);
+  const [editedProfile, setEditedProfile] = useState<OwnerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [phone, setPhone] = useState('');
-  const [hqAddress, setHqAddress] = useState('');
+  const [isOnline, setIsOnline] = useState(true);
 
+  // COI state
+  const [coiInsurerName, setCoiInsurerName] = useState('');
+  const [coiPolicyNumber, setCoiPolicyNumber] = useState('');
+  const [coiExpiryDate, setCoiExpiryDate] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Operating states dropdown
+  const [stateSearch, setStateSearch] = useState('');
+  const [stateDropdownOpen, setStateDropdownOpen] = useState(false);
+
+  // Network detection
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    setIsOnline(navigator.onLine);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Load profile
   useEffect(() => {
     async function loadProfile() {
       if (!user || !db) return;
@@ -70,37 +101,53 @@ export default function ProfilePage() {
         if (ownerDoc.exists()) {
           const data = ownerDoc.data() as OwnerProfile;
           setProfile(data);
-          setPhone(data.phone || '');
-          setHqAddress(data.hqAddress || '');
+          setEditedProfile(data);
+          if (data.coi) {
+            setCoiInsurerName(data.coi.insurerName || '');
+            setCoiPolicyNumber(data.coi.policyNumber || '');
+            setCoiExpiryDate(data.coi.expiryDate || '');
+          }
         }
       } catch (error) {
         console.error('Failed to load profile:', error);
+        showError('Failed to load profile');
       } finally {
         setLoading(false);
       }
     }
-    loadProfile();
+    if (user && db) loadProfile();
   }, [user, db]);
 
-  const handleSave = async () => {
-    if (!user || !db) return;
-    setSaving(true);
-    try {
-      await updateDoc(doc(db, 'owner_operators', user.uid), {
-        phone,
-        hqAddress,
-      });
-      setProfile(prev => prev ? { ...prev, phone, hqAddress } : prev);
-      setEditMode(false);
-      showSuccess('Profile updated!');
-    } catch (error) {
-      console.error('Failed to save:', error);
-      showError('Failed to save changes.');
-    } finally {
-      setSaving(false);
+  const handleChange = (field: keyof OwnerProfile, value: string) => {
+    if (editedProfile) {
+      setEditedProfile({ ...editedProfile, [field]: value });
     }
   };
 
+  const toggleState = (stateValue: string) => {
+    if (!editedProfile) return;
+    const current = editedProfile.operatingStates || [];
+    if (current.includes(stateValue)) {
+      setEditedProfile({ ...editedProfile, operatingStates: current.filter(s => s !== stateValue) });
+    } else {
+      setEditedProfile({ ...editedProfile, operatingStates: [...current, stateValue] });
+    }
+  };
+
+  const removeState = (stateValue: string) => {
+    if (!editedProfile) return;
+    const current = editedProfile.operatingStates || [];
+    setEditedProfile({ ...editedProfile, operatingStates: current.filter(s => s !== stateValue) });
+  };
+
+  const filteredStates = US_STATES.filter(state =>
+    state.label.toLowerCase().includes(stateSearch.toLowerCase()) ||
+    state.value.toLowerCase().includes(stateSearch.toLowerCase())
+  );
+
+  const selectedStates = editedProfile?.operatingStates || [];
+
+  // COI file upload
   const handleCoiUpload = async (file: File) => {
     if (!user || !storage || !db) return;
     const validation = validateFile(file);
@@ -108,7 +155,8 @@ export default function ProfilePage() {
       showError(validation.error || 'Invalid file');
       return;
     }
-
+    setUploading(true);
+    setUploadProgress(0);
     try {
       const timestamp = Date.now();
       const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -116,28 +164,134 @@ export default function ProfilePage() {
       const storageRef = ref(storage, storagePath);
       const uploadTask = uploadBytesResumable(storageRef, file);
 
-      uploadTask.on('state_changed', null, (error) => {
-        showError('Upload failed.');
-      }, async () => {
-        const url = await getDownloadURL(uploadTask.snapshot.ref);
-        await updateDoc(doc(db, 'owner_operators', user.uid), {
-          'coi.fileUrl': url,
-          'coi.fileName': file.name,
-          'coi.uploadedAt': new Date().toISOString(),
-          'coi.updatedAt': new Date().toISOString(),
-        });
-        setProfile(prev => prev ? {
-          ...prev,
-          coi: { ...prev.coi, fileUrl: url, fileName: file.name }
-        } : prev);
-        showSuccess('COI uploaded!');
-      });
+      uploadTask.on('state_changed',
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(Math.round(progress));
+        },
+        (error) => {
+          console.error('Upload error:', error);
+          showError('Failed to upload file.');
+          setUploading(false);
+        },
+        async () => {
+          const url = await getDownloadURL(uploadTask.snapshot.ref);
+          await updateDoc(doc(db, 'owner_operators', user.uid), {
+            'coi.fileUrl': url,
+            'coi.fileName': file.name,
+            'coi.fileSize': file.size,
+            'coi.uploadedAt': new Date().toISOString(),
+            'coi.updatedAt': new Date().toISOString(),
+          });
+          setProfile(prev => prev ? {
+            ...prev,
+            coi: { ...prev.coi, fileUrl: url, fileName: file.name, fileSize: file.size }
+          } : prev);
+          setEditedProfile(prev => prev ? {
+            ...prev,
+            coi: { ...prev.coi, fileUrl: url, fileName: file.name, fileSize: file.size }
+          } : prev);
+          setUploading(false);
+          showSuccess('COI uploaded successfully!');
+        }
+      );
     } catch (error) {
       showError('Upload failed.');
+      setUploading(false);
     }
   };
 
-  if (loading) {
+  // COI expiry check
+  const isCoiExpired = coiExpiryDate ? new Date(coiExpiryDate) < new Date() : false;
+  const isCoiExpiringSoon = coiExpiryDate ? (() => {
+    const expiry = new Date(coiExpiryDate);
+    const now = new Date();
+    const days = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return days >= 0 && days <= 30;
+  })() : false;
+
+  // Save profile
+  const handleSave = async () => {
+    if (!editedProfile || !db || !user) return;
+    if (!isOnline) {
+      showError('You\'re offline. Please check your connection.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const hasCoiData = !!(editedProfile.coi?.fileUrl || (coiInsurerName && coiPolicyNumber && coiExpiryDate));
+      const isComplete = !!(editedProfile.legalName && editedProfile.dotNumber && editedProfile.mcNumber && editedProfile.hqAddress && editedProfile.operatingStates?.length && hasCoiData);
+
+      const updateData: Record<string, any> = {
+        legalName: editedProfile.legalName || '',
+        phone: editedProfile.phone || '',
+        dotNumber: editedProfile.dotNumber || '',
+        mcNumber: editedProfile.mcNumber || '',
+        hqAddress: editedProfile.hqAddress || '',
+        operatingStates: editedProfile.operatingStates || [],
+        'coi.insurerName': coiInsurerName,
+        'coi.policyNumber': coiPolicyNumber,
+        'coi.expiryDate': coiExpiryDate,
+        'coi.updatedAt': new Date().toISOString(),
+        'onboardingStatus.profileComplete': isComplete,
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Set profileCompletedAt if newly complete
+      if (isComplete && !profile?.profileCompletedAt) {
+        updateData.profileCompletedAt = new Date().toISOString();
+      }
+
+      await updateDoc(doc(db, 'owner_operators', user.uid), updateData);
+      setProfile({
+        ...editedProfile,
+        coi: {
+          ...editedProfile.coi,
+          insurerName: coiInsurerName,
+          policyNumber: coiPolicyNumber,
+          expiryDate: coiExpiryDate,
+        },
+        onboardingStatus: {
+          ...editedProfile.onboardingStatus,
+          profileComplete: isComplete,
+        },
+        profileCompletedAt: isComplete && !profile?.profileCompletedAt
+          ? new Date().toISOString()
+          : profile?.profileCompletedAt,
+      });
+
+      if (!isComplete) {
+        const missing: string[] = [];
+        if (!editedProfile.legalName) missing.push('Legal Name');
+        if (!editedProfile.dotNumber) missing.push('DOT #');
+        if (!editedProfile.mcNumber) missing.push('MC #');
+        if (!editedProfile.hqAddress) missing.push('HQ Address');
+        if (!editedProfile.operatingStates?.length) missing.push('Operating States');
+        if (!hasCoiData) missing.push('Certificate of Insurance');
+        showSuccess(`Profile saved. Still missing: ${missing.join(', ')}`);
+      } else {
+        showSuccess('Profile saved successfully!');
+      }
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      const appError = parseError(error);
+      showError(appError.message, 'Failed to save profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const hasChanges = JSON.stringify(profile) !== JSON.stringify(editedProfile)
+    || coiInsurerName !== (profile?.coi?.insurerName || '')
+    || coiPolicyNumber !== (profile?.coi?.policyNumber || '')
+    || coiExpiryDate !== (profile?.coi?.expiryDate || '');
+
+  const formatTimestamp = (ts?: string) => {
+    if (!ts) return null;
+    try { return format(parseISO(ts), 'MMM d, yyyy \'at\' h:mm a'); } catch { return ts; }
+  };
+
+  if (isUserLoading || loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin" />
@@ -151,141 +305,289 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
+      {/* Offline Banner */}
+      {!isOnline && (
+        <Alert variant="destructive">
+          <WifiOff className="h-4 w-4" />
+          <AlertDescription>You&apos;re currently offline. Changes cannot be saved.</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Page Header */}
       <div>
         <h1 className="text-2xl font-bold">Company Profile</h1>
         <p className="text-muted-foreground">View and manage your company information, insurance, and compliance status.</p>
       </div>
 
-      {/* Company Info */}
+      {/* Company Information */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5" /> Company Information</CardTitle>
-            <CardDescription>Your business details on XtraFleet</CardDescription>
-          </div>
-          {!editMode && (
-            <Button variant="outline" size="sm" onClick={() => setEditMode(true)}>Edit</Button>
-          )}
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5" /> Company Information</CardTitle>
+          <CardDescription>Your business details on XtraFleet</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label className="text-xs text-muted-foreground">Legal Name</Label>
-              <p className="text-sm font-medium">{profile.legalName || profile.companyName || '—'}</p>
+              <Label htmlFor="legalName">Legal Name</Label>
+              <Input
+                id="legalName"
+                value={editedProfile?.legalName || ''}
+                onChange={(e) => handleChange('legalName', e.target.value)}
+                placeholder="Your company legal name"
+                disabled={!isOnline}
+              />
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">Email</Label>
-              <p className="text-sm font-medium">{profile.contactEmail || user?.email || '—'}</p>
+              <Label htmlFor="contactEmail">Email</Label>
+              <Input
+                id="contactEmail"
+                value={editedProfile?.contactEmail || user?.email || ''}
+                disabled
+                className="bg-muted"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Change email in Settings</p>
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">Phone</Label>
-              {editMode ? (
-                <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(555) 123-4567" />
-              ) : (
-                <p className="text-sm font-medium">{profile.phone || '—'}</p>
-              )}
+              <Label htmlFor="phone">Phone Number</Label>
+              <Input
+                id="phone"
+                type="tel"
+                value={editedProfile?.phone || ''}
+                onChange={(e) => handleChange('phone', e.target.value)}
+                placeholder="(555) 123-4567"
+                disabled={!isOnline}
+              />
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">HQ Address</Label>
-              {editMode ? (
-                <Input value={hqAddress} onChange={e => setHqAddress(e.target.value)} placeholder="123 Main St" />
-              ) : (
-                <p className="text-sm font-medium">{profile.hqAddress || '—'}</p>
-              )}
+              <Label htmlFor="hqAddress">HQ Address</Label>
+              <Input
+                id="hqAddress"
+                value={editedProfile?.hqAddress || ''}
+                onChange={(e) => handleChange('hqAddress', e.target.value)}
+                placeholder="123 Main St, City, State ZIP"
+                disabled={!isOnline}
+              />
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">DOT #</Label>
-              <p className="text-sm font-medium">{profile.dotNumber || '—'}</p>
+              <Label htmlFor="dotNumber">DOT Number</Label>
+              <Input
+                id="dotNumber"
+                value={editedProfile?.dotNumber || ''}
+                onChange={(e) => handleChange('dotNumber', e.target.value)}
+                placeholder="1234567"
+                disabled={!isOnline}
+              />
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground">MC #</Label>
-              <p className="text-sm font-medium">{profile.mcNumber || '—'}</p>
+              <Label htmlFor="mcNumber">MC Number</Label>
+              <Input
+                id="mcNumber"
+                value={editedProfile?.mcNumber || ''}
+                onChange={(e) => handleChange('mcNumber', e.target.value)}
+                placeholder="MC-123456"
+                disabled={!isOnline}
+              />
             </div>
           </div>
-
-          {editMode && (
-            <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" size="sm" onClick={() => setEditMode(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleSave} disabled={saving}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
-                Save
-              </Button>
-            </div>
-          )}
         </CardContent>
       </Card>
 
       {/* Operating States */}
-      {profile.operatingStates && profile.operatingStates.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" /> Operating States</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-1.5">
-              {profile.operatingStates.map(code => {
-                const state = US_STATES.find(s => s.value === code);
-                return <Badge key={code} variant="secondary">{state?.label || code}</Badge>;
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* COI */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Certificate of Insurance</CardTitle>
-          <CardDescription>Your current insurance information</CardDescription>
+          <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" /> Operating States</CardTitle>
+          <CardDescription>Select all states where you operate</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {profile.coi?.fileUrl ? (
+        <CardContent>
+          {selectedStates.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {selectedStates.map(code => {
+                const state = US_STATES.find(s => s.value === code);
+                return (
+                  <Badge key={code} variant="secondary" className="pl-2 pr-1 py-1 gap-1">
+                    {state?.label || code}
+                    <button type="button" onClick={() => removeState(code)} className="ml-1 rounded-full hover:bg-muted-foreground/20 p-0.5">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                );
+              })}
+            </div>
+          )}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setStateDropdownOpen(!stateDropdownOpen)}
+              className="flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <span className="text-muted-foreground">
+                {selectedStates.length === 0 ? 'Select states...' : `${selectedStates.length} state${selectedStates.length === 1 ? '' : 's'} selected`}
+              </span>
+              <ChevronDown className="h-4 w-4 opacity-50" />
+            </button>
+            {stateDropdownOpen && (
+              <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg">
+                <div className="flex items-center border-b px-3 py-2">
+                  <Search className="h-4 w-4 text-muted-foreground mr-2" />
+                  <input type="text" placeholder="Search states..." value={stateSearch} onChange={(e) => setStateSearch(e.target.value)} className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" autoFocus />
+                </div>
+                <div className="flex justify-between px-3 py-1.5 border-b text-xs">
+                  <button type="button" onClick={() => setEditedProfile(prev => prev ? { ...prev, operatingStates: US_STATES.map(s => s.value) } : prev)} className="text-primary hover:underline">Select All</button>
+                  <button type="button" onClick={() => setEditedProfile(prev => prev ? { ...prev, operatingStates: [] } : prev)} className="text-muted-foreground hover:underline">Clear All</button>
+                </div>
+                <div className="max-h-60 overflow-y-auto p-1">
+                  {filteredStates.map(state => (
+                    <button key={state.value} type="button" onClick={() => toggleState(state.value)}
+                      className={`flex w-full items-center gap-2 rounded px-3 py-1.5 text-sm hover:bg-accent ${selectedStates.includes(state.value) ? 'bg-accent/50 font-medium' : ''}`}>
+                      <div className={`h-4 w-4 rounded border flex items-center justify-center ${selectedStates.includes(state.value) ? 'bg-primary border-primary text-primary-foreground' : 'border-input'}`}>
+                        {selectedStates.includes(state.value) && <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                      </div>
+                      <span>{state.label}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">{state.value}</span>
+                    </button>
+                  ))}
+                  {filteredStates.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">No states found</p>}
+                </div>
+                <div className="border-t p-2">
+                  <Button type="button" size="sm" className="w-full" onClick={() => { setStateDropdownOpen(false); setStateSearch(''); }}>Done</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Certificate of Insurance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Certificate of Insurance (COI)</CardTitle>
+          <CardDescription>Upload your COI and enter policy details</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Expiry Warnings */}
+          {isCoiExpired && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>Your insurance policy has expired. Please update your information.</AlertDescription>
+            </Alert>
+          )}
+          {!isCoiExpired && isCoiExpiringSoon && (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>Your insurance policy is expiring within 30 days.</AlertDescription>
+            </Alert>
+          )}
+
+          {/* COI File Upload */}
+          {editedProfile?.coi?.fileUrl ? (
             <div className="flex items-center justify-between rounded-md border p-3 bg-muted/30">
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-primary" />
-                <span className="text-sm">{profile.coi.fileName || 'COI Document'}</span>
+                <span className="text-sm">{editedProfile.coi.fileName || 'COI Document'}</span>
                 <Check className="h-4 w-4 text-green-600" />
               </div>
-              <a href={profile.coi.fileUrl} target="_blank" rel="noopener noreferrer">
-                <Button variant="ghost" size="sm"><ExternalLink className="h-4 w-4" /></Button>
-              </a>
+              <div className="flex items-center gap-2">
+                <a href={editedProfile.coi.fileUrl} target="_blank" rel="noopener noreferrer">
+                  <Button variant="ghost" size="sm"><ExternalLink className="h-4 w-4" /></Button>
+                </a>
+              </div>
             </div>
           ) : (
-            <div className="text-sm text-muted-foreground">No COI document uploaded.</div>
-          )}
-          {(profile.coi?.insurerName || profile.coi?.policyNumber) && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <Label className="text-xs text-muted-foreground">Insurer</Label>
-                <p className="text-sm">{profile.coi?.insurerName || '—'}</p>
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Policy #</Label>
-                <p className="text-sm">{profile.coi?.policyNumber || '—'}</p>
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Expires</Label>
-                <p className="text-sm">{profile.coi?.expiryDate || '—'}</p>
-              </div>
+            <div
+              className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const file = e.dataTransfer.files[0]; if (file) handleCoiUpload(file); }}
+              onClick={() => document.getElementById('coi-file-input')?.click()}
+            >
+              {uploading ? (
+                <div className="space-y-2">
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+                  <p className="text-sm text-muted-foreground">Uploading... {uploadProgress}%</p>
+                  <div className="w-full bg-muted rounded-full h-2 max-w-xs mx-auto">
+                    <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <UploadCloud className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm font-medium">Drop your COI here or click to browse</p>
+                  <p className="text-xs text-muted-foreground mt-1">PDF, JPG, PNG, or WEBP (max 10MB)</p>
+                </>
+              )}
             </div>
           )}
+          <input
+            id="coi-file-input"
+            type="file"
+            className="hidden"
+            accept=".pdf,.jpg,.jpeg,.png,.webp"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleCoiUpload(file);
+              e.target.value = '';
+            }}
+          />
+
+          {/* Re-upload button if already uploaded */}
+          {editedProfile?.coi?.fileUrl && (
+            <div>
+              <Label htmlFor="coi-reupload" className="cursor-pointer">
+                <Button variant="outline" size="sm" asChild>
+                  <span><Upload className="h-4 w-4 mr-1" /> Upload New COI</span>
+                </Button>
+              </Label>
+              <input
+                id="coi-reupload"
+                type="file"
+                className="hidden"
+                accept=".pdf,.jpg,.jpeg,.png,.webp"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleCoiUpload(file);
+                  e.target.value = '';
+                }}
+              />
+            </div>
+          )}
+
+          <Separator />
+
+          {/* Manual COI Fields */}
           <div>
-            <Label htmlFor="coi-reupload" className="cursor-pointer">
-              <Button variant="outline" size="sm" asChild>
-                <span><Upload className="h-4 w-4 mr-1" /> Upload New COI</span>
-              </Button>
-            </Label>
-            <input
-              id="coi-reupload"
-              type="file"
-              className="hidden"
-              accept=".pdf,.jpg,.jpeg,.png,.webp"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleCoiUpload(file);
-                e.target.value = '';
-              }}
-            />
+            <h4 className="text-sm font-medium mb-3">Policy Details</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="coiInsurer">Insurance Company Name</Label>
+                <Input
+                  id="coiInsurer"
+                  value={coiInsurerName}
+                  onChange={(e) => setCoiInsurerName(e.target.value)}
+                  placeholder="e.g., Progressive Commercial"
+                  disabled={!isOnline}
+                />
+              </div>
+              <div>
+                <Label htmlFor="coiPolicy">Policy Number</Label>
+                <Input
+                  id="coiPolicy"
+                  value={coiPolicyNumber}
+                  onChange={(e) => setCoiPolicyNumber(e.target.value)}
+                  placeholder="e.g., COM-12345678"
+                  disabled={!isOnline}
+                />
+              </div>
+              <div>
+                <Label htmlFor="coiExpiry">Expiry Date</Label>
+                <Input
+                  id="coiExpiry"
+                  type="date"
+                  value={coiExpiryDate}
+                  onChange={(e) => setCoiExpiryDate(e.target.value)}
+                  disabled={!isOnline}
+                  className={isCoiExpired ? 'border-red-500' : isCoiExpiringSoon ? 'border-yellow-500' : ''}
+                />
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -294,37 +596,84 @@ export default function ProfilePage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" /> Compliance Status</CardTitle>
+          <CardDescription>Your onboarding completion and compliance checks</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/* Profile Complete */}
           <div className="flex items-center justify-between">
-            <span className="text-sm">Profile Complete</span>
+            <div>
+              <span className="text-sm">Company Profile</span>
+              {profile.profileCompletedAt && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                  <Clock className="h-3 w-3" /> Completed: {formatTimestamp(profile.profileCompletedAt)}
+                </p>
+              )}
+            </div>
             {profile.onboardingStatus?.profileComplete
               ? <Badge variant="default" className="bg-green-600">Complete</Badge>
-              : <Badge variant="secondary">Incomplete</Badge>
+              : (
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/create-profile">Complete Profile <ArrowRight className="h-3 w-3 ml-1" /></Link>
+                </Button>
+              )
             }
           </div>
           <Separator />
+
+          {/* Compliance Attestations */}
           <div className="flex items-center justify-between">
             <span className="text-sm">Compliance Attestations</span>
             {profile.onboardingStatus?.complianceAttested
               ? <Badge variant="default" className="bg-green-600">Attested</Badge>
-              : <Badge variant="secondary">Pending</Badge>
+              : (
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/onboarding/compliance">Complete <ArrowRight className="h-3 w-3 ml-1" /></Link>
+                </Button>
+              )
             }
           </div>
           <Separator />
+
+          {/* FMCSA Clearinghouse */}
           <div className="flex items-center justify-between">
-            <span className="text-sm">FMCSA Clearinghouse</span>
+            <div>
+              <span className="text-sm">FMCSA Clearinghouse</span>
+              {profile.clearinghouseCompletedAt && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                  <Clock className="h-3 w-3" /> Completed: {formatTimestamp(profile.clearinghouseCompletedAt)}
+                </p>
+              )}
+            </div>
             {profile.onboardingStatus?.fmcsaDesignated === true
               ? <Badge variant="default" className="bg-green-600">Designated</Badge>
               : profile.onboardingStatus?.fmcsaDesignated === 'pending'
               ? <Badge variant="outline" className="text-amber-600 border-amber-600">Pending</Badge>
               : profile.onboardingStatus?.fmcsaDesignated === 'skipped'
-              ? <Badge variant="secondary">Skipped</Badge>
-              : <Badge variant="secondary">Not Started</Badge>
+              ? (
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/onboarding/fmcsa-clearinghouse">Complete <ArrowRight className="h-3 w-3 ml-1" /></Link>
+                </Button>
+              )
+              : (
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/onboarding/fmcsa-clearinghouse">Start <ArrowRight className="h-3 w-3 ml-1" /></Link>
+                </Button>
+              )
             }
           </div>
         </CardContent>
       </Card>
+
+      {/* Save Button */}
+      <div className="flex justify-end pb-6">
+        <Button onClick={handleSave} disabled={saving || !hasChanges || !isOnline} size="lg">
+          {saving ? (
+            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</>
+          ) : (
+            <><Save className="h-4 w-4 mr-2" />Save Profile</>
+          )}
+        </Button>
+      </div>
     </div>
   );
 }
