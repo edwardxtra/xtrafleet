@@ -153,9 +153,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {children}
         </main>
         <footer className="border-t bg-background px-3 md:px-6 py-3">
-          <p className="text-xs text-muted-foreground text-center">
-            &copy; {new Date().getFullYear()} XtraFleet. All rights reserved.
-          </p>
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-2">
+            <p className="text-xs text-muted-foreground">
+              &copy; {new Date().getFullYear()} XtraFleet. All rights reserved.
+            </p>
+            <nav className="flex flex-wrap justify-center gap-3 text-xs">
+              <Link href="/legal/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms of Service</Link>
+              <Link href="/legal/privacy" className="text-muted-foreground hover:text-foreground transition-colors">Privacy Policy</Link>
+              <Link href="/legal/user-agreement" className="text-muted-foreground hover:text-foreground transition-colors">User Agreement</Link>
+              <Link href="/legal/esign-consent" className="text-muted-foreground hover:text-foreground transition-colors">E-Sign Agreement</Link>
+            </nav>
+          </div>
         </footer>
       </SidebarInset>
       <HelpWidget />
