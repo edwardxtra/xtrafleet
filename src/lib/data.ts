@@ -16,10 +16,12 @@ export type Driver = {
   certifications: string[];
   availability: "Available" | "On-trip" | "Off-duty";
   vehicleType: "Dry Van" | "Reefer" | "Flatbed"; // Legacy - single type
+  vehicleTypes?: string[]; // New - array of types driver can haul
   trailerTypes?: TrailerType[]; // New - array of types driver can haul
   profileSummary?: string;
   ownerId?: string;
   isActive?: boolean;
+  isSelfDriver?: boolean; // OO added themselves as a driver — no separate Auth account
   cdlLicense?: string;
   cdlExpiry?: string;
   cdlLicenseUrl?: string;
@@ -42,6 +44,9 @@ export type Driver = {
   phone?: string;
   endorsements?: string;
   clearinghouseStatus?: string;
+  dqfStatus?: string;
+  profileStatus?: string;
+  profileComplete?: boolean;
 };
 
 export type Load = {
