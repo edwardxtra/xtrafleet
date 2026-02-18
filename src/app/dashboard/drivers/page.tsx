@@ -41,6 +41,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { AddDriverForm } from "@/components/add-driver-form";
+import { AddSelfAsDriverButton } from "@/components/add-self-as-driver-button";
 import { EditDriverModal } from "@/components/edit-driver-modal";
 import { DriverStatusBadge } from "@/components/driver-status-badge";
 import { DriverConfirmationCard } from "@/components/driver-confirmation-card";
@@ -198,6 +199,7 @@ const DriversTable = ({ drivers, isLoading, isUserLoading, driversError, isOnlin
                   <div className="flex items-center gap-2">
                     <TableAvatar name={driver.name || 'Unnamed Driver'} subtitle={driver.certifications?.join(', ') || driver.email} />
                     {isInactive && (<Badge variant="outline" className="text-xs">Inactive</Badge>)}
+                    {driver.isSelfDriver && (<Badge variant="outline" className="text-xs border-purple-500 text-purple-600 dark:text-purple-400">Owner-Driver</Badge>)}
                     {driver.dqfStatus === 'submitted' && (<Badge variant="outline" className="text-xs border-blue-500 text-blue-600 dark:text-blue-400">DQF Pending</Badge>)}
                     <DriverStatusBadge profileStatus={driver.profileStatus} profileComplete={driver.profileComplete} />
                   </div>
@@ -270,6 +272,10 @@ export default function DriversPage() {
   }, [firestore, user?.uid]);
 
   const { data: drivers, isLoading, error: driversError } = useCollection<Driver>(driversQuery);
+
+  const hasSelfDriver = useMemo(() => {
+    return drivers?.some(d => d.isSelfDriver === true) ?? false;
+  }, [drivers]);
 
   const filteredDrivers = useMemo(() => {
     if (!drivers) return null;
@@ -385,6 +391,7 @@ export default function DriversPage() {
               <h1 className="text-3xl font-bold font-headline flex items-center gap-2">
                 {selectedDriver.name}
                 {selectedDriver.isActive === false && (<Badge variant="outline">Inactive</Badge>)}
+                {selectedDriver.isSelfDriver && (<Badge variant="outline" className="border-purple-500 text-purple-600 dark:text-purple-400">Owner-Driver</Badge>)}
                 <DriverStatusBadge profileStatus={selectedDriver.profileStatus} profileComplete={selectedDriver.profileComplete} />
               </h1>
               <p className="text-muted-foreground">{selectedDriver.location}</p>
@@ -501,6 +508,10 @@ export default function DriversPage() {
               <Button size="sm" variant="outline" className="h-8 gap-1" disabled={!isOnline || !filteredDrivers?.length} onClick={handleExport}>
                 <Download className="h-3.5 w-3.5" /><span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Export</span>
               </Button>
+              <AddSelfAsDriverButton
+                alreadyAdded={hasSelfDriver}
+                onSuccess={() => {}}
+              />
               <SheetTrigger asChild>
                 <Button size="sm" className="h-8 gap-1" disabled={!isOnline}><PlusCircle className="h-3.5 w-3.5" /><span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Add Driver</span></Button>
               </SheetTrigger>
