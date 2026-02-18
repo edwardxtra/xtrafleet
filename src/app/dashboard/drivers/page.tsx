@@ -41,6 +41,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { AddDriverForm } from "@/components/add-driver-form";
+import { AddSelfAsDriverForm } from "@/components/add-self-as-driver-form";
 import { EditDriverModal } from "@/components/edit-driver-modal";
 import { DriverStatusBadge } from "@/components/driver-status-badge";
 import { DriverConfirmationCard } from "@/components/driver-confirmation-card";
@@ -150,7 +151,7 @@ const ProfileSkeleton = () => (
   </div>
 );
 
-const DriversTable = ({ drivers, isLoading, isUserLoading, driversError, isOnline, emptyMessage = "No drivers found", onSelectDriver, onEditDriver, onToggleActive }: { drivers: Driver[] | null; isLoading: boolean; isUserLoading: boolean; driversError: Error | null; isOnline: boolean; emptyMessage?: string; onSelectDriver: (id: string) => void; onEditDriver: (driver: Driver) => void; onToggleActive: (driver: Driver) => void; }) => {
+const DriversTable = ({ drivers, isLoading, isUserLoading, driversError, isOnline, emptyMessage = "No drivers found", onSelectDriver, onEditDriver, onToggleActive }: { drivers: (Driver & { isSelfDriver?: boolean })[] | null; isLoading: boolean; isUserLoading: boolean; driversError: Error | null; isOnline: boolean; emptyMessage?: string; onSelectDriver: (id: string) => void; onEditDriver: (driver: Driver) => void; onToggleActive: (driver: Driver) => void; }) => {
   const getComplianceBadgeVariant = (status: ComplianceStatus) => {
     switch (status) { case 'Green': return 'default'; case 'Yellow': return 'secondary'; case 'Red': return 'destructive'; default: return 'outline'; }
   };
@@ -198,8 +199,11 @@ const DriversTable = ({ drivers, isLoading, isUserLoading, driversError, isOnlin
                   <div className="flex items-center gap-2">
                     <TableAvatar name={driver.name || 'Unnamed Driver'} subtitle={driver.certifications?.join(', ') || driver.email} />
                     {isInactive && (<Badge variant="outline" className="text-xs">Inactive</Badge>)}
+                    {(driver as any).isSelfDriver && (
+                      <Badge variant="outline" className="text-xs border-purple-500 text-purple-600 dark:text-purple-400">Owner-Operator</Badge>
+                    )}
                     {driver.dqfStatus === 'submitted' && (<Badge variant="outline" className="text-xs border-blue-500 text-blue-600 dark:text-blue-400">DQF Pending</Badge>)}
-                    <DriverStatusBadge profileStatus={driver.profileStatus} profileComplete={driver.profileComplete} />
+                    {!(driver as any).isSelfDriver && <DriverStatusBadge profileStatus={driver.profileStatus} profileComplete={driver.profileComplete} />}
                   </div>
                 </TableCell>
                 <TableCell><span className="text-sm">{getVehicleTypesDisplay(driver)}</span></TableCell>
@@ -252,6 +256,7 @@ export default function DriversPage() {
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [togglingDriver, setTogglingDriver] = useState<Driver | null>(null);
   const [isToggling, setIsToggling] = useState(false);
+  const [selfSheetOpen, setSelfSheetOpen] = useState(false);
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
 
@@ -270,6 +275,12 @@ export default function DriversPage() {
   }, [firestore, user?.uid]);
 
   const { data: drivers, isLoading, error: driversError } = useCollection<Driver>(driversQuery);
+
+  // Check if OO has already added themselves as a driver
+  const hasSelfDriver = useMemo(() => {
+    if (!drivers) return false;
+    return drivers.some(d => (d as any).isSelfDriver === true);
+  }, [drivers]);
 
   const filteredDrivers = useMemo(() => {
     if (!drivers) return null;
@@ -385,7 +396,11 @@ export default function DriversPage() {
               <h1 className="text-3xl font-bold font-headline flex items-center gap-2">
                 {selectedDriver.name}
                 {selectedDriver.isActive === false && (<Badge variant="outline">Inactive</Badge>)}
-                <DriverStatusBadge profileStatus={selectedDriver.profileStatus} profileComplete={selectedDriver.profileComplete} />
+                {(selectedDriver as any).isSelfDriver ? (
+                  <Badge variant="outline" className="border-purple-500 text-purple-600 dark:text-purple-400">Owner-Operator</Badge>
+                ) : (
+                  <DriverStatusBadge profileStatus={selectedDriver.profileStatus} profileComplete={selectedDriver.profileComplete} />
+                )}
               </h1>
               <p className="text-muted-foreground">{selectedDriver.location}</p>
             </div>
@@ -461,63 +476,83 @@ export default function DriversPage() {
   }
 
   return (
-    <Sheet>
-      <main className="grid flex-1 items-start gap-4 sm:py-0 md:gap-8">
-        {!isOnline && (<Alert variant="destructive"><WifiOff className="h-4 w-4" /><AlertDescription>You&apos;re currently offline. Data may not be up to date.</AlertDescription></Alert>)}
+    <>
+      {/* Primary sheet: Add Driver (invite flow) */}
+      <Sheet>
+        <main className="grid flex-1 items-start gap-4 sm:py-0 md:gap-8">
+          {!isOnline && (<Alert variant="destructive"><WifiOff className="h-4 w-4" /><AlertDescription>You&apos;re currently offline. Data may not be up to date.</AlertDescription></Alert>)}
 
-        {driversError && (<Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>Failed to load drivers. <Button variant="link" className="p-0 h-auto ml-2" onClick={() => window.location.reload()}><RefreshCw className="h-3 w-3 mr-1" />Refresh</Button></AlertDescription></Alert>)}
+          {driversError && (<Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>Failed to load drivers. <Button variant="link" className="p-0 h-auto ml-2" onClick={() => window.location.reload()}><RefreshCw className="h-3 w-3 mr-1" />Refresh</Button></AlertDescription></Alert>)}
 
-        {pendingDQFCount > 0 && (
-          <Alert className="border-blue-500 bg-blue-50 dark:bg-blue-950">
-            <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            <AlertDescription className="flex items-center justify-between">
-              <span className="text-blue-900 dark:text-blue-100"><strong>{pendingDQFCount}</strong> driver{pendingDQFCount !== 1 ? 's' : ''} waiting for DQF approval</span>
-              <Button size="sm" variant="outline" className="ml-4" onClick={() => { const pending = drivers?.filter(d => d.dqfStatus === 'submitted'); if (pending && pending.length > 0) { setSelectedDriverId(pending[0].id); } }}>Review Now</Button>
-            </AlertDescription>
-          </Alert>
-        )}
+          {pendingDQFCount > 0 && (
+            <Alert className="border-blue-500 bg-blue-50 dark:bg-blue-950">
+              <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <AlertDescription className="flex items-center justify-between">
+                <span className="text-blue-900 dark:text-blue-100"><strong>{pendingDQFCount}</strong> driver{pendingDQFCount !== 1 ? 's' : ''} waiting for DQF approval</span>
+                <Button size="sm" variant="outline" className="ml-4" onClick={() => { const pending = drivers?.filter(d => d.dqfStatus === 'submitted'); if (pending && pending.length > 0) { setSelectedDriverId(pending[0].id); } }}>Review Now</Button>
+              </AlertDescription>
+            </Alert>
+          )}
 
-        {counts.pending > 0 && (
-          <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
-            <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-            <AlertDescription className="flex items-center justify-between">
-              <span className="text-yellow-900 dark:text-yellow-100"><strong>{counts.pending}</strong> driver{counts.pending !== 1 ? 's' : ''} awaiting profile confirmation</span>
-              <Button size="sm" variant="outline" className="ml-4" onClick={() => setActiveTab('pending')}>Review Profiles</Button>
-            </AlertDescription>
-          </Alert>
-        )}
+          {counts.pending > 0 && (
+            <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+              <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+              <AlertDescription className="flex items-center justify-between">
+                <span className="text-yellow-900 dark:text-yellow-100"><strong>{counts.pending}</strong> driver{counts.pending !== 1 ? 's' : ''} awaiting profile confirmation</span>
+                <Button size="sm" variant="outline" className="ml-4" onClick={() => setActiveTab('pending')}>Review Profiles</Button>
+              </AlertDescription>
+            </Alert>
+          )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="flex items-center">
-            <TabsList>
-              <TabsTrigger value="all">All {counts.all > 0 && `(${counts.all})`}</TabsTrigger>
-              <TabsTrigger value="available">Available {counts.available > 0 && `(${counts.available})`}</TabsTrigger>
-              <TabsTrigger value="on-trip">On-trip {counts.onTrip > 0 && `(${counts.onTrip})`}</TabsTrigger>
-              <TabsTrigger value="off-duty">Off-duty {counts.offDuty > 0 && `(${counts.offDuty})`}</TabsTrigger>
-              {counts.pending > 0 && <TabsTrigger value="pending">Pending Confirmation {`(${counts.pending})`}</TabsTrigger>}
-              {counts.inactive > 0 && (<TabsTrigger value="inactive">Inactive {`(${counts.inactive})`}</TabsTrigger>)}
-            </TabsList>
-            <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" variant="outline" className="h-8 gap-1" disabled={!isOnline || !filteredDrivers?.length} onClick={handleExport}>
-                <Download className="h-3.5 w-3.5" /><span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Export</span>
-              </Button>
-              <SheetTrigger asChild>
-                <Button size="sm" className="h-8 gap-1" disabled={!isOnline}><PlusCircle className="h-3.5 w-3.5" /><span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Add Driver</span></Button>
-              </SheetTrigger>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <div className="flex items-center">
+              <TabsList>
+                <TabsTrigger value="all">All {counts.all > 0 && `(${counts.all})`}</TabsTrigger>
+                <TabsTrigger value="available">Available {counts.available > 0 && `(${counts.available})`}</TabsTrigger>
+                <TabsTrigger value="on-trip">On-trip {counts.onTrip > 0 && `(${counts.onTrip})`}</TabsTrigger>
+                <TabsTrigger value="off-duty">Off-duty {counts.offDuty > 0 && `(${counts.offDuty})`}</TabsTrigger>
+                {counts.pending > 0 && <TabsTrigger value="pending">Pending Confirmation {`(${counts.pending})`}</TabsTrigger>}
+                {counts.inactive > 0 && (<TabsTrigger value="inactive">Inactive {`(${counts.inactive})`}</TabsTrigger>)}
+              </TabsList>
+              <div className="ml-auto flex items-center gap-2">
+                <Button size="sm" variant="outline" className="h-8 gap-1" disabled={!isOnline || !filteredDrivers?.length} onClick={handleExport}>
+                  <Download className="h-3.5 w-3.5" /><span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Export</span>
+                </Button>
+                {!hasSelfDriver && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1"
+                    disabled={!isOnline}
+                    onClick={() => setSelfSheetOpen(true)}
+                  >
+                    <UserCheck className="h-3.5 w-3.5" />
+                    <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Add Myself as Driver</span>
+                  </Button>
+                )}
+                <SheetTrigger asChild>
+                  <Button size="sm" className="h-8 gap-1" disabled={!isOnline}><PlusCircle className="h-3.5 w-3.5" /><span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Add Driver</span></Button>
+                </SheetTrigger>
+              </div>
             </div>
-          </div>
 
-          <Card className="mt-4">
-            <CardHeader><CardTitle className="font-headline">Drivers</CardTitle><CardDescription>Manage your drivers and view their status.</CardDescription></CardHeader>
-            <CardContent>
-              <DriversTable drivers={filteredDrivers} isLoading={isLoading} isUserLoading={isUserLoading} driversError={driversError} isOnline={isOnline} emptyMessage={activeTab === "all" ? "No drivers found. Invite your first driver!" : activeTab === "inactive" ? "No inactive drivers." : activeTab === "pending" ? "No drivers waiting for confirmation." : `No ${activeTab} drivers found.`} onSelectDriver={setSelectedDriverId} onEditDriver={setEditingDriver} onToggleActive={setTogglingDriver}/>
-            </CardContent>
-          </Card>
-        </Tabs>
-      </main>
-      
-      <AddDriverForm />
-      
+            <Card className="mt-4">
+              <CardHeader><CardTitle className="font-headline">Drivers</CardTitle><CardDescription>Manage your drivers and view their status.</CardDescription></CardHeader>
+              <CardContent>
+                <DriversTable drivers={filteredDrivers} isLoading={isLoading} isUserLoading={isUserLoading} driversError={driversError} isOnline={isOnline} emptyMessage={activeTab === "all" ? "No drivers found. Invite your first driver!" : activeTab === "inactive" ? "No inactive drivers." : activeTab === "pending" ? "No drivers waiting for confirmation." : `No ${activeTab} drivers found.`} onSelectDriver={setSelectedDriverId} onEditDriver={setEditingDriver} onToggleActive={setTogglingDriver}/>
+              </CardContent>
+            </Card>
+          </Tabs>
+        </main>
+
+        <AddDriverForm />
+      </Sheet>
+
+      {/* Secondary sheet: Add Self as Driver */}
+      <Sheet open={selfSheetOpen} onOpenChange={setSelfSheetOpen}>
+        <AddSelfAsDriverForm onSuccess={() => setSelfSheetOpen(false)} />
+      </Sheet>
+
       <EditDriverModal open={!!editingDriver && !selectedDriverId} onOpenChange={(open) => !open && setEditingDriver(null)} driver={editingDriver}/>
 
       <AlertDialog open={!!togglingDriver} onOpenChange={(open) => !open && setTogglingDriver(null)}>
@@ -539,6 +574,6 @@ export default function DriversPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Sheet>
+    </>
   );
 }
