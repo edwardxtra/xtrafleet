@@ -101,7 +101,7 @@ function ComplianceContent() {
           <Link href="/" passHref className="inline-block"><Logo /></Link>
           <div className="flex items-center justify-center gap-2 text-primary">
             <Shield className="h-5 w-5" />
-            <span className="text-sm font-medium">Step 2 of 3</span>
+            <span className="text-sm font-medium">Step 2 of 5</span>
           </div>
           <CardTitle className="font-headline text-2xl">Compliance Acknowledgments</CardTitle>
           <CardDescription>Please confirm the following to proceed. These acknowledgments are required to participate in the XtraFleet marketplace.</CardDescription>
