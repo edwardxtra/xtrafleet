@@ -4,6 +4,7 @@ import { showSuccess, showError } from "@/lib/toast-utils";
 import { notify } from "@/lib/notifications";
 import { calculateTripDuration, formatTripDuration } from "@/lib/tla-utils";
 import { captureSignatureAudit } from "@/lib/audit-utils";
+import { createConversation } from "@/lib/messaging-utils";
 
 export interface SignTLAParams {
   firestore: Firestore;
@@ -160,7 +161,7 @@ export async function signTLA(params: SignTLAParams): Promise<TLA | null> {
     
     await updateDoc(doc(firestore, `tlas/${tlaId}`), updateData);
     
-    // Update match status if both signed
+    // Update match status and create conversation if both signed
     if (updateData.status === 'signed' && tla.matchId) {
       try {
         await updateDoc(doc(firestore, `matches/${tla.matchId}`), {
@@ -168,6 +169,27 @@ export async function signTLA(params: SignTLAParams): Promise<TLA | null> {
         });
       } catch (matchErr) {
         console.warn("Could not update match status:", matchErr);
+      }
+
+      // Create conversation now that TLA is fully signed
+      try {
+        const matchDoc = await getDoc(doc(firestore, `matches/${tla.matchId}`));
+        if (matchDoc.exists()) {
+          const matchData = matchDoc.data();
+          if (matchData.loadId && matchData.loadOwnerId) {
+            await createConversation(
+              firestore,
+              tla.lessor.ownerOperatorId,  // driver owner (lessor)
+              matchData.loadOwnerId,        // load owner (lessee)
+              matchData.loadId,
+              tlaId
+            );
+            console.log("✅ Conversation created for TLA:", tlaId);
+          }
+        }
+      } catch (convErr) {
+        // Non-fatal — log but don't block the sign flow
+        console.warn("Could not create conversation:", convErr);
       }
     }
     
