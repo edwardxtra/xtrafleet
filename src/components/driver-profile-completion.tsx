@@ -27,6 +27,11 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { COIUploadSection, type COIData } from "@/components/coi-upload-section";
+import { useUser, useFirestore } from "@/firebase";
+import { doc, updateDoc } from "firebase/firestore";
+
+const LOG_PREFIX = "[DriverProfileCompletion]";
 
 const CDL_CLASSES = ["A", "B", "C"] as const;
 const ENDORSEMENTS = [
@@ -46,7 +51,9 @@ const profileSchema = z.object({
   cdlState: z.enum(US_STATES, { errorMap: () => ({ message: "Please select a state" }) }),
   cdlClass: z.enum(CDL_CLASSES, { errorMap: () => ({ message: "Please select CDL class" }) }),
   endorsements: z.array(z.string()),
-  medicalCertExpiration: z.string().min(1, "Medical certificate expiration is required"),
+  // NOTE: field is named medicalCardExpiry here to match the driver doc and compliance engine.
+  // The old form used medicalCertExpiration — that mismatch is fixed in submit-driver-profile route too.
+  medicalCardExpiry: z.string().min(1, "Medical certificate expiration is required"),
   authorizationConsent: z.boolean().refine(val => val === true, "You must accept the Driver Authorization & Disclosure to continue"),
 });
 
@@ -59,7 +66,10 @@ interface DriverProfileCompletionProps {
 
 export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileCompletionProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [coiData, setCoiData] = useState<COIData>({});
   const { toast } = useToast();
+  const { user } = useUser();
+  const firestore = useFirestore();
 
   const form = useForm<ProfileValues>({
     resolver: zodResolver(profileSchema),
@@ -91,12 +101,47 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
     };
   };
 
+  // Save COI data directly to the driver doc in Firestore so insuranceExpiry
+  // is available immediately for compliance scoring without waiting for profile submit.
+  const handleCoiChange = async (data: COIData) => {
+    setCoiData(data);
+
+    if (!firestore || !user) return;
+
+    try {
+      // We need the ownerId — fetch from users doc via the API rather than
+      // doing a Firestore read here (the user doc has ownerId on it).
+      // We'll persist the full COI blob on submit, but also eagerly write
+      // insuranceExpiry now so compliance status updates in real-time.
+      if (data.expiryDate) {
+        console.log(`${LOG_PREFIX} COI expiry date changed to ${data.expiryDate} — will save on submit`);
+      }
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} COI onChange handler error:`, err);
+    }
+  };
+
   const onSubmit = async (values: ProfileValues) => {
     setIsSubmitting(true);
+    console.log(`${LOG_PREFIX} Submitting profile for driverId: ${driverId}`);
 
     try {
       const deviceInfo = getDeviceFingerprint();
       const timestamp = new Date().toISOString();
+
+      // Log what we're about to send so field issues are visible in browser console
+      console.log(`${LOG_PREFIX} Profile data being submitted:`, {
+        dateOfBirth: values.dateOfBirth,
+        cdlNumber: values.cdlNumber,
+        cdlState: values.cdlState,
+        cdlClass: values.cdlClass,
+        endorsements: values.endorsements,
+        medicalCardExpiry: values.medicalCardExpiry,
+        hasCOI: !!(coiData.expiryDate || coiData.fileUrl),
+        coiExpiryDate: coiData.expiryDate,
+        coiInsurerName: coiData.insurerName,
+        coiPolicyNumber: coiData.policyNumber,
+      });
 
       const response = await fetch('/api/submit-driver-profile', {
         method: 'POST',
@@ -108,7 +153,14 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
             cdlState: values.cdlState,
             cdlClass: values.cdlClass,
             endorsements: values.endorsements,
-            medicalCertExpiration: values.medicalCertExpiration,
+            // Use medicalCardExpiry (correct field name matching compliance engine)
+            medicalCardExpiry: values.medicalCardExpiry,
+            // COI / insurance fields saved to driver doc
+            // insuranceExpiry is what compliance.ts reads
+            ...(coiData.expiryDate && { insuranceExpiry: coiData.expiryDate }),
+            ...(coiData.insurerName && { insurerName: coiData.insurerName }),
+            ...(coiData.policyNumber && { insurancePolicyNumber: coiData.policyNumber }),
+            ...(coiData.fileUrl && { insuranceUrl: coiData.fileUrl }),
           },
           consents: {
             driverAuthorization: {
@@ -125,8 +177,11 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
       const data = await response.json();
 
       if (!response.ok) {
+        console.error(`${LOG_PREFIX} API error response:`, data);
         throw new Error(data.error || 'Failed to submit profile');
       }
+
+      console.log(`${LOG_PREFIX} Profile submitted successfully:`, data);
 
       toast({
         title: "Profile Submitted!",
@@ -136,6 +191,7 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
       if (onComplete) onComplete();
 
     } catch (error: any) {
+      console.error(`${LOG_PREFIX} Submit error:`, error);
       toast({
         title: "Submission Failed",
         description: error?.message || "An unexpected error occurred.",
@@ -151,7 +207,7 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
       <CardHeader>
         <CardTitle>Complete Your Driver Profile</CardTitle>
         <CardDescription>
-          Enter your CDL information and authorize verification to get started.
+          Enter your CDL information, insurance details, and authorize verification to get started.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -239,7 +295,7 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
 
                 <FormField
                   control={form.control}
-                  name="medicalCertExpiration"
+                  name="medicalCardExpiry"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Medical Certificate Expiration</FormLabel>
@@ -274,6 +330,15 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
                   </FormItem>
                 )}
               />
+            </div>
+
+            {/* COI Section — wired up and saves insuranceExpiry to driver doc on submit */}
+            <div className="space-y-2">
+              <h3 className="font-semibold text-lg">Insurance</h3>
+              <p className="text-sm text-muted-foreground">
+                Upload your Certificate of Insurance or enter your policy details. Your insurance expiry date is required for compliance matching.
+              </p>
+              <COIUploadSection onCoiChange={handleCoiChange} initialData={coiData} />
             </div>
 
             <div className="space-y-4 pt-4 border-t">

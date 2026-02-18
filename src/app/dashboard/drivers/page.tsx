@@ -2,41 +2,18 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from 'next/link';
-import { File, PlusCircle, Search, Upload, ArrowLeft, WifiOff, AlertCircle, RefreshCw, ExternalLink, Download, Pencil, UserX, UserCheck } from "lucide-react";
+import { PlusCircle, ArrowLeft, WifiOff, AlertCircle, RefreshCw, ExternalLink, Download, Pencil, UserX, UserCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
@@ -45,11 +22,8 @@ import { AddSelfAsDriverButton } from "@/components/add-self-as-driver-button";
 import { EditDriverModal } from "@/components/edit-driver-modal";
 import { DriverStatusBadge } from "@/components/driver-status-badge";
 import { DriverConfirmationCard } from "@/components/driver-confirmation-card";
-import { MoreHorizontal } from "lucide-react";
-import {
-  Avatar,
-  AvatarFallback,
-} from "@/components/ui/avatar";
+import { MoreHorizontal, Star, Truck, User, FileText as FileTextIcon, MessageSquare } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Driver } from "@/lib/data";
 import { UploadDriversCSV } from "@/components/upload-drivers-csv";
 import { useUser, useCollection, useFirestore, useMemoFirebase, useDoc } from "@/firebase";
@@ -58,73 +32,18 @@ import { getComplianceStatus, ComplianceStatus } from "@/lib/compliance";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Star, Truck, User, FileText as FileTextIcon, CheckCircle, XCircle, AlertTriangle, MessageSquare } from 'lucide-react';
-import { format, parseISO, differenceInDays } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { TRAILER_TYPES } from '@/lib/trailer-types';
 import { TableAvatar, TableStatusBadge } from '@/components/ui/table-components';
 import { DQFReviewCard } from '@/components/dqf-review-card';
+import { ComplianceScorecard } from '@/components/compliance-scorecard';
 
-const ComplianceItem = ({ label, value, type = 'expiry', documentUrl }: { label: string; value?: string; type?: 'expiry' | 'field' | 'screening'; documentUrl?: string; }) => {
-    let StatusIcon = AlertTriangle;
-    let statusColor = "text-amber-500";
-    let statusText = "Missing";
+const LOG_PREFIX = '[drivers/page]';
 
-    if (value) {
-        if (type === 'field') {
-            StatusIcon = CheckCircle;
-            statusColor = "text-green-500";
-            statusText = `Provided`;
-        } else if (type === 'expiry') {
-            const expiryDate = parseISO(value);
-            const now = new Date();
-            const daysUntilExpiry = differenceInDays(expiryDate, now);
-            if (daysUntilExpiry < 0) { StatusIcon = XCircle; statusColor = "text-destructive"; statusText = `Expired on ${format(expiryDate, 'MM/dd/yyyy')}`; }
-            else if (daysUntilExpiry <= 30) { StatusIcon = AlertTriangle; statusColor = "text-amber-500"; statusText = `Expires soon: ${format(expiryDate, 'MM/dd/yyyy')}`; }
-            else { StatusIcon = CheckCircle; statusColor = "text-green-500"; statusText = `Expires ${format(expiryDate, 'MM/dd/yyyy')}`; }
-        } else if (type === 'screening') {
-            const screeningDate = parseISO(value);
-            const expiryDate = new Date(screeningDate);
-            expiryDate.setFullYear(expiryDate.getFullYear() + 1);
-            const now = new Date();
-            const daysUntilExpiry = differenceInDays(expiryDate, now);
-            if (daysUntilExpiry < 0) { StatusIcon = XCircle; statusColor = "text-destructive"; statusText = `Expired ${format(expiryDate, 'MM/dd/yyyy')}`; }
-            else if (daysUntilExpiry <= 30) { StatusIcon = AlertTriangle; statusColor = "text-amber-500"; statusText = `Expires soon: ${format(expiryDate, 'MM/dd/yyyy')}`; }
-            else { StatusIcon = CheckCircle; statusColor = "text-green-500"; statusText = `Valid until ${format(expiryDate, 'MM/dd/yyyy')}`; }
-        }
-    }
-
-    return (
-        <div className="flex items-center justify-between py-3">
-            <p className="font-medium flex items-center gap-2">
-                <FileTextIcon className="h-4 w-4 text-muted-foreground"/> {label}
-            </p>
-            <div className="flex items-center gap-3">
-                <div className={`flex items-center gap-2 text-sm font-semibold ${statusColor}`}>
-                    <StatusIcon className="h-5 w-5" />
-                    <span>{statusText}</span>
-                </div>
-                {documentUrl ? (
-                    <a href={documentUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs bg-primary text-primary-foreground px-2 py-1 rounded hover:bg-primary/90 transition-colors">
-                        <ExternalLink className="h-3 w-3" />View
-                    </a>
-                ) : (
-                    <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">No file</span>
-                )}
-            </div>
-        </div>
-    );
-};
-
-const StatCard = ({ title, value, icon: Icon }: { title: string; value: string | number; icon: React.ElementType }) => (
-    <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
-        <Icon className="h-8 w-8 text-muted-foreground" />
-        <div>
-            <p className="text-sm text-muted-foreground">{title}</p>
-            <p className="text-lg font-semibold">{value}</p>
-        </div>
-    </div>
-);
+// ---------------------------------------------------------------------------
+// Skeletons
+// ---------------------------------------------------------------------------
 
 const TableSkeleton = () => (
   <>
@@ -151,7 +70,25 @@ const ProfileSkeleton = () => (
   </div>
 );
 
-const DriversTable = ({ drivers, isLoading, isUserLoading, driversError, isOnline, emptyMessage = "No drivers found", onSelectDriver, onEditDriver, onToggleActive }: { drivers: Driver[] | null; isLoading: boolean; isUserLoading: boolean; driversError: Error | null; isOnline: boolean; emptyMessage?: string; onSelectDriver: (id: string) => void; onEditDriver: (driver: Driver) => void; onToggleActive: (driver: Driver) => void; }) => {
+// ---------------------------------------------------------------------------
+// Drivers table
+// ---------------------------------------------------------------------------
+
+const DriversTable = ({
+  drivers, isLoading, isUserLoading, driversError, isOnline,
+  emptyMessage = 'No drivers found',
+  onSelectDriver, onEditDriver, onToggleActive,
+}: {
+  drivers: Driver[] | null;
+  isLoading: boolean;
+  isUserLoading: boolean;
+  driversError: Error | null;
+  isOnline: boolean;
+  emptyMessage?: string;
+  onSelectDriver: (id: string) => void;
+  onEditDriver: (driver: Driver) => void;
+  onToggleActive: (driver: Driver) => void;
+}) => {
   const getComplianceBadgeVariant = (status: ComplianceStatus) => {
     switch (status) { case 'Green': return 'default'; case 'Yellow': return 'secondary'; case 'Red': return 'destructive'; default: return 'outline'; }
   };
@@ -159,9 +96,8 @@ const DriversTable = ({ drivers, isLoading, isUserLoading, driversError, isOnlin
   const getVehicleTypesDisplay = (driver: Driver) => {
     const types = driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []);
     if (types.length === 0) return '-';
-    const labels = types.map(typeValue => { const typeLabel = TRAILER_TYPES.find(t => t.value === typeValue)?.label; return typeLabel || typeValue; });
-    if (labels.length === 1) return labels[0];
-    return `${labels[0]} +${labels.length - 1}`;
+    const labels = types.map(v => TRAILER_TYPES.find(t => t.value === v)?.label || v);
+    return labels.length === 1 ? labels[0] : `${labels[0]} +${labels.length - 1}`;
   };
 
   return (
@@ -194,13 +130,17 @@ const DriversTable = ({ drivers, isLoading, isUserLoading, driversError, isOnlin
             const complianceStatus = getComplianceStatus(driver);
             const isInactive = driver.isActive === false;
             return (
-              <TableRow key={driver.id} className={`cursor-pointer hover:bg-muted/50 transition-colors ${isInactive ? "opacity-50" : ""}`} onClick={() => onSelectDriver(driver.id)}>
+              <TableRow
+                key={driver.id}
+                className={`cursor-pointer hover:bg-muted/50 transition-colors ${isInactive ? 'opacity-50' : ''}`}
+                onClick={() => onSelectDriver(driver.id)}
+              >
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
                     <TableAvatar name={driver.name || 'Unnamed Driver'} subtitle={driver.certifications?.join(', ') || driver.email} />
-                    {isInactive && (<Badge variant="outline" className="text-xs">Inactive</Badge>)}
-                    {driver.isSelfDriver && (<Badge variant="outline" className="text-xs border-purple-500 text-purple-600 dark:text-purple-400">Owner-Driver</Badge>)}
-                    {driver.dqfStatus === 'submitted' && (<Badge variant="outline" className="text-xs border-blue-500 text-blue-600 dark:text-blue-400">DQF Pending</Badge>)}
+                    {isInactive && <Badge variant="outline" className="text-xs">Inactive</Badge>}
+                    {driver.isSelfDriver && <Badge variant="outline" className="text-xs border-purple-500 text-purple-600 dark:text-purple-400">Owner-Driver</Badge>}
+                    {driver.dqfStatus === 'submitted' && <Badge variant="outline" className="text-xs border-blue-500 text-blue-600 dark:text-blue-400">DQF Pending</Badge>}
                     <DriverStatusBadge profileStatus={driver.profileStatus} profileComplete={driver.profileComplete} />
                   </div>
                 </TableCell>
@@ -226,8 +166,12 @@ const DriversTable = ({ drivers, isLoading, isUserLoading, driversError, isOnlin
                       <DropdownMenuItem onClick={() => onSelectDriver(driver.id)}>View Profile</DropdownMenuItem>
                       <DropdownMenuItem disabled={!isOnline} onClick={() => onEditDriver(driver)}><Pencil className="h-4 w-4 mr-2" />Edit Profile</DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem disabled={!isOnline} onClick={() => onToggleActive(driver)} className={isInactive ? "text-green-600" : "text-destructive"}>
-                        {isInactive ? (<><UserCheck className="h-4 w-4 mr-2" /> Reactivate</>) : (<><UserX className="h-4 w-4 mr-2" /> Deactivate</>)}
+                      <DropdownMenuItem
+                        disabled={!isOnline}
+                        onClick={() => onToggleActive(driver)}
+                        className={isInactive ? 'text-green-600' : 'text-destructive'}
+                      >
+                        {isInactive ? <><UserCheck className="h-4 w-4 mr-2" />Reactivate</> : <><UserX className="h-4 w-4 mr-2" />Deactivate</>}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -247,10 +191,14 @@ const DriversTable = ({ drivers, isLoading, isUserLoading, driversError, isOnlin
   );
 };
 
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
 export default function DriversPage() {
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(true);
-  const [activeTab, setActiveTab] = useState("all");
+  const [activeTab, setActiveTab] = useState('all');
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [togglingDriver, setTogglingDriver] = useState<Driver | null>(null);
   const [isToggling, setIsToggling] = useState(false);
@@ -258,8 +206,8 @@ export default function DriversPage() {
   const firestore = useFirestore();
 
   useEffect(() => {
-    const handleOnline = () => { setIsOnline(true); showSuccess('You\'re back online!'); };
-    const handleOffline = () => { setIsOnline(false); };
+    const handleOnline = () => { setIsOnline(true); showSuccess("You're back online!"); };
+    const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     setIsOnline(navigator.onLine);
@@ -273,18 +221,16 @@ export default function DriversPage() {
 
   const { data: drivers, isLoading, error: driversError } = useCollection<Driver>(driversQuery);
 
-  const hasSelfDriver = useMemo(() => {
-    return drivers?.some(d => d.isSelfDriver === true) ?? false;
-  }, [drivers]);
+  const hasSelfDriver = useMemo(() => drivers?.some(d => d.isSelfDriver === true) ?? false, [drivers]);
 
   const filteredDrivers = useMemo(() => {
     if (!drivers) return null;
     switch (activeTab) {
-      case "available": return drivers.filter(driver => driver.availability === "Available" && driver.isActive !== false);
-      case "on-trip": return drivers.filter(driver => driver.availability === "On-trip");
-      case "off-duty": return drivers.filter(driver => driver.availability === "Off-duty" || !driver.availability);
-      case "inactive": return drivers.filter(driver => driver.isActive === false);
-      case "pending": return drivers.filter(driver => driver.profileStatus === 'pending_confirmation');
+      case 'available': return drivers.filter(d => d.availability === 'Available' && d.isActive !== false);
+      case 'on-trip': return drivers.filter(d => d.availability === 'On-trip');
+      case 'off-duty': return drivers.filter(d => (d.availability === 'Off-duty' || !d.availability) && d.isActive !== false);
+      case 'inactive': return drivers.filter(d => d.isActive === false);
+      case 'pending': return drivers.filter(d => d.profileStatus === 'pending_confirmation');
       default: return drivers;
     }
   }, [drivers, activeTab]);
@@ -293,18 +239,15 @@ export default function DriversPage() {
     if (!drivers) return { all: 0, available: 0, onTrip: 0, offDuty: 0, inactive: 0, pending: 0 };
     return {
       all: drivers.length,
-      available: drivers.filter(d => d.availability === "Available" && d.isActive !== false).length,
-      onTrip: drivers.filter(d => d.availability === "On-trip").length,
-      offDuty: drivers.filter(d => (d.availability === "Off-duty" || !d.availability) && d.isActive !== false).length,
+      available: drivers.filter(d => d.availability === 'Available' && d.isActive !== false).length,
+      onTrip: drivers.filter(d => d.availability === 'On-trip').length,
+      offDuty: drivers.filter(d => (d.availability === 'Off-duty' || !d.availability) && d.isActive !== false).length,
       inactive: drivers.filter(d => d.isActive === false).length,
       pending: drivers.filter(d => d.profileStatus === 'pending_confirmation').length,
     };
   }, [drivers]);
 
-  const pendingDQFCount = useMemo(() => {
-    if (!drivers) return 0;
-    return drivers.filter(d => d.dqfStatus === 'submitted').length;
-  }, [drivers]);
+  const pendingDQFCount = useMemo(() => drivers?.filter(d => d.dqfStatus === 'submitted').length ?? 0, [drivers]);
 
   const selectedDriverQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid || !selectedDriverId) return null;
@@ -314,19 +257,46 @@ export default function DriversPage() {
   const { data: selectedDriver, isLoading: isDriverLoading, error: driverError } = useDoc<Driver>(selectedDriverQuery);
 
   useEffect(() => {
-    if (driversError) showError('Failed to load drivers. Please try again.');
-    if (driverError) showError('Failed to load driver details. Please try again.');
+    if (driversError) {
+      console.error(`${LOG_PREFIX} driversError:`, driversError);
+      showError('Failed to load drivers. Please try again.');
+    }
+    if (driverError) {
+      console.error(`${LOG_PREFIX} driverError for id ${selectedDriverId}:`, driverError);
+      showError('Failed to load driver details. Please try again.');
+    }
   }, [driversError, driverError]);
 
+  // Log whenever selected driver loads so we can verify compliance fields
+  useEffect(() => {
+    if (selectedDriver) {
+      console.log(`${LOG_PREFIX} Selected driver loaded: ${selectedDriver.name}`, {
+        id: selectedDriver.id,
+        profileStatus: selectedDriver.profileStatus,
+        cdlLicense: selectedDriver.cdlLicense,
+        cdlExpiry: selectedDriver.cdlExpiry,
+        medicalCardExpiry: selectedDriver.medicalCardExpiry,
+        insuranceExpiry: selectedDriver.insuranceExpiry,
+        motorVehicleRecordNumber: selectedDriver.motorVehicleRecordNumber,
+        backgroundCheckDate: selectedDriver.backgroundCheckDate,
+        drugAndAlcoholScreeningDate: selectedDriver.drugAndAlcoholScreeningDate,
+      });
+    }
+  }, [selectedDriver]);
+
   const handleExport = () => {
-    if (!filteredDrivers || filteredDrivers.length === 0) { showError('No drivers to export'); return; }
+    if (!filteredDrivers?.length) { showError('No drivers to export'); return; }
     const headers = ['Name', 'Email', 'Vehicle Types', 'Location', 'Availability', 'CDL Number', 'CDL Expiry'];
     const csvContent = [
       headers.join(','),
       ...filteredDrivers.map(driver => {
-        const types = driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []);
-        const typeLabels = types.map(t => TRAILER_TYPES.find(tt => tt.value === t)?.label || t).join('; ');
-        return [`"${driver.name || ''}"`,`"${driver.email || ''}"`,`"${typeLabels}"`,`"${driver.location || ''}"`,`"${driver.availability || ''}"`,`"${driver.cdlLicense || ''}"`,`"${driver.cdlExpiry || ''}"`].join(',');
+        const types = (driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []))
+          .map(t => TRAILER_TYPES.find(tt => tt.value === t)?.label || t).join('; ');
+        return [
+          `"${driver.name || ''}"`, `"${driver.email || ''}"`, `"${types}"`,
+          `"${driver.location || ''}"`, `"${driver.availability || ''}"`,
+          `"${driver.cdlLicense || ''}"`, `"${driver.cdlExpiry || ''}"`
+        ].join(',');
       })
     ].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -340,27 +310,33 @@ export default function DriversPage() {
   const handleToggleActive = async () => {
     if (!togglingDriver || !firestore || !user?.uid) return;
     setIsToggling(true);
+    const driverId = togglingDriver.id;
+    const newStatus = togglingDriver.isActive === false;
+    console.log(`${LOG_PREFIX} Toggling driver ${driverId} active status to: ${newStatus}`);
     try {
-      const driverRef = doc(firestore, `owner_operators/${user.uid}/drivers/${togglingDriver.id}`);
-      const newStatus = togglingDriver.isActive === false ? true : false;
-      await updateDoc(driverRef, { isActive: newStatus });
+      await updateDoc(doc(firestore, `owner_operators/${user.uid}/drivers/${driverId}`), { isActive: newStatus });
       showSuccess(newStatus ? 'Driver reactivated' : 'Driver deactivated');
+      console.log(`${LOG_PREFIX} Driver ${driverId} active status updated to ${newStatus}`);
       setTogglingDriver(null);
-    } catch (error: any) { showError(error.message || 'Failed to update driver status'); } finally { setIsToggling(false); }
-  };
-  
-  const getComplianceBadgeVariant = (status: ComplianceStatus) => {
-    switch (status) { case 'Green': return 'default'; case 'Yellow': return 'secondary'; case 'Red': return 'destructive'; default: return 'outline'; }
+    } catch (error: any) {
+      console.error(`${LOG_PREFIX} Failed to toggle driver ${driverId}:`, error);
+      showError(error.message || 'Failed to update driver status');
+    } finally {
+      setIsToggling(false);
+    }
   };
 
-  const getInitials = (name: string) => { return name?.split(' ').map(n => n[0]).join('') || ''; }
+  const getInitials = (name: string) => name?.split(' ').map(n => n[0]).join('') || '';
 
   const getVehicleTypesDisplay = (driver: Driver) => {
     const types = driver.vehicleTypes || (driver.vehicleType ? [driver.vehicleType] : []);
     if (types.length === 0) return 'N/A';
-    return types.map(typeValue => { const typeLabel = TRAILER_TYPES.find(t => t.value === typeValue)?.label; return typeLabel || typeValue; }).join(', ');
+    return types.map(v => TRAILER_TYPES.find(t => t.value === v)?.label || v).join(', ');
   };
 
+  // -------------------------------------------------------------------
+  // Driver profile panel
+  // -------------------------------------------------------------------
   if (selectedDriverId) {
     if (isDriverLoading) return <ProfileSkeleton />;
 
@@ -373,11 +349,11 @@ export default function DriversPage() {
       );
     }
 
-    const complianceStatus = getComplianceStatus(selectedDriver);
-    
     return (
       <div className="space-y-6">
-        {!isOnline && (<Alert variant="destructive" className="mb-4"><WifiOff className="h-4 w-4" /><AlertDescription>You&apos;re currently offline. Data may not be up to date.</AlertDescription></Alert>)}
+        {!isOnline && (
+          <Alert variant="destructive" className="mb-4"><WifiOff className="h-4 w-4" /><AlertDescription>You&apos;re currently offline. Data may not be up to date.</AlertDescription></Alert>
+        )}
 
         <div className="flex items-center justify-between">
           <Button variant="outline" onClick={() => setSelectedDriverId(null)}><ArrowLeft className="h-4 w-4 mr-2" />Back to Drivers List</Button>
@@ -390,8 +366,8 @@ export default function DriversPage() {
             <div>
               <h1 className="text-3xl font-bold font-headline flex items-center gap-2">
                 {selectedDriver.name}
-                {selectedDriver.isActive === false && (<Badge variant="outline">Inactive</Badge>)}
-                {selectedDriver.isSelfDriver && (<Badge variant="outline" className="border-purple-500 text-purple-600 dark:text-purple-400">Owner-Driver</Badge>)}
+                {selectedDriver.isActive === false && <Badge variant="outline">Inactive</Badge>}
+                {selectedDriver.isSelfDriver && <Badge variant="outline" className="border-purple-500 text-purple-600 dark:text-purple-400">Owner-Driver</Badge>}
                 <DriverStatusBadge profileStatus={selectedDriver.profileStatus} profileComplete={selectedDriver.profileComplete} />
               </h1>
               <p className="text-muted-foreground">{selectedDriver.location}</p>
@@ -401,30 +377,26 @@ export default function DriversPage() {
 
         <Separator />
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <StatCard title="Availability" value={selectedDriver.availability || 'Off-duty'} icon={User} />
-          <StatCard title="Vehicle Types" value={getVehicleTypesDisplay(selectedDriver)} icon={Truck} />
-          <StatCard title="Avg. Rating" value={selectedDriver.rating ? `${selectedDriver.rating.toFixed(1)} / 5.0` : 'N/A'} icon={Star} />
-          <StatCard title="Compliance Status" value={complianceStatus} icon={FileTextIcon} />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
+            <User className="h-8 w-8 text-muted-foreground" />
+            <div><p className="text-sm text-muted-foreground">Availability</p><p className="text-lg font-semibold">{selectedDriver.availability || 'Off-duty'}</p></div>
+          </div>
+          <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
+            <Truck className="h-8 w-8 text-muted-foreground" />
+            <div><p className="text-sm text-muted-foreground">Vehicle Types</p><p className="text-lg font-semibold">{getVehicleTypesDisplay(selectedDriver)}</p></div>
+          </div>
+          <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
+            <Star className="h-8 w-8 text-muted-foreground" />
+            <div><p className="text-sm text-muted-foreground">Avg. Rating</p><p className="text-lg font-semibold">{selectedDriver.rating ? `${selectedDriver.rating.toFixed(1)} / 5.0` : 'N/A'}</p></div>
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader><CardTitle className="font-headline">Compliance Scorecard</CardTitle><CardDescription>Status of all required documents and screenings.</CardDescription></CardHeader>
             <CardContent>
-              <div className="flex items-center justify-between p-4 rounded-lg mb-4" style={{ backgroundColor: `hsl(var(--${getComplianceBadgeVariant(complianceStatus)}))`}}>
-                <p className="font-bold" style={{ color: `hsl(var(--${getComplianceBadgeVariant(complianceStatus)}-foreground))`}}>Overall Status: {complianceStatus}</p>
-              </div>
-              <div className="divide-y">
-                <ComplianceItem label="CDL Expiry" value={selectedDriver.cdlExpiry} type="expiry" documentUrl={selectedDriver.cdlDocumentUrl || selectedDriver.cdlLicenseUrl}/>
-                <ComplianceItem label="CDL Number" value={selectedDriver.cdlLicense} type="field" documentUrl={selectedDriver.cdlLicenseUrl}/>
-                <ComplianceItem label="Medical Card" value={selectedDriver.medicalCardExpiry} type="expiry" documentUrl={selectedDriver.medicalCardUrl}/>
-                <ComplianceItem label="Insurance" value={selectedDriver.insuranceExpiry} type="expiry" documentUrl={selectedDriver.insuranceUrl}/>
-                <ComplianceItem label="Motor Vehicle Record #" value={selectedDriver.motorVehicleRecordNumber} type="field" documentUrl={selectedDriver.mvrUrl}/>
-                <ComplianceItem label="Background Check" value={selectedDriver.backgroundCheckDate} type="screening" documentUrl={selectedDriver.backgroundCheckUrl}/>
-                <ComplianceItem label="Pre-Employment Screen" value={selectedDriver.preEmploymentScreeningDate} type="field" documentUrl={selectedDriver.preEmploymentScreeningUrl}/>
-                <ComplianceItem label="Drug & Alcohol Screen" value={selectedDriver.drugAndAlcoholScreeningDate} type="screening" documentUrl={selectedDriver.drugAndAlcoholScreeningUrl}/>
-              </div>
+              <ComplianceScorecard driver={selectedDriver} role="owner_operator" />
             </CardContent>
           </Card>
 
@@ -437,7 +409,7 @@ export default function DriversPage() {
                     <Card key={review.id} className="bg-muted/50 shadow-none">
                       <CardHeader className="p-4">
                         <div className="flex items-center justify-between">
-                          <div><CardTitle className="text-base">{review.reviewer}</CardTitle><CardDescription>{format(parseISO(review.date), 'MMMM d, yyyy')}</CardDescription></div>
+                          <div><CardTitle className="text-base">{review.reviewer}</CardTitle><p className="text-sm text-muted-foreground">{format(parseISO(review.date), 'MMMM d, yyyy')}</p></div>
                           <div className="flex items-center gap-1">{[...Array(5)].map((_, i) => (<Star key={i} className={`h-5 w-5 ${i < review.rating ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground/50'}`} />))}</div>
                         </div>
                       </CardHeader>
@@ -459,31 +431,40 @@ export default function DriversPage() {
         <DQFReviewCard driver={selectedDriver} onRefresh={() => setSelectedDriverId(selectedDriverId)} />
 
         {selectedDriver.profileStatus === 'pending_confirmation' && (
-          <DriverConfirmationCard driver={selectedDriver} onConfirmed={() => { setSelectedDriverId(selectedDriverId); }} />
+          <DriverConfirmationCard driver={selectedDriver} onConfirmed={() => setSelectedDriverId(selectedDriverId)} />
         )}
-        
-        <EditDriverModal open={!!editingDriver} onOpenChange={(open) => !open && setEditingDriver(null)} driver={editingDriver} onSuccess={() => setSelectedDriverId(selectedDriverId)}/>
+
+        <EditDriverModal
+          open={!!editingDriver}
+          onOpenChange={(open) => !open && setEditingDriver(null)}
+          driver={editingDriver}
+          onSuccess={() => setSelectedDriverId(selectedDriverId)}
+        />
       </div>
     );
   }
 
+  // -------------------------------------------------------------------
+  // Drivers list
+  // -------------------------------------------------------------------
   return (
     <Sheet>
       <main className="grid flex-1 items-start gap-4 sm:py-0 md:gap-8">
-        {!isOnline && (<Alert variant="destructive"><WifiOff className="h-4 w-4" /><AlertDescription>You&apos;re currently offline. Data may not be up to date.</AlertDescription></Alert>)}
-
-        {driversError && (<Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>Failed to load drivers. <Button variant="link" className="p-0 h-auto ml-2" onClick={() => window.location.reload()}><RefreshCw className="h-3 w-3 mr-1" />Refresh</Button></AlertDescription></Alert>)}
-
+        {!isOnline && (
+          <Alert variant="destructive"><WifiOff className="h-4 w-4" /><AlertDescription>You&apos;re currently offline. Data may not be up to date.</AlertDescription></Alert>
+        )}
+        {driversError && (
+          <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>Failed to load drivers. <Button variant="link" className="p-0 h-auto ml-2" onClick={() => window.location.reload()}><RefreshCw className="h-3 w-3 mr-1" />Refresh</Button></AlertDescription></Alert>
+        )}
         {pendingDQFCount > 0 && (
           <Alert className="border-blue-500 bg-blue-50 dark:bg-blue-950">
             <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             <AlertDescription className="flex items-center justify-between">
               <span className="text-blue-900 dark:text-blue-100"><strong>{pendingDQFCount}</strong> driver{pendingDQFCount !== 1 ? 's' : ''} waiting for DQF approval</span>
-              <Button size="sm" variant="outline" className="ml-4" onClick={() => { const pending = drivers?.filter(d => d.dqfStatus === 'submitted'); if (pending && pending.length > 0) { setSelectedDriverId(pending[0].id); } }}>Review Now</Button>
+              <Button size="sm" variant="outline" className="ml-4" onClick={() => { const p = drivers?.filter(d => d.dqfStatus === 'submitted'); if (p?.length) setSelectedDriverId(p[0].id); }}>Review Now</Button>
             </AlertDescription>
           </Alert>
         )}
-
         {counts.pending > 0 && (
           <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
             <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
@@ -501,17 +482,14 @@ export default function DriversPage() {
               <TabsTrigger value="available">Available {counts.available > 0 && `(${counts.available})`}</TabsTrigger>
               <TabsTrigger value="on-trip">On-trip {counts.onTrip > 0 && `(${counts.onTrip})`}</TabsTrigger>
               <TabsTrigger value="off-duty">Off-duty {counts.offDuty > 0 && `(${counts.offDuty})`}</TabsTrigger>
-              {counts.pending > 0 && <TabsTrigger value="pending">Pending Confirmation {`(${counts.pending})`}</TabsTrigger>}
-              {counts.inactive > 0 && (<TabsTrigger value="inactive">Inactive {`(${counts.inactive})`}</TabsTrigger>)}
+              {counts.pending > 0 && <TabsTrigger value="pending">Pending Confirmation ({counts.pending})</TabsTrigger>}
+              {counts.inactive > 0 && <TabsTrigger value="inactive">Inactive ({counts.inactive})</TabsTrigger>}
             </TabsList>
             <div className="ml-auto flex items-center gap-2">
               <Button size="sm" variant="outline" className="h-8 gap-1" disabled={!isOnline || !filteredDrivers?.length} onClick={handleExport}>
                 <Download className="h-3.5 w-3.5" /><span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Export</span>
               </Button>
-              <AddSelfAsDriverButton
-                alreadyAdded={hasSelfDriver}
-                onSuccess={() => {}}
-              />
+              <AddSelfAsDriverButton alreadyAdded={hasSelfDriver} onSuccess={() => {}} />
               <SheetTrigger asChild>
                 <Button size="sm" className="h-8 gap-1" disabled={!isOnline}><PlusCircle className="h-3.5 w-3.5" /><span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Add Driver</span></Button>
               </SheetTrigger>
@@ -521,22 +499,41 @@ export default function DriversPage() {
           <Card className="mt-4">
             <CardHeader><CardTitle className="font-headline">Drivers</CardTitle><CardDescription>Manage your drivers and view their status.</CardDescription></CardHeader>
             <CardContent>
-              <DriversTable drivers={filteredDrivers} isLoading={isLoading} isUserLoading={isUserLoading} driversError={driversError} isOnline={isOnline} emptyMessage={activeTab === "all" ? "No drivers found. Invite your first driver!" : activeTab === "inactive" ? "No inactive drivers." : activeTab === "pending" ? "No drivers waiting for confirmation." : `No ${activeTab} drivers found.`} onSelectDriver={setSelectedDriverId} onEditDriver={setEditingDriver} onToggleActive={setTogglingDriver}/>
+              <DriversTable
+                drivers={filteredDrivers}
+                isLoading={isLoading}
+                isUserLoading={isUserLoading}
+                driversError={driversError}
+                isOnline={isOnline}
+                emptyMessage={
+                  activeTab === 'all' ? 'No drivers found. Invite your first driver!'
+                  : activeTab === 'inactive' ? 'No inactive drivers.'
+                  : activeTab === 'pending' ? 'No drivers waiting for confirmation.'
+                  : `No ${activeTab} drivers found.`
+                }
+                onSelectDriver={setSelectedDriverId}
+                onEditDriver={setEditingDriver}
+                onToggleActive={setTogglingDriver}
+              />
             </CardContent>
           </Card>
         </Tabs>
       </main>
-      
+
       <AddDriverForm />
-      
-      <EditDriverModal open={!!editingDriver && !selectedDriverId} onOpenChange={(open) => !open && setEditingDriver(null)} driver={editingDriver}/>
+
+      <EditDriverModal
+        open={!!editingDriver && !selectedDriverId}
+        onOpenChange={(open) => !open && setEditingDriver(null)}
+        driver={editingDriver}
+      />
 
       <AlertDialog open={!!togglingDriver} onOpenChange={(open) => !open && setTogglingDriver(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{togglingDriver?.isActive === false ? 'Reactivate Driver' : 'Deactivate Driver'}</AlertDialogTitle>
             <AlertDialogDescription>
-              {togglingDriver?.isActive === false 
+              {togglingDriver?.isActive === false
                 ? `Are you sure you want to reactivate ${togglingDriver?.name}? They will be visible in matching again.`
                 : `Are you sure you want to deactivate ${togglingDriver?.name}? They will no longer appear in matching.`
               }
@@ -544,8 +541,12 @@ export default function DriversPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleToggleActive} disabled={isToggling} className={togglingDriver?.isActive === false ? "" : "bg-destructive text-destructive-foreground hover:bg-destructive/90"}>
-              {isToggling ? "Processing..." : togglingDriver?.isActive === false ? "Reactivate" : "Deactivate"}
+            <AlertDialogAction
+              onClick={handleToggleActive}
+              disabled={isToggling}
+              className={togglingDriver?.isActive === false ? '' : 'bg-destructive text-destructive-foreground hover:bg-destructive/90'}
+            >
+              {isToggling ? 'Processing...' : togglingDriver?.isActive === false ? 'Reactivate' : 'Deactivate'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
