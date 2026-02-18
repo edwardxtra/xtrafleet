@@ -44,7 +44,6 @@ function FMCSAClearinghouseContent() {
       await updateDoc(ownerDocRef, {
         'onboardingStatus.fmcsaDesignated': alreadyDesignated ? true : 'pending',
         'onboardingStatus.fmcsaDesignatedAt': new Date().toISOString(),
-        'onboardingStatus.completedAt': new Date().toISOString(),
         clearinghouseCompletedAt: new Date().toISOString(),
         fmcsaClearinghouse: {
           alreadyDesignated: alreadyDesignated,
@@ -54,10 +53,10 @@ function FMCSAClearinghouseContent() {
       });
 
       showSuccess(alreadyDesignated
-        ? 'FMCSA designation confirmed! Your account is fully activated.'
+        ? 'FMCSA designation confirmed!'
         : 'Acknowledgment saved. You can complete the designation at any time.'
       );
-      router.push('/dashboard');
+      router.push('/onboarding/invite-driver');
     } catch (error) {
       console.error('Failed to save FMCSA status:', error);
       showError('Failed to save. Please try again.');
@@ -73,12 +72,11 @@ function FMCSAClearinghouseContent() {
       const ownerDocRef = doc(db, 'owner_operators', user.uid);
       await updateDoc(ownerDocRef, {
         'onboardingStatus.fmcsaDesignated': 'skipped',
-        'onboardingStatus.completedAt': new Date().toISOString(),
       });
     } catch (error) {
       console.error('Failed to save skip status:', error);
     }
-    router.push('/dashboard');
+    router.push('/onboarding/invite-driver');
   };
 
   if (isUserLoading) {
@@ -103,7 +101,7 @@ function FMCSAClearinghouseContent() {
           </Link>
           <div className="flex items-center justify-center gap-2 text-primary">
             <Database className="h-5 w-5" />
-            <span className="text-sm font-medium">Step 3 of 3</span>
+            <span className="text-sm font-medium">Step 4 of 6</span>
           </div>
           <CardTitle className="font-headline text-2xl">
             FMCSA Clearinghouse Authorization
@@ -255,7 +253,7 @@ function FMCSAClearinghouseContent() {
                 Saving...
               </>
             ) : alreadyDesignated ? (
-              'Confirm & Activate Account'
+              'Confirm & Continue'
             ) : (
               "I've Completed This Step"
             )}
