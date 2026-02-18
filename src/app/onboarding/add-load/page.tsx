@@ -204,7 +204,7 @@ export default function OnboardingAddLoadPage() {
           </Link>
           <div className="flex items-center justify-center gap-2 text-primary">
             <Truck className="h-5 w-5" />
-            <span className="text-sm font-medium">Step 6 of 6</span>
+            <span className="text-sm font-medium">Step 5 of 5</span>
           </div>
           <CardTitle className="font-headline text-2xl">Post Your First Load</CardTitle>
           <CardDescription className="text-left">
@@ -214,7 +214,6 @@ export default function OnboardingAddLoadPage() {
 
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-8">
-            {/* Route */}
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <MapPin className="h-5 w-5 text-primary" />
@@ -223,35 +222,15 @@ export default function OnboardingAddLoadPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="origin">Origin <span className="text-destructive">*</span></Label>
-                  <Input
-                    id="origin"
-                    placeholder="e.g., Miami, FL"
-                    value={formData.origin}
-                    onChange={e => handleInputChange('origin', e.target.value)}
-                  />
+                  <Input id="origin" placeholder="e.g., Miami, FL" value={formData.origin} onChange={e => handleInputChange('origin', e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="destination">Destination <span className="text-destructive">*</span></Label>
-                  <Input
-                    id="destination"
-                    placeholder="e.g., Atlanta, GA"
-                    value={formData.destination}
-                    onChange={e => handleInputChange('destination', e.target.value)}
-                  />
+                  <Input id="destination" placeholder="e.g., Atlanta, GA" value={formData.destination} onChange={e => handleInputChange('destination', e.target.value)} />
                 </div>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={calculateRoute}
-                disabled={!formData.origin || !formData.destination || isCalculatingRoute}
-                className="w-full md:w-auto"
-              >
-                {isCalculatingRoute ? (
-                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Calculating...</>
-                ) : (
-                  <><Truck className="h-4 w-4 mr-2" />Calculate Route</>
-                )}
+              <Button type="button" variant="outline" onClick={calculateRoute} disabled={!formData.origin || !formData.destination || isCalculatingRoute} className="w-full md:w-auto">
+                {isCalculatingRoute ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Calculating...</> : <><Truck className="h-4 w-4 mr-2" />Calculate Route</>}
               </Button>
               {routePreview && (
                 <Alert className="border-green-500 bg-green-50 dark:bg-green-950">
@@ -261,22 +240,14 @@ export default function OnboardingAddLoadPage() {
                     <div className="flex flex-wrap gap-4 text-sm">
                       <span className="flex items-center gap-1"><Truck className="h-3.5 w-3.5 text-green-600" /> {routePreview.distanceText}</span>
                       <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5 text-green-600" /> {routePreview.durationText}</span>
-                      {routePreview.costPerMile && (
-                        <span className="flex items-center gap-1"><DollarSign className="h-3.5 w-3.5 text-green-600" /> {routePreview.costPerMile}</span>
-                      )}
+                      {routePreview.costPerMile && <span className="flex items-center gap-1"><DollarSign className="h-3.5 w-3.5 text-green-600" /> {routePreview.costPerMile}</span>}
                     </div>
                   </AlertDescription>
                 </Alert>
               )}
-              {routeError && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{routeError}</AlertDescription>
-                </Alert>
-              )}
+              {routeError && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{routeError}</AlertDescription></Alert>}
             </div>
 
-            {/* Load Details */}
             <div className="space-y-4 pt-4 border-t">
               <div className="flex items-center gap-2">
                 <FileText className="h-5 w-5 text-primary" />
@@ -299,69 +270,36 @@ export default function OnboardingAddLoadPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="driverCompensation">Driver Compensation ($) <span className="text-destructive">*</span></Label>
-                  <Input
-                    id="driverCompensation"
-                    type="number"
-                    placeholder="e.g., 1500"
-                    value={formData.driverCompensation}
-                    onChange={e => handleInputChange('driverCompensation', e.target.value)}
-                    min="1"
-                    step="0.01"
-                  />
+                  <Input id="driverCompensation" type="number" placeholder="e.g., 1500" value={formData.driverCompensation} onChange={e => handleInputChange('driverCompensation', e.target.value)} min="1" step="0.01" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="pickupDate">Pickup Date <span className="text-destructive">*</span></Label>
-                  <Input
-                    id="pickupDate"
-                    type="date"
-                    value={formData.pickupDate}
-                    onChange={e => handleInputChange('pickupDate', e.target.value)}
-                    min={minDate}
-                  />
+                  <Input id="pickupDate" type="date" value={formData.pickupDate} onChange={e => handleInputChange('pickupDate', e.target.value)} min={minDate} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="estimatedDeliveryDate">Estimated Delivery Date</Label>
-                  <Input
-                    id="estimatedDeliveryDate"
-                    type="date"
-                    value={formData.estimatedDeliveryDate}
-                    onChange={e => handleInputChange('estimatedDeliveryDate', e.target.value)}
-                    min={formData.pickupDate || minDate}
-                  />
+                  <Input id="estimatedDeliveryDate" type="date" value={formData.estimatedDeliveryDate} onChange={e => handleInputChange('estimatedDeliveryDate', e.target.value)} min={formData.pickupDate || minDate} />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="additionalDetails">Additional Details</Label>
-                <Textarea
-                  id="additionalDetails"
-                  placeholder="Any special requirements, handling instructions, or notes..."
-                  value={formData.additionalDetails}
-                  onChange={e => handleInputChange('additionalDetails', e.target.value)}
-                  rows={3}
-                />
+                <Textarea id="additionalDetails" placeholder="Any special requirements, handling instructions, or notes..." value={formData.additionalDetails} onChange={e => handleInputChange('additionalDetails', e.target.value)} rows={3} />
               </div>
             </div>
 
-            {/* Driver Requirements */}
             <div className="space-y-4 pt-4 border-t">
               <div className="flex items-center gap-2">
                 <Shield className="h-5 w-5 text-primary" />
                 <h3 className="text-lg font-semibold">Driver Requirements</h3>
               </div>
-              <p className="text-sm text-muted-foreground">
-                This information is used to identify eligible drivers and equipment.
-              </p>
+              <p className="text-sm text-muted-foreground">This information is used to identify eligible drivers and equipment.</p>
               <div className="space-y-4">
                 <div>
                   <Label className="mb-2 block">CDL Class Required <span className="text-destructive">*</span></Label>
                   <div className="flex flex-wrap gap-4">
                     {CDL_CLASSES.map(cls => (
                       <div key={cls.value} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`cdl-${cls.value}`}
-                          checked={formData.cdlClassRequired.includes(cls.value)}
-                          onCheckedChange={c => handleCdlToggle(cls.value, c as boolean)}
-                        />
+                        <Checkbox id={`cdl-${cls.value}`} checked={formData.cdlClassRequired.includes(cls.value)} onCheckedChange={c => handleCdlToggle(cls.value, c as boolean)} />
                         <label htmlFor={`cdl-${cls.value}`} className="text-sm font-medium cursor-pointer">{cls.label}</label>
                       </div>
                     ))}
@@ -372,11 +310,7 @@ export default function OnboardingAddLoadPage() {
                   <div className="flex flex-wrap gap-4">
                     {LOAD_ENDORSEMENTS.map(end => (
                       <div key={end.value} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`end-${end.value}`}
-                          checked={formData.endorsementsRequired.includes(end.value)}
-                          onCheckedChange={c => handleEndorsementToggle(end.value, c as boolean)}
-                        />
+                        <Checkbox id={`end-${end.value}`} checked={formData.endorsementsRequired.includes(end.value)} onCheckedChange={c => handleEndorsementToggle(end.value, c as boolean)} />
                         <label htmlFor={`end-${end.value}`} className="text-sm font-medium cursor-pointer">{end.label}</label>
                       </div>
                     ))}
@@ -385,22 +319,12 @@ export default function OnboardingAddLoadPage() {
               </div>
             </div>
 
-            {/* Verification Consent */}
             <div className="pt-4 border-t">
               <div className="flex items-start space-x-3 p-4 rounded-lg border bg-muted/30">
-                <Checkbox
-                  id="verificationConsent"
-                  checked={formData.verificationConsent}
-                  onCheckedChange={c => setFormData(prev => ({ ...prev, verificationConsent: c as boolean }))}
-                  className="mt-0.5"
-                />
+                <Checkbox id="verificationConsent" checked={formData.verificationConsent} onCheckedChange={c => setFormData(prev => ({ ...prev, verificationConsent: c as boolean }))} className="mt-0.5" />
                 <div>
-                  <label htmlFor="verificationConsent" className="text-sm font-semibold cursor-pointer">
-                    Verification Authorization <span className="text-destructive">*</span>
-                  </label>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    We authorize XtraFleet to facilitate transaction-based eligibility checks for matched drivers.
-                  </p>
+                  <label htmlFor="verificationConsent" className="text-sm font-semibold cursor-pointer">Verification Authorization <span className="text-destructive">*</span></label>
+                  <p className="text-sm text-muted-foreground mt-1">We authorize XtraFleet to facilitate transaction-based eligibility checks for matched drivers.</p>
                 </div>
               </div>
             </div>
@@ -414,25 +338,10 @@ export default function OnboardingAddLoadPage() {
           </CardContent>
 
           <CardFooter className="flex-col gap-3">
-            <Button
-              type="submit"
-              className="w-full"
-              size="lg"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Posting Load...</>
-              ) : (
-                'Post Load & Go to Dashboard'
-              )}
+            <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
+              {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Posting Load...</> : 'Post Load & Go to Dashboard'}
             </Button>
-            <Button
-              type="button"
-              variant="link"
-              className="text-muted-foreground"
-              onClick={handleSkip}
-              disabled={isSubmitting}
-            >
+            <Button type="button" variant="link" className="text-muted-foreground" onClick={handleSkip} disabled={isSubmitting}>
               Skip for now
             </Button>
           </CardFooter>
