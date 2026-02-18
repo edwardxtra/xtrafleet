@@ -15,14 +15,19 @@ const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  */
 async function handlePost(request: NextRequest) {
   try {
-    // Apply rate limiting FIRST
+    // Determine if this is a token refresh (has existing session cookie) or a new login
+    const existingSession = request.cookies.get('fb-id-token');
+    const isRefresh = !!existingSession?.value;
+
+    // Apply rate limiting — use a higher-limit bucket for token refreshes
     const identifier = getIdentifier(request);
-    const { success, reset } = await rateLimiters.auth.limit(identifier);
+    const limiter = isRefresh ? rateLimiters.tokenRefresh : rateLimiters.auth;
+    const { success, reset } = await limiter.limit(identifier);
 
     if (!success) {
       return NextResponse.json(
         {
-          error: 'Too many login attempts',
+          error: isRefresh ? 'Too many session refreshes' : 'Too many login attempts',
           message: `Please try again in ${formatTimeRemaining(reset)}`,
         },
         { status: 429 }

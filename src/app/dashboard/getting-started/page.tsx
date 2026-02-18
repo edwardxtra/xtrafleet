@@ -1,4 +1,3 @@
-
 'use client';
 
 import { Button } from "@/components/ui/button";
@@ -9,19 +8,38 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Check, Edit, PlusCircle, Upload, Users, Truck, AlertCircle, CreditCard } from "lucide-react";
+import { Check, Edit, PlusCircle, Upload, Users, Truck, AlertCircle, Shield, Database, Clock } from "lucide-react";
 import Link from "next/link";
 import { UploadDriversCSV } from "@/components/upload-drivers-csv";
 import { UploadLoadsCSV } from "@/components/upload-loads-csv";
 import { useUser, useDoc, useFirestore, useMemoFirebase } from "@/firebase";
 import { doc } from 'firebase/firestore';
 import { Skeleton } from "@/components/ui/skeleton";
+import { format, parseISO } from 'date-fns';
 
 interface OwnerOperatorProfile {
   legalName?: string;
   subscriptionStatus?: 'active' | 'inactive';
-  // other fields are not needed for this check
+  profileCompletedAt?: string;
+  clearinghouseCompletedAt?: string;
+  onboardingStatus?: {
+    profileComplete?: boolean;
+    profileCompletedAt?: string;
+    complianceAttested?: boolean;
+    fmcsaDesignated?: boolean | string;
+    fmcsaDesignatedAt?: string;
+    completedAt?: string | null;
+  };
 }
+
+const formatTimestamp = (dateString?: string | null) => {
+  if (!dateString) return null;
+  try {
+    return format(parseISO(dateString), "MMM d, yyyy 'at' h:mm a");
+  } catch {
+    return null;
+  }
+};
 
 export default function GettingStartedPage() {
   const { user, isUserLoading } = useUser();
@@ -34,50 +52,53 @@ export default function GettingStartedPage() {
   
   const { data: profile, isLoading: isProfileLoading } = useDoc<OwnerOperatorProfile>(profileQuery);
 
-  const isProfileComplete = !!profile?.legalName;
-  const isPaymentSetup = profile?.subscriptionStatus === 'active';
-  const isFullySetup = isProfileComplete && isPaymentSetup;
+  const isProfileComplete = !!profile?.onboardingStatus?.profileComplete;
+  const isComplianceAttested = !!profile?.onboardingStatus?.complianceAttested;
+  const isFmcsaDesignated = profile?.onboardingStatus?.fmcsaDesignated === true;
+  const isFullyOnboarded = isProfileComplete && isComplianceAttested;
 
-  const getCardState = () => {
-    if (isProfileLoading || isUserLoading) {
-      return 'loading';
-    }
-    if (!isProfileComplete) {
-      return 'incomplete-profile';
-    }
-    if (!isPaymentSetup) {
-      return 'incomplete-payment';
-    }
-    return 'complete';
-  }
+  const profileCompletedAt = formatTimestamp(profile?.onboardingStatus?.profileCompletedAt || profile?.profileCompletedAt);
+  const clearinghouseCompletedAt = formatTimestamp(profile?.clearinghouseCompletedAt || profile?.onboardingStatus?.fmcsaDesignatedAt);
 
-  const cardState = getCardState();
+  const isLoading = isProfileLoading || isUserLoading;
 
   return (
     <div className="flex flex-col gap-8">
        <div>
-        <h1 className="font-headline text-3xl font-bold">Welcome to FleetConnect!</h1>
-        <p className="text-muted-foreground">Let's get your fleet up and running. Here’s your setup guide.</p>
+        <h1 className="font-headline text-3xl font-bold">Welcome to XtraFleet!</h1>
+        <p className="text-muted-foreground">Let&apos;s get your fleet up and running. Here&apos;s your setup guide.</p>
        </div>
 
+      {/* Onboarding Steps */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className={cardState !== 'complete' && cardState !== 'loading' ? "bg-amber-50 border-amber-500" : "bg-primary/10 border-primary"}>
+        {/* Step 1: Profile */}
+        <Card className={isProfileComplete ? "bg-primary/10 border-primary" : "bg-amber-50 border-amber-500 dark:bg-amber-950/30 dark:border-amber-800"}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 font-headline">
-              {cardState === 'loading' ? <Skeleton className="h-6 w-6 rounded-full" /> : 
-                cardState === 'complete' ? <Check className="text-primary"/> : <AlertCircle className="text-amber-600" />
+              {isLoading ? <Skeleton className="h-6 w-6 rounded-full" /> : 
+                isProfileComplete ? <Check className="text-primary"/> : <AlertCircle className="text-amber-600" />
               }
-              Account & Profile
+              Company Profile
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {cardState === 'loading' && <Skeleton className="h-10 w-full" />}
-            {cardState === 'complete' && <p className="text-sm text-muted-foreground">Your company profile and payment methods are successfully set up.</p>}
-            {cardState === 'incomplete-profile' && (
+            {isLoading && <Skeleton className="h-10 w-full" />}
+            {!isLoading && isProfileComplete && (
               <>
-                <p className="text-sm text-amber-800 font-medium">Your profile is incomplete.</p>
-                <p className="text-sm text-muted-foreground mt-1">Finish setting up your company details to get the most out of FleetConnect.</p>
-                <Button asChild className="mt-4 w-full" variant="accent">
+                <p className="text-sm text-muted-foreground">Your company profile is set up.</p>
+                {profileCompletedAt && (
+                  <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Completed: {profileCompletedAt}
+                  </p>
+                )}
+              </>
+            )}
+            {!isLoading && !isProfileComplete && (
+              <>
+                <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">Your profile is incomplete.</p>
+                <p className="text-sm text-muted-foreground mt-1">Complete your DOT#, MC#, address, and operating states.</p>
+                <Button asChild className="mt-4 w-full" variant="default">
                   <Link href="/create-profile">
                     <Edit className="mr-2 h-4 w-4"/>
                     Complete Your Profile
@@ -85,20 +106,81 @@ export default function GettingStartedPage() {
                 </Button>
               </>
             )}
-             {cardState === 'incomplete-payment' && (
+          </CardContent>
+        </Card>
+
+        {/* Step 2: Compliance */}
+        <Card className={isComplianceAttested ? "bg-primary/10 border-primary" : "bg-amber-50 border-amber-500 dark:bg-amber-950/30 dark:border-amber-800"}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 font-headline">
+              {isLoading ? <Skeleton className="h-6 w-6 rounded-full" /> : 
+                isComplianceAttested ? <Check className="text-primary"/> : <AlertCircle className="text-amber-600" />
+              }
+              Compliance
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading && <Skeleton className="h-10 w-full" />}
+            {!isLoading && isComplianceAttested && <p className="text-sm text-muted-foreground">Compliance attestations complete.</p>}
+            {!isLoading && !isComplianceAttested && (
               <>
-                <p className="text-sm text-amber-800 font-medium">Your payment method is missing.</p>
-                <p className="text-sm text-muted-foreground mt-1">Add your credit card to pay for match fees and activate your account.</p>
-                <Button asChild className="mt-4 w-full" variant="accent">
-                  <Link href="/payment">
-                    <CreditCard className="mr-2 h-4 w-4"/>
-                    Add Payment Method
+                <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">Attestations required.</p>
+                <p className="text-sm text-muted-foreground mt-1">Acknowledge compliance responsibilities to activate features.</p>
+                <Button asChild className="mt-4 w-full" variant="default">
+                  <Link href="/onboarding/compliance">
+                    <Shield className="mr-2 h-4 w-4"/>
+                    Complete Attestations
                   </Link>
                 </Button>
               </>
             )}
           </CardContent>
         </Card>
+
+        {/* Step 3: FMCSA */}
+        <Card className={isFmcsaDesignated ? "bg-primary/10 border-primary" : "bg-amber-50 border-amber-500 dark:bg-amber-950/30 dark:border-amber-800"}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 font-headline">
+              {isLoading ? <Skeleton className="h-6 w-6 rounded-full" /> : 
+                isFmcsaDesignated ? <Check className="text-primary"/> : <AlertCircle className="text-amber-600" />
+              }
+              FMCSA Clearinghouse
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading && <Skeleton className="h-10 w-full" />}
+            {!isLoading && isFmcsaDesignated && (
+              <>
+                <p className="text-sm text-muted-foreground">Clearinghouse designation confirmed.</p>
+                {clearinghouseCompletedAt && (
+                  <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Completed: {clearinghouseCompletedAt}
+                  </p>
+                )}
+              </>
+            )}
+            {!isLoading && !isFmcsaDesignated && (
+              <>
+                <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">
+                  {profile?.onboardingStatus?.fmcsaDesignated === 'pending' ? 'Pending confirmation.' : 
+                   profile?.onboardingStatus?.fmcsaDesignated === 'skipped' ? 'Skipped \u2014 complete when ready.' : 'Not yet started.'}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">Designate XtraFleet for Drug & Alcohol eligibility checks.</p>
+                <Button asChild className="mt-4 w-full" variant="default">
+                  <Link href="/onboarding/fmcsa-clearinghouse">
+                    <Database className="mr-2 h-4 w-4"/>
+                    Complete Designation
+                  </Link>
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 font-headline"><Users />Add Your Drivers</CardTitle>
@@ -146,7 +228,7 @@ export default function GettingStartedPage() {
       </div>
       <div className="text-center">
         <Button asChild variant="ghost">
-            <Link href="/dashboard">Skip and go to Dashboard &rarr;</Link>
+            <Link href="/dashboard">Go to Dashboard &rarr;</Link>
         </Button>
       </div>
     </div>

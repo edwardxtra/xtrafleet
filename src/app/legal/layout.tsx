@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { Logo } from "@/components/logo";
-import { Footer } from "@/components/footer";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function LegalLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col min-h-screen">
+    <>
       {/* Header */}
       <header className="border-b bg-background sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -27,8 +26,7 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
         {children}
       </main>
 
-      {/* Footer */}
-      <Footer />
-    </div>
+      {/* Footer is inherited from root layout - no need to duplicate */}
+    </>
   );
 }

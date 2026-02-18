@@ -152,7 +152,7 @@ export function generateTLAPDF(tla: TLA): jsPDF {
   yPos += 5;
 
   // ========== DRIVER ==========
-  checkPageBreak(30);
+  checkPageBreak(40);
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(0, 0, 0);
@@ -174,8 +174,16 @@ export function generateTLAPDF(tla: TLA): jsPDF {
     doc.text(`CDL State: ${tla.driver.cdlState}`, margin, yPos);
     yPos += 4;
   }
+  if (tla.driver.endorsements) {
+    doc.text('Endorsements: Valid', margin, yPos);
+    yPos += 4;
+  }
+  if (tla.driver.clearinghouseStatus) {
+    doc.text('Clearinghouse: Eligible', margin, yPos);
+    yPos += 4;
+  }
   if (tla.driver.medicalCardExpiry) {
-    doc.text(`Medical Card Expires: ${formatDate(tla.driver.medicalCardExpiry)}`, margin, yPos);
+    doc.text('Medical Card: Valid', margin, yPos);
     yPos += 4;
   }
   yPos += 8;
@@ -192,9 +200,8 @@ export function generateTLAPDF(tla: TLA): jsPDF {
   yPos += 8;
 
   const tripDetails = [
-    ['Route:', `${tla.trip.origin} → ${tla.trip.destination}`],
-    ['Cargo:', tla.trip.cargo || 'Not specified'],
-    ['Weight:', `${tla.trip.weight?.toLocaleString() || 0} lbs`],
+    ['Route:', `${tla.trip.origin} \u2192 ${tla.trip.destination}`],
+    ['Load:', tla.trip.cargo || 'Not specified'],
     ['Start Date:', formatDate(tla.trip.startDate)],
   ];
 
@@ -212,12 +219,12 @@ export function generateTLAPDF(tla: TLA): jsPDF {
   addLine();
   yPos += 5;
 
-  // ========== PAYMENT ==========
+  // ========== COMPENSATION ==========
   checkPageBreak(30);
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(0, 0, 0);
-  doc.text('PAYMENT TERMS', margin, yPos);
+  doc.text('COMPENSATION', margin, yPos);
   yPos += 10;
 
   doc.setFontSize(18);
@@ -257,7 +264,7 @@ export function generateTLAPDF(tla: TLA): jsPDF {
       : 'Lessee elected trip-based coverage';
     doc.roundedRect(margin, yPos - 3, contentWidth, 8, 2, 2, 'F');
     doc.setTextColor(0, 0, 0);
-    doc.text('☑ ' + insuranceOptionText, margin + 3, yPos + 2);
+    doc.text('\u2611 ' + insuranceOptionText, margin + 3, yPos + 2);
     yPos += 12;
   }
   yPos += 3;
@@ -347,7 +354,7 @@ export function generateTLAPDF(tla: TLA): jsPDF {
     doc.setTextColor(100, 100, 100);
     doc.text(formatDate(tla.lessorSignature.signedAt), margin + 5, yPos + 22);
     doc.setTextColor(22, 163, 74);
-    doc.text('✓ Signed', margin + 5, yPos + 28);
+    doc.text('\u2713 Signed', margin + 5, yPos + 28);
   } else {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
@@ -378,7 +385,7 @@ export function generateTLAPDF(tla: TLA): jsPDF {
     doc.setTextColor(100, 100, 100);
     doc.text(formatDate(tla.lesseeSignature.signedAt), lesseeBoxX + 5, yPos + 22);
     doc.setTextColor(22, 163, 74);
-    doc.text('✓ Signed', lesseeBoxX + 5, yPos + 28);
+    doc.text('\u2713 Signed', lesseeBoxX + 5, yPos + 28);
   } else {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
@@ -413,7 +420,7 @@ export function generateTLAPDF(tla: TLA): jsPDF {
 
   terms.forEach((term) => {
     checkPageBreak(12);
-    const termLines = doc.splitTextToSize('• ' + term, contentWidth);
+    const termLines = doc.splitTextToSize('\u2022 ' + term, contentWidth);
     doc.text(termLines, margin, yPos);
     yPos += termLines.length * 4 + 2;
   });

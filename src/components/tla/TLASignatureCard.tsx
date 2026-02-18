@@ -1,9 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, User, Calendar, MapPin, Monitor } from "lucide-react";
+import { CheckCircle, User, Calendar } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import type { TLA } from "@/lib/data";
-import { parseUserAgent } from "@/lib/audit-utils";
 
 interface TLASignatureCardProps {
   tla: TLA;
@@ -31,8 +30,6 @@ export function TLASignatureCard({ tla }: TLASignatureCardProps) {
       );
     }
 
-    const deviceInfo = signature.userAgent ? parseUserAgent(signature.userAgent) : null;
-
     return (
       <div className="space-y-2">
         <div className="flex items-center gap-2">
@@ -50,20 +47,6 @@ export function TLASignatureCard({ tla }: TLASignatureCardProps) {
             <Calendar className="h-3 w-3" />
             <span>{formatSignatureDate(signature.signedAt)}</span>
           </div>
-
-          {signature.ipAddress && signature.ipAddress !== 'unknown' && (
-            <div className="flex items-center gap-1.5">
-              <MapPin className="h-3 w-3" />
-              <span>IP: {signature.ipAddress}</span>
-            </div>
-          )}
-
-          {deviceInfo && (
-            <div className="flex items-center gap-1.5">
-              <Monitor className="h-3 w-3" />
-              <span>{deviceInfo.browser} on {deviceInfo.os}</span>
-            </div>
-          )}
 
           {signature.consentToEsign && (
             <div className="mt-2 text-xs text-green-600">

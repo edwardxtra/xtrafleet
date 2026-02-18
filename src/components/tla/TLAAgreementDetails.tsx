@@ -59,9 +59,15 @@ export function TLAAgreementDetails({ tla }: TLAAgreementDetailsProps) {
               <div className="p-3 bg-muted/50 rounded-lg">
                 <p className="font-semibold">{tla.driver.name}</p>
                 {tla.driver.cdlNumber && <p className="text-xs">CDL: {tla.driver.cdlNumber}</p>}
+                {tla.driver.endorsements && (
+                  <p className="text-xs">Endorsements: Valid</p>
+                )}
+                {tla.driver.clearinghouseStatus && (
+                  <p className="text-xs">Clearinghouse: Eligible</p>
+                )}
                 {tla.driver.medicalCardExpiry && (
                   <p className="text-xs">
-                    Medical Card Expires: {formatTLADate(tla.driver.medicalCardExpiry)}
+                    Medical Card: Valid
                   </p>
                 )}
               </div>
@@ -83,12 +89,8 @@ export function TLAAgreementDetails({ tla }: TLAAgreementDetailsProps) {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Cargo:</span>
+                  <span className="text-muted-foreground">Load:</span>
                   <span>{tla.trip.cargo}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Weight:</span>
-                  <span>{tla.trip.weight.toLocaleString()} lbs</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Start Date:</span>
@@ -192,11 +194,11 @@ export function TLAAgreementDetails({ tla }: TLAAgreementDetailsProps) {
               </>
             )}
 
-            {/* Payment */}
+            {/* Compensation */}
             <div>
               <h3 className="font-semibold mb-3 flex items-center gap-2">
                 <DollarSign className="h-4 w-4" />
-                Payment Terms
+                Compensation
               </h3>
               <div className="p-3 bg-green-50 dark:bg-green-950/20 rounded-lg">
                 <p className="text-2xl font-bold text-green-600">

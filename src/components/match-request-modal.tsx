@@ -28,6 +28,8 @@ import type { Load } from "@/lib/data";
 import type { MatchScore } from "@/lib/matching";
 import { useUser, useFirestore } from "@/firebase";
 import { collection, addDoc, doc, getDoc } from "firebase/firestore";
+import { format } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import { notify } from "@/lib/notifications";
 
@@ -37,6 +39,17 @@ interface MatchRequestModalProps {
   load: Load;
   matchScore: MatchScore;
   onSuccess?: () => void;
+}
+
+// Format date to EST timezone
+function formatDateEST(dateString: string): string {
+  try {
+    const date = new Date(dateString);
+    const estDate = toZonedTime(date, 'America/New_York');
+    return format(estDate, "MMM d, yyyy 'at' h:mm a") + ' EST';
+  } catch {
+    return dateString;
+  }
 }
 
 export function MatchRequestModal({
@@ -276,7 +289,7 @@ export function MatchRequestModal({
                 <p className="text-muted-foreground">Pickup Date</p>
                 <p className="font-semibold flex items-center gap-1">
                   <Calendar className="h-4 w-4" />
-                  {load.pickupDate || 'Flexible'}
+                  {load.pickupDate ? formatDateEST(load.pickupDate) : 'Flexible'}
                 </p>
               </div>
             </div>

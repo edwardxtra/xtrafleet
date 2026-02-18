@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Logo } from "@/components/logo";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useUser, useAuth, useFirestore } from "@/firebase";
@@ -57,7 +58,6 @@ function RegisterContent() {
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
     const companyName = formData.get('companyName') as string;
-    const phone = formData.get('phone') as string;
 
     if (!email || !password || !companyName) {
       setError("Company name, email, and password are required.");
@@ -66,7 +66,6 @@ function RegisterContent() {
       return;
     }
 
-    // Validate password with enhanced requirements
     const passwordValidation = passwordSchema.safeParse(password);
     if (!passwordValidation.success) {
       const errorMessage = passwordValidation.error.errors[0].message;
@@ -81,28 +80,41 @@ function RegisterContent() {
       const newUser = userCredential.user;
       
       if (db && newUser) {
-        // Create owner_operators doc
         await setDoc(doc(db, "owner_operators", newUser.uid), {
           id: newUser.uid,
           companyName: companyName,
+          legalName: companyName,
           contactEmail: newUser.email,
-          phone: phone || '',
           subscriptionStatus: 'inactive',
           createdAt: new Date().toISOString(),
+          onboardingStatus: {
+            profileComplete: false,
+            complianceAttested: false,
+            fmcsaDesignated: false,
+            completedAt: null,
+          },
+          consents: {
+            userAgreement: {
+              accepted: true,
+              acceptedAt: new Date().toISOString(),
+              version: "2025-10-17",
+            },
+            esignAgreement: {
+              accepted: true,
+              acceptedAt: new Date().toISOString(),
+              version: "2025-01-29",
+            },
+          },
         });
         
-        // Create users doc with role
         await setDoc(doc(db, "users", newUser.uid), {
           role: 'owner_operator',
           email: newUser.email,
           createdAt: new Date().toISOString(),
         });
 
-        // Set the session cookie
-        console.log('🔵 Getting ID token for session...');
         const token = await newUser.getIdToken();
         
-        console.log('🔵 Calling session API...');
         const response = await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -113,10 +125,14 @@ function RegisterContent() {
           throw new Error('Failed to create session');
         }
 
-        console.log('✅ Session created successfully');
+        // Send welcome/registration email (fire-and-forget)
+        fetch('/api/send-welcome-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: newUser.email, companyName }),
+        }).catch(err => console.error('Failed to send welcome email:', err));
+
         showSuccess('Account created successfully!');
-        
-        // Redirect to create profile
         router.push('/create-profile');
         
       } else {
@@ -142,7 +158,6 @@ function RegisterContent() {
     }
   };
 
-  // Check which password requirements are met
   const passwordChecks = {
     length: passwordValue.length >= 8,
     uppercase: /[A-Z]/.test(passwordValue),
@@ -158,7 +173,6 @@ function RegisterContent() {
     );
   }
 
-  // If user is already logged in, show options instead of auto-redirecting
   if (user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -211,7 +225,7 @@ function RegisterContent() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="mx-auto w-full max-w-sm">
+      <Card className="mx-auto w-full max-w-lg">
         <CardHeader className="space-y-4 text-center">
           <Link href="/" passHref className="inline-block">
             <Logo />
@@ -244,16 +258,6 @@ function RegisterContent() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="phone">Phone Number</Label>
-                <Input 
-                  id="phone" 
-                  name="phone" 
-                  type="tel"
-                  placeholder="(555) 123-4567" 
-                  disabled={loading}
-                />
-              </div>
-              <div className="grid gap-2">
                 <Label htmlFor="email">Business Email *</Label>
                 <Input
                   id="email"
@@ -278,7 +282,6 @@ function RegisterContent() {
                   onChange={(e) => setPasswordValue(e.target.value)}
                 />
                 
-                {/* Password Requirements Checklist */}
                 {passwordValue && (
                   <div className="mt-2 space-y-1">
                     <p className="text-xs text-muted-foreground mb-1">Password must have:</p>
@@ -302,6 +305,47 @@ function RegisterContent() {
                   </div>
                 )}
               </div>
+
+              <div className="space-y-4 pt-4 border-t">
+                <p className="text-sm font-medium">Legal Agreements</p>
+                
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="userAgreement"
+                    name="userAgreement"
+                    required
+                    disabled={loading}
+                    className="mt-1"
+                  />
+                  <Label htmlFor="userAgreement" className="text-sm leading-relaxed cursor-pointer">
+                    I understand that XtraFleet is a technology platform only and that I remain 
+                    solely responsible for regulatory compliance, insurance adequacy, and trip safety.{' '}
+                    <Link href="/legal/user-agreement" target="_blank" className="underline text-primary hover:text-primary/80">
+                      View User Agreement
+                    </Link>
+                  </Label>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="esignConsent"
+                    name="esignConsent"
+                    required
+                    disabled={loading}
+                    className="mt-1"
+                  />
+                  <Label htmlFor="esignConsent" className="text-sm leading-relaxed cursor-pointer">
+                    You acknowledge that Electronic Records may include payment settlements, 
+                    compliance attestations, and tax-related documentation. You represent and 
+                    warrant that You are authorized to bind the entity on whose behalf You are 
+                    acting and to consent to Electronic Records on its behalf.{' '}
+                    <Link href="/legal/esign-consent" target="_blank" className="underline text-primary hover:text-primary/80">
+                      View E-Sign Agreement
+                    </Link>
+                  </Label>
+                </div>
+              </div>
+
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (
                   <>

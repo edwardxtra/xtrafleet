@@ -201,7 +201,6 @@ export default function MatchesPage() {
     setSelectionMode('load');
     setSelectedLoad(load);
     setSelectedMyDriver(null);
-    setSelectedOtherDriver(null);
   };
 
   // Handle selecting MY driver (to find loads for them)
@@ -209,7 +208,6 @@ export default function MatchesPage() {
     setSelectionMode('driver');
     setSelectedMyDriver(driver);
     setSelectedLoad(null);
-    setSelectedOtherDriver(null);
   };
 
   // Handle selecting a driver match (load owner initiating)
@@ -290,7 +288,10 @@ export default function MatchesPage() {
                             <div className="flex justify-between items-start">
                               <div>
                                 <p className="font-semibold text-sm">{load.origin} → {load.destination}</p>
-                                <p className="text-xs text-muted-foreground">{load.cargo} • {load.weight?.toLocaleString()} lbs</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {load.cargo} • {load.weight?.toLocaleString()} lbs
+                                  {load.route?.distanceText && ` • ${load.route.distanceText}`}
+                                </p>
                                 {load.price && <p className="text-xs font-medium text-green-600">${load.price.toLocaleString()}</p>}
                               </div>
                               {selectedLoad?.id === load.id && selectionMode === 'load' && (
@@ -512,6 +513,9 @@ export default function MatchesPage() {
                                   </div>
                                   <CardDescription className="truncate text-xs">
                                     {match.load.cargo} • {match.load.weight?.toLocaleString()} lbs
+                                    {match.load.route?.distanceText && (
+                                      <> • {match.load.route.distanceText}</>
+                                    )}
                                   </CardDescription>
                                   {loadOwnerName && (
                                     <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">

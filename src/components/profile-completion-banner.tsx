@@ -79,19 +79,19 @@ export function ProfileCompletionBanner({ driver, driverId, onEditClick }: Profi
   };
 
   return (
-    <Alert className={`mb-6 ${!criticalComplete ? 'border-amber-500 bg-amber-50' : 'border-blue-500 bg-blue-50'}`}>
+    <Alert className={`mb-6 ${!criticalComplete ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/50 dark:border-amber-700' : 'border-blue-500 bg-blue-50 dark:bg-blue-950/50 dark:border-blue-700'}`}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
             {!criticalComplete ? (
               <>
-                <AlertCircle className="h-5 w-5 text-amber-600" />
-                <h3 className="font-semibold text-amber-900">Complete Your Profile to Start Receiving Loads</h3>
+                <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                <h3 className="font-semibold text-amber-900 dark:text-amber-100">Complete Your Profile to Start Receiving Loads</h3>
               </>
             ) : (
               <>
-                <CheckCircle2 className="h-5 w-5 text-blue-600" />
-                <h3 className="font-semibold text-blue-900">
+                <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <h3 className="font-semibold text-blue-900 dark:text-blue-100">
                   You're {completionPercent}% Complete! Finish your compliance documents.
                 </h3>
               </>
@@ -100,11 +100,11 @@ export function ProfileCompletionBanner({ driver, driverId, onEditClick }: Profi
 
           <AlertDescription className="text-sm mb-4">
             {!criticalComplete ? (
-              <span className="text-amber-800">
+              <span className="text-amber-800 dark:text-amber-200">
                 Add your CDL information to start matching with loads. You can upload documents anytime.
               </span>
             ) : (
-              <span className="text-blue-800">
+              <span className="text-blue-800 dark:text-blue-200">
                 Great start! Complete your compliance documents to unlock full platform access.
               </span>
             )}

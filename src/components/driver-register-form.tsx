@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Form,
   FormControl,
@@ -14,26 +16,26 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { Loader2, Check, X } from "lucide-react";
-import { passwordSchema, passwordRequirements } from "@/lib/password-validation";
+import { passwordSchema } from "@/lib/password-validation";
+import { TRAILER_TYPES } from "@/lib/trailer-types";
+import { useAuth } from "@/firebase";
+import { signInWithEmailAndPassword, setPersistence, browserLocalPersistence } from "firebase/auth";
 
-// Simplified schema with enhanced password validation
+const trailerTypeValues = TRAILER_TYPES.map(t => t.value) as [string, ...string[]];
+
 const quickProfileSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   phoneNumber: z.string().min(1, "Phone number is required"),
   location: z.string().min(1, "Your current city/state is required"),
-  vehicleType: z.enum(['Dry Van', 'Reefer', 'Flatbed']),
-  password: passwordSchema, // Enhanced password validation
+  trailerTypes: z.array(z.enum(trailerTypeValues)).min(1, "Select at least one trailer type"),
+  password: passwordSchema,
+  userAgreement: z.boolean().refine(val => val === true, "You must accept the User Agreement"),
+  esignConsent: z.boolean().refine(val => val === true, "You must accept the E-Sign Agreement"),
 });
 
 type QuickProfileValues = z.infer<typeof quickProfileSchema>;
@@ -42,27 +44,45 @@ interface DriverRegisterFormProps {
   driverId: string;
   ownerId: string;
   invitationEmail: string;
+  firstName?: string;
+  lastName?: string;
+  driverType?: 'existing' | 'newHire';
 }
 
-export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: DriverRegisterFormProps) {
+export function DriverRegisterForm({ 
+  driverId, 
+  ownerId, 
+  invitationEmail, 
+  firstName = '',
+  lastName = '',
+  driverType 
+}: DriverRegisterFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
+  const auth = useAuth();
 
   const form = useForm<QuickProfileValues>({
     resolver: zodResolver(quickProfileSchema),
     mode: "onChange",
+    defaultValues: {
+      firstName,
+      lastName,
+      trailerTypes: [],
+      userAgreement: false,
+      esignConsent: false,
+    }
   });
 
   const passwordValue = form.watch("password") || "";
+  const selectedTrailers = form.watch("trailerTypes") || [];
 
   const onSubmit = async (values: QuickProfileValues) => {
     setIsSubmitting(true);
 
     try {
-      const { password, firstName, lastName, ...profileData } = values;
+      const { password, firstName, lastName, userAgreement, esignConsent, ...profileData } = values;
 
-      // Create account
       const response = await fetch('/api/create-driver-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,6 +91,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
           password: password,
           token: driverId,
           ownerId: ownerId,
+          driverType: driverType,
           profileData: {
             ...profileData,
             name: `${firstName} ${lastName}`,
@@ -78,6 +99,18 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
             lastName,
             profileComplete: false,
             profileCompletionStep: 'basic_info_complete',
+          },
+          consents: {
+            userAgreement: {
+              accepted: true,
+              acceptedAt: new Date().toISOString(),
+              version: "2025-10-17",
+            },
+            esignAgreement: {
+              accepted: true,
+              acceptedAt: new Date().toISOString(),
+              version: "2025-01-29",
+            },
           },
         }),
       });
@@ -89,12 +122,26 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
       }
 
       toast({
-        title: "Welcome to XtraFleet! 🎉",
-        description: "Your account has been created. Redirecting to login...",
+        title: "Welcome to XtraFleet!",
+        description: "Account created. Signing you in...",
       });
 
-      // Redirect to login page with email pre-filled
-      router.push(`/login?email=${encodeURIComponent(invitationEmail)}&message=Account created successfully. Please log in.`);
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+        const userCredential = await signInWithEmailAndPassword(auth, invitationEmail, password);
+        const idToken = await userCredential.user.getIdToken();
+
+        await fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: idToken }),
+        });
+
+        window.location.href = '/driver-dashboard';
+      } catch (loginError) {
+        console.error('Auto-login failed, redirecting to login:', loginError);
+        router.push(`/login?email=${encodeURIComponent(invitationEmail)}&message=Account created successfully. Please log in.`);
+      }
 
     } catch (error: any) {
       console.error('Failed to create driver profile:', error);
@@ -108,7 +155,6 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
     }
   };
 
-  // Check which password requirements are met
   const passwordChecks = {
     length: passwordValue.length >= 8,
     uppercase: /[A-Z]/.test(passwordValue),
@@ -116,13 +162,22 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
     number: /[0-9]/.test(passwordValue),
   };
 
+  const toggleTrailerType = (trailerValue: string) => {
+    const current = form.getValues("trailerTypes");
+    if (current.includes(trailerValue)) {
+      form.setValue("trailerTypes", current.filter(t => t !== trailerValue), { shouldValidate: true });
+    } else {
+      form.setValue("trailerTypes", [...current, trailerValue], { shouldValidate: true });
+    }
+  };
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <p className="text-sm text-blue-900 font-medium">✨ Quick Setup</p>
-          <p className="text-sm text-blue-700 mt-1">
-            Create your account in under 2 minutes. You'll complete your compliance documents after logging in.
+        <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+          <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">\u2728 Quick Setup</p>
+          <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+            Create your account in under 2 minutes. You'll complete your CDL and compliance information after logging in.
           </p>
         </div>
 
@@ -136,31 +191,31 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
               <FormItem>
                 <FormLabel>Password</FormLabel>
                 <FormControl>
-                  <Input type="password" placeholder="••••••••" {...field} />
+                  <Input type="password" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" {...field} />
                 </FormControl>
                 <FormMessage />
-                
-                {/* Password Requirements Checklist */}
-                <div className="mt-2 space-y-1">
-                  <p className="text-xs text-muted-foreground mb-1">Password must have:</p>
-                  {[
-                    { label: "At least 8 characters", met: passwordChecks.length },
-                    { label: "One uppercase letter", met: passwordChecks.uppercase },
-                    { label: "One lowercase letter", met: passwordChecks.lowercase },
-                    { label: "One number", met: passwordChecks.number },
-                  ].map((req, idx) => (
-                    <div key={idx} className="flex items-center gap-2 text-xs">
-                      {req.met ? (
-                        <Check className="h-3 w-3 text-green-600" />
-                      ) : (
-                        <X className="h-3 w-3 text-muted-foreground" />
-                      )}
-                      <span className={req.met ? "text-green-600" : "text-muted-foreground"}>
-                        {req.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                {passwordValue && (
+                  <div className="mt-2 space-y-1">
+                    <p className="text-xs text-muted-foreground mb-1">Password must have:</p>
+                    {[
+                      { label: "At least 8 characters", met: passwordChecks.length },
+                      { label: "One uppercase letter", met: passwordChecks.uppercase },
+                      { label: "One lowercase letter", met: passwordChecks.lowercase },
+                      { label: "One number", met: passwordChecks.number },
+                    ].map((req, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs">
+                        {req.met ? (
+                          <Check className="h-3 w-3 text-green-600" />
+                        ) : (
+                          <X className="h-3 w-3 text-muted-foreground" />
+                        )}
+                        <span className={req.met ? "text-green-600" : "text-muted-foreground"}>
+                          {req.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </FormItem>
             )}
           />
@@ -173,7 +228,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
                 <FormItem>
                   <FormLabel>First Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., John" {...field} />
+                    <Input {...field} disabled readOnly className="bg-muted" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -186,7 +241,7 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
                 <FormItem>
                   <FormLabel>Last Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., Doe" {...field} />
+                    <Input {...field} disabled readOnly className="bg-muted" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -225,32 +280,85 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
 
           <FormField
             control={form.control}
-            name="vehicleType"
-            render={({ field }) => (
+            name="trailerTypes"
+            render={() => (
               <FormItem>
-                <FormLabel>Primary Vehicle Type</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select your main vehicle type" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="Dry Van">Dry Van</SelectItem>
-                    <SelectItem value="Reefer">Reefer (Refrigerated)</SelectItem>
-                    <SelectItem value="Flatbed">Flatbed</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="mb-4">
+                  <FormLabel className="text-base">Trailer Types You Can Haul</FormLabel>
+                  <p className="text-sm text-muted-foreground">Select all that apply</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-96 overflow-y-auto border rounded-md p-4">
+                  {TRAILER_TYPES.map((type) => (
+                    <div key={type.value} className="flex items-start space-x-3 p-2 hover:bg-muted rounded">
+                      <Checkbox
+                        checked={selectedTrailers.includes(type.value)}
+                        onCheckedChange={() => toggleTrailerType(type.value)}
+                      />
+                      <div className="flex-1">
+                        <Label className="font-medium cursor-pointer">
+                          {type.label}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">{type.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
 
-        <div className="bg-muted rounded-lg p-4">
-          <p className="text-sm text-muted-foreground">
-            📋 <strong>After signup:</strong> Complete your CDL info and compliance documents to start receiving loads.
-          </p>
+        <div className="space-y-4 pt-4 border-t">
+          <p className="text-sm font-medium">Legal Agreements</p>
+          
+          <FormField
+            control={form.control}
+            name="userAgreement"
+            render={({ field }) => (
+              <FormItem>
+                <div className="flex items-start gap-3">
+                  <FormControl>
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} className="mt-1" />
+                  </FormControl>
+                  <div className="space-y-1">
+                    <Label className="text-sm leading-relaxed cursor-pointer">
+                      I understand that XtraFleet is a technology platform only and that I remain 
+                      solely responsible for regulatory compliance, insurance adequacy, and trip safety.{' '}
+                      <Link href="/legal/user-agreement" target="_blank" className="underline text-primary hover:text-primary/80">
+                        View User Agreement
+                      </Link>
+                    </Label>
+                    <FormMessage />
+                  </div>
+                </div>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="esignConsent"
+            render={({ field }) => (
+              <FormItem>
+                <div className="flex items-start gap-3">
+                  <FormControl>
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} className="mt-1" />
+                  </FormControl>
+                  <div className="space-y-1">
+                    <Label className="text-sm leading-relaxed cursor-pointer">
+                      I consent to the use of electronic records and signatures in connection with 
+                      my participation on the XtraFleet platform.{' '}
+                      <Link href="/legal/esign-consent" target="_blank" className="underline text-primary hover:text-primary/80">
+                        E-Sign Agreement
+                      </Link>
+                    </Label>
+                    <FormMessage />
+                  </div>
+                </div>
+              </FormItem>
+            )}
+          />
         </div>
 
         <div className="flex justify-end pt-4">
@@ -261,10 +369,17 @@ export function DriverRegisterForm({ driverId, ownerId, invitationEmail }: Drive
                 Creating Account...
               </>
             ) : (
-              "Create Account & Continue →"
+              "Create Account & Continue \u2192"
             )}
           </Button>
         </div>
+
+        <p className="text-center text-xs text-muted-foreground">
+          By creating an account you also agree to our{' '}
+          <Link href="/legal/terms-of-service" target="_blank" className="underline text-primary hover:text-primary/80">
+            Terms of Service
+          </Link>
+        </p>
       </form>
     </Form>
   );

@@ -21,9 +21,9 @@ async function handlePost(request: NextRequest) {
       );
     }
 
-    const { email, password, token, ownerId, profileData } = await request.json();
+    const { email, password, token, ownerId, profileData, consents, driverType } = await request.json();
 
-    console.log('[Create Driver] Request received:', { email, token, ownerId });
+    console.log('[Create Driver] Request received:', { email, token, ownerId, driverType });
 
     // Validate required fields
     if (!email || !password || !token || !ownerId) {
@@ -43,6 +43,9 @@ async function handlePost(request: NextRequest) {
 
     console.log('[Create Driver] User created:', userRecord.uid);
 
+    // Determine DQF status based on driver type
+    const dqfStatus = driverType === 'newHire' ? 'pending' : 'not_required';
+
     // Save driver profile to Firestore
     const driverDocRef = db.collection('owner_operators').doc(ownerId).collection('drivers').doc(userRecord.uid);
     
@@ -53,8 +56,15 @@ async function handlePost(request: NextRequest) {
       email: email,
       status: 'active',
       availability: 'Available',
+      driverType: driverType || 'existing', // NEW: Store driver type
+      dqfStatus: dqfStatus, // NEW: Store DQF status
+      dqfSubmittedAt: null,
+      dqfApprovedAt: null,
+      dqfApprovedBy: null,
       createdAt: FieldValue.serverTimestamp(),
       userId: userRecord.uid,
+      // Add consents if provided
+      ...(consents && { consents }),
     });
 
     console.log('[Create Driver] Profile saved to Firestore');
@@ -65,6 +75,7 @@ async function handlePost(request: NextRequest) {
       email: email,
       ownerId: ownerId,
       driverId: userRecord.uid,
+      driverType: driverType || 'existing', // NEW: Store driver type in user doc
       createdAt: FieldValue.serverTimestamp(),
     });
     
@@ -82,6 +93,8 @@ async function handlePost(request: NextRequest) {
     return handleApiSuccess({
       success: true,
       driverId: userRecord.uid,
+      driverType: driverType || 'existing', // NEW: Return driver type so client knows what to do next
+      dqfStatus: dqfStatus, // NEW: Return DQF status
     });
 
   } catch (error) {

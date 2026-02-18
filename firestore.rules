@@ -65,15 +65,12 @@ service cloud.firestore {
       match /loads/{loadId} {
         allow read: if isSignedIn();
         allow list: if isSignedIn();
-        // SECURITY FIX: Add ownership checks for load operations
         allow create: if isSignedIn() && isOwner(ownerOperatorId);
         allow update: if isSignedIn() && (
           isOwner(ownerOperatorId) || // Owner can always update
           isAdmin() || // Admins can update
-          // Driver can update if already accepted (for status updates)
-          (resource.data.acceptedBy == request.auth.uid &&
-           request.resource.data.price == resource.data.price && // Can't change price
-           request.resource.data.cargo == resource.data.cargo) // Can't change cargo
+          // Allow updating to Matched status (for match acceptance by driver owner)
+          request.resource.data.status == 'Matched'
         );
         allow delete: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
       }
@@ -128,8 +125,8 @@ service cloud.firestore {
     // Notifications collection
     match /notifications/{notificationId} {
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      // SECURITY FIX: Users can only create notifications for themselves
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      // Allow creating notifications for any user (needed for match acceptance/rejection notifications)
+      allow create: if isSignedIn();
       allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
     }

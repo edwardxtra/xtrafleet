@@ -33,13 +33,6 @@ import { showSuccess, showError, showWarning } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
 import { ProfileCompletionBanner } from '@/components/profile-completion-banner';
 import { TRAILER_TYPES } from '@/lib/trailer-types';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
 interface Driver {
@@ -47,8 +40,8 @@ interface Driver {
   name: string;
   email: string;
   location: string;
-  vehicleType?: string; // Legacy single type
-  trailerTypes?: string[]; // New: array of types driver can haul
+  vehicleType?: string;
+  trailerTypes?: string[];
   availability: string;
   cdlLicense?: string;
   cdlExpiry?: string;
@@ -133,7 +126,6 @@ export default function DriverProfile() {
         if (driverDoc.exists()) {
           const driverData = { id: driverDoc.id, ...driverDoc.data() } as Driver;
           
-          // Migrate legacy vehicleType to trailerTypes array
           if (driverData.vehicleType && !driverData.trailerTypes) {
             driverData.trailerTypes = [driverData.vehicleType];
           }
@@ -168,7 +160,6 @@ export default function DriverProfile() {
     setEditedDriver(driver);
   };
 
-  // BUG #2 FIX: Use setDoc with merge instead of updateDoc
   const handleSave = async () => {
     if (!editedDriver || !db || !ownerId || !user) return;
 
@@ -181,14 +172,13 @@ export default function DriverProfile() {
     try {
       const driverRef = doc(db, 'owner_operators', ownerId, 'drivers', user.uid);
       
-      // Build complete driver object
+      // Status/availability is managed by fleet owner only — not included here
       const updateData: any = {
         id: user.uid,
         email: editedDriver.email || user.email,
         name: editedDriver.name || '',
         location: editedDriver.location || '',
-        availability: editedDriver.availability || 'Available',
-        vehicleType: editedDriver.trailerTypes?.[0] || editedDriver.vehicleType || '', // Legacy field
+        vehicleType: editedDriver.trailerTypes?.[0] || editedDriver.vehicleType || '',
         trailerTypes: editedDriver.trailerTypes || (editedDriver.vehicleType ? [editedDriver.vehicleType] : []),
         cdlLicense: editedDriver.cdlLicense || '',
         cdlExpiry: editedDriver.cdlExpiry || '',
@@ -209,10 +199,8 @@ export default function DriverProfile() {
         updatedAt: new Date().toISOString(),
       };
 
-      // Use setDoc with merge to ensure document is created/updated
       await setDoc(driverRef, updateData, { merge: true });
 
-      // Update local state
       const updatedDriver = { ...editedDriver, ...updateData };
       setDriver(updatedDriver);
       setEditedDriver(updatedDriver);
@@ -416,7 +404,7 @@ export default function DriverProfile() {
         <Alert variant="destructive" className="mb-4">
           <WifiOff className="h-4 w-4" />
           <AlertDescription>
-            You're currently offline. Some features may not work until you're back online.
+            You&apos;re currently offline. Some features may not work until you&apos;re back online.
           </AlertDescription>
         </Alert>
       )}
@@ -513,22 +501,6 @@ export default function DriverProfile() {
                   Select all trailer types you are qualified and equipped to haul
                 </p>
               </div>
-              <div>
-                <Label htmlFor="availability">Status</Label>
-                <Select
-                  value={editedDriver.availability || ''}
-                  onValueChange={(value) => handleInputChange('availability', value)}
-                >
-                  <SelectTrigger id="availability">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Available">Available</SelectItem>
-                    <SelectItem value="On Assignment">On Assignment</SelectItem>
-                    <SelectItem value="Unavailable">Unavailable</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -559,14 +531,6 @@ export default function DriverProfile() {
                   <span>Trailer Types</span>
                 </div>
                 <p className="font-medium">{displayVehicleTypes()}</p>
-              </div>
-              <div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <span>Status</span>
-                </div>
-                <Badge variant={driver.availability === 'Available' ? 'default' : 'secondary'}>
-                  {driver.availability}
-                </Badge>
               </div>
             </div>
           )}
@@ -801,7 +765,7 @@ export default function DriverProfile() {
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="drugAndAlcoholScreeningDate">Drug & Alcohol Screening Date</Label>
+                  <Label htmlFor="drugAndAlcoholScreeningDate">Drug &amp; Alcohol Screening Date</Label>
                   <div className="flex gap-2">
                     <Input
                       id="drugAndAlcoholScreeningDate"

@@ -16,28 +16,11 @@ export function generateTLA(data: TLAGenerationData): Omit<TLA, 'id'> {
   
   // Determine final terms (use counter terms if accepted, otherwise original)
   const finalTerms = match.counterTerms || match.originalTerms;
-  
-  // Build lessor address
-  const lessorAddress = [
-    lessorInfo.address,
-    lessorInfo.city,
-    lessorInfo.state,
-    lessorInfo.zip
-  ].filter(Boolean).join(', ') || 'Address not provided';
-  
-  // Build lessee address
-  const lesseeAddress = [
-    lesseeInfo.address,
-    lesseeInfo.city,
-    lesseeInfo.state,
-    lesseeInfo.zip
-  ].filter(Boolean).join(', ') || 'Address not provided';
 
   // Build lessor object - only include defined values
   const lessor: TLA['lessor'] = {
     ownerOperatorId: match.driverOwnerId,
     legalName: lessorInfo.legalName || lessorInfo.companyName || 'Unknown',
-    address: lessorAddress,
     contactEmail: lessorInfo.contactEmail || '',
   };
   if (lessorInfo.dotNumber) lessor.dotNumber = lessorInfo.dotNumber;
@@ -48,7 +31,6 @@ export function generateTLA(data: TLAGenerationData): Omit<TLA, 'id'> {
   const lessee: TLA['lessee'] = {
     ownerOperatorId: match.loadOwnerId,
     legalName: lesseeInfo.legalName || lesseeInfo.companyName || 'Unknown',
-    address: lesseeAddress,
     contactEmail: lesseeInfo.contactEmail || '',
   };
   if (lesseeInfo.dotNumber) lessee.dotNumber = lesseeInfo.dotNumber;
@@ -163,13 +145,11 @@ This Agreement is governed by Delaware law and applicable FMCSA regulations.
 
 Lessor (Provider of Driver):
 Name: ${tla.lessor.legalName}
-Address: ${tla.lessor.address}
 ${tla.lessorSignature ? `Signature: ${tla.lessorSignature.signedByName}
 Date: ${formatDate(tla.lessorSignature.signedAt)}` : 'Signature: _________________________\nDate: _________________________'}
 
 Lessee (Hiring Carrier):
 Name: ${tla.lessee.legalName}
-Address: ${tla.lessee.address}
 ${tla.lesseeSignature ? `Signature: ${tla.lesseeSignature.signedByName}
 Date: ${formatDate(tla.lesseeSignature.signedAt)}` : 'Signature: _________________________\nDate: _________________________'}
 `.trim();

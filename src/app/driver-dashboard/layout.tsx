@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from '@/components/logo';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { Home, User, History, LogOut, Settings, Loader2 } from 'lucide-react';
 
 function SidebarNavLink({ 
@@ -126,17 +127,19 @@ export default function DriverDashboardLayout({
   const auth = useAuth();
   const db = useFirestore();
   const router = useRouter();
+  const pathname = usePathname();
   const [roleChecked, setRoleChecked] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
-    if (!isUserLoading && !user) {
+    if (!isUserLoading && !user && !isLoggingOut) {
       router.push('/login');
     }
-  }, [user, isUserLoading, router]);
+  }, [user, isUserLoading, isLoggingOut, router]);
 
   useEffect(() => {
-    async function checkRole() {
+    async function checkRoleAndProfile() {
       if (!user || !db) return;
 
       try {
@@ -147,6 +150,23 @@ export default function DriverDashboardLayout({
             router.push('/dashboard');
             return;
           }
+
+          // Hard lock: redirect to complete-profile if profile not submitted
+          // Allow access to complete-profile page itself and settings
+          const isOnboardingPage = pathname === '/driver-dashboard/complete-profile';
+          const isSettingsPage = pathname === '/driver-dashboard/settings';
+
+          if (!isOnboardingPage && !isSettingsPage && userData.ownerId) {
+            const driverDoc = await getDoc(doc(db, 'owner_operators', userData.ownerId, 'drivers', user.uid));
+            if (driverDoc.exists()) {
+              const driverData = driverDoc.data();
+              const needsOnboarding = !driverData.profileStatus || driverData.profileStatus === 'incomplete';
+              if (needsOnboarding && driverData.profileComplete !== true) {
+                router.push('/driver-dashboard/complete-profile');
+                return;
+              }
+            }
+          }
         }
         setRoleChecked(true);
       } catch (error) {
@@ -156,17 +176,18 @@ export default function DriverDashboardLayout({
     }
 
     if (user && db) {
-      checkRole();
+      checkRoleAndProfile();
     }
-  }, [user, db, router]);
+  }, [user, db, router, pathname]);
 
   const handleSignOut = async () => {
     try {
+      setIsLoggingOut(true);
       await auth.signOut();
-      await fetch('/api/auth/session', { method: 'DELETE' });
       router.push('/login');
     } catch (error) {
       console.error('Failed to sign out:', error);
+      setIsLoggingOut(false);
     }
   };
 
@@ -197,6 +218,7 @@ export default function DriverDashboardLayout({
             <SidebarTrigger className="md:hidden" />
             <h1 className="text-lg font-semibold">Driver Dashboard</h1>
           </div>
+          <ThemeToggle />
         </header>
 
         <main className="flex-1 overflow-auto p-4 md:p-6">

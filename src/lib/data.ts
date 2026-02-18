@@ -16,10 +16,12 @@ export type Driver = {
   certifications: string[];
   availability: "Available" | "On-trip" | "Off-duty";
   vehicleType: "Dry Van" | "Reefer" | "Flatbed"; // Legacy - single type
+  vehicleTypes?: string[]; // New - array of types driver can haul
   trailerTypes?: TrailerType[]; // New - array of types driver can haul
   profileSummary?: string;
   ownerId?: string;
   isActive?: boolean;
+  isSelfDriver?: boolean; // OO added themselves as a driver — no separate Auth account
   cdlLicense?: string;
   cdlExpiry?: string;
   cdlLicenseUrl?: string;
@@ -38,6 +40,13 @@ export type Driver = {
   drugAndAlcoholScreeningUrl?: string;
   rating?: number;
   reviews?: Review[];
+  phoneNumber?: string;
+  phone?: string;
+  endorsements?: string;
+  clearinghouseStatus?: string;
+  dqfStatus?: string;
+  profileStatus?: string;
+  profileComplete?: boolean;
 };
 
 export type Load = {
@@ -132,28 +141,17 @@ export type OwnerOperator = {
   zip?: string;
   dotNumber?: string;
   mcNumber?: string;
+  ein?: string;
+  dba?: string;
+  hqAddress?: string;
+  loadLocation?: string;
+  serviceRegions?: string;
   isAdmin?: boolean;
   createdAt?: string;
-  // Certificate of Insurance (COI) fields
+  profileCompletedAt?: string;
+  clearinghouseCompletedAt?: string;
+  // Certificate of Insurance (COI) - simplified to just document upload
   insurance?: {
-    // General Liability Insurance
-    liabilityCarrier?: string;
-    liabilityPolicyNumber?: string;
-    liabilityExpiry?: string;
-    liabilityCoverageAmount?: number;
-    // Cargo Insurance
-    cargoCarrier?: string;
-    cargoPolicyNumber?: string;
-    cargoExpiry?: string;
-    cargoCoverageAmount?: number;
-    // Auto/Physical Damage Insurance
-    autoCarrier?: string;
-    autoPolicyNumber?: string;
-    autoExpiry?: string;
-    // Workers Compensation (if applicable)
-    workersCompCarrier?: string;
-    workersCompPolicyNumber?: string;
-    workersCompExpiry?: string;
     // Document URL for uploaded COI
     coiDocumentUrl?: string;
     coiDocumentUploadedAt?: string;
@@ -166,6 +164,8 @@ export type TLASignature = {
   signedByRole: 'lessor' | 'lessee';
   signedAt: string;
   ipAddress?: string;
+  userAgent?: string;
+  consentToEsign?: boolean;
 };
 
 export type InsuranceOption = 'existing_policy' | 'trip_coverage';
@@ -197,6 +197,8 @@ export type TLA = {
     cdlNumber?: string;
     cdlState?: string;
     medicalCardExpiry?: string;
+    endorsements?: string;
+    clearinghouseStatus?: string;
   };
   trip: {
     origin: string;

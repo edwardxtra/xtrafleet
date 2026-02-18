@@ -20,17 +20,16 @@ export function DocRegistrationForm() {
   const router = useRouter();
   const { toast } = useToast();
   const [insuranceFile, setInsuranceFile] = useState<File | null>(null);
-  const [complianceFile, setComplianceFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsSubmitting(true);
 
-    if (!insuranceFile && !complianceFile) {
+    if (!insuranceFile) {
       toast({
-        title: "No files selected",
-        description: "Please select at least one document to upload.",
+        title: "No file selected",
+        description: "Please select a certificate of insurance document to upload.",
         variant: "destructive",
       });
       setIsSubmitting(false);
@@ -38,18 +37,16 @@ export function DocRegistrationForm() {
     }
 
     // In a real application, you would handle the file upload to a service like Firebase Storage here.
-    // For this example, we'll simulate the upload process.
     console.log("Uploading files:", {
       insurance: insuranceFile?.name,
-      compliance: complianceFile?.name,
     });
 
     // Simulate API call
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
     toast({
-      title: "Documents Uploaded",
-      description: "Your documents have been submitted successfully.",
+      title: "Document Uploaded",
+      description: "Your certificate of insurance has been submitted successfully.",
     });
 
     setIsSubmitting(false);
@@ -63,17 +60,17 @@ export function DocRegistrationForm() {
         <form onSubmit={handleSubmit}>
           <CardHeader>
             <CardTitle className="font-headline text-2xl">
-              Document Registration
+              Certificate of Insurance
             </CardTitle>
             <CardDescription>
-              Upload your insurance and compliance documents. This will be
+              Upload your certificate of insurance. This will be
               stored securely.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-8">
             <div className="space-y-2">
               <Label htmlFor="insurance-cert" className="text-base">
-                Certificate of Insurance
+                Certificate of Insurance (COI)
               </Label>
               <Input
                 id="insurance-cert"
@@ -85,21 +82,6 @@ export function DocRegistrationForm() {
               <p className="text-sm text-muted-foreground">
                 Please upload your most recent certificate of insurance (e.g.,
                 PDF, JPG, PNG).
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="compliance-docs" className="text-base">
-                Compliance Documents
-              </Label>
-              <Input
-                id="compliance-docs"
-                type="file"
-                onChange={(e) =>
-                  setComplianceFile(e.target.files ? e.target.files[0] : null)
-                }
-              />
-              <p className="text-sm text-muted-foreground">
-                Upload any other required compliance documents (e.g., W-9, operating authority).
               </p>
             </div>
           </CardContent>
