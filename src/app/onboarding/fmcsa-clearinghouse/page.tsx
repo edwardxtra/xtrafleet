@@ -44,7 +44,6 @@ function FMCSAClearinghouseContent() {
       await updateDoc(ownerDocRef, {
         'onboardingStatus.fmcsaDesignated': alreadyDesignated ? true : 'pending',
         'onboardingStatus.fmcsaDesignatedAt': new Date().toISOString(),
-        'onboardingStatus.completedAt': new Date().toISOString(),
         clearinghouseCompletedAt: new Date().toISOString(),
         fmcsaClearinghouse: {
           alreadyDesignated: alreadyDesignated,
@@ -54,10 +53,10 @@ function FMCSAClearinghouseContent() {
       });
 
       showSuccess(alreadyDesignated
-        ? 'FMCSA designation confirmed! Your account is fully activated.'
+        ? 'FMCSA designation confirmed!'
         : 'Acknowledgment saved. You can complete the designation at any time.'
       );
-      router.push('/dashboard');
+      router.push('/onboarding/invite-driver');
     } catch (error) {
       console.error('Failed to save FMCSA status:', error);
       showError('Failed to save. Please try again.');
@@ -73,12 +72,11 @@ function FMCSAClearinghouseContent() {
       const ownerDocRef = doc(db, 'owner_operators', user.uid);
       await updateDoc(ownerDocRef, {
         'onboardingStatus.fmcsaDesignated': 'skipped',
-        'onboardingStatus.completedAt': new Date().toISOString(),
       });
     } catch (error) {
       console.error('Failed to save skip status:', error);
     }
-    router.push('/dashboard');
+    router.push('/onboarding/invite-driver');
   };
 
   if (isUserLoading) {
@@ -103,7 +101,7 @@ function FMCSAClearinghouseContent() {
           </Link>
           <div className="flex items-center justify-center gap-2 text-primary">
             <Database className="h-5 w-5" />
-            <span className="text-sm font-medium">Step 3 of 3</span>
+            <span className="text-sm font-medium">Step 3 of 5</span>
           </div>
           <CardTitle className="font-headline text-2xl">
             FMCSA Clearinghouse Authorization
@@ -115,7 +113,6 @@ function FMCSAClearinghouseContent() {
         </CardHeader>
 
         <CardContent className="space-y-6">
-          {/* What This Means */}
           <div className="rounded-lg bg-muted/50 p-4 space-y-2">
             <p className="text-sm font-medium">What This Means:</p>
             <ul className="text-sm text-muted-foreground space-y-1.5">
@@ -138,7 +135,6 @@ function FMCSAClearinghouseContent() {
             </ul>
           </div>
 
-          {/* Option A: Already Designated */}
           <div
             className={`rounded-lg border p-4 transition-colors ${
               alreadyDesignated ? 'border-primary/30 bg-primary/5' : 'border-border'
@@ -164,7 +160,6 @@ function FMCSAClearinghouseContent() {
             </div>
           </div>
 
-          {/* Option B: Not Yet Designated */}
           <div
             className={`rounded-lg border p-4 transition-colors ${
               !alreadyDesignated && acknowledgment ? 'border-primary/30 bg-primary/5' : 'border-border'
@@ -176,29 +171,20 @@ function FMCSAClearinghouseContent() {
                 To designate, visit the FMCSA Clearinghouse:
               </p>
 
-              <Button
-                variant="outline"
-                size="sm"
-                asChild
-              >
+              <Button variant="outline" size="sm" asChild>
                 <a href={CLEARINGHOUSE_URL} target="_blank" rel="noopener noreferrer">
                   Open FMCSA Clearinghouse
                   <ExternalLink className="h-4 w-4 ml-2" />
                 </a>
               </Button>
 
-              {/* Collapsible Instructions */}
               <button
                 type="button"
                 onClick={() => setShowInstructions(!showInstructions)}
                 className="flex items-center gap-1 text-sm text-primary hover:underline"
               >
                 {showInstructions ? 'Hide' : 'Show'} step-by-step instructions
-                {showInstructions ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
+                {showInstructions ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </button>
 
               {showInstructions && (
@@ -213,7 +199,6 @@ function FMCSAClearinghouseContent() {
                 </div>
               )}
 
-              {/* Confirmation Checkbox */}
               <div className="flex items-start gap-3 pt-2">
                 <Checkbox
                   id="acknowledgment"
@@ -234,7 +219,6 @@ function FMCSAClearinghouseContent() {
             </div>
           </div>
 
-          {/* Note about driver matching */}
           {!alreadyDesignated && (
             <p className="text-xs text-amber-600 dark:text-amber-400 italic">
               Note: Driver matching will be limited until Clearinghouse designation is confirmed.
@@ -250,12 +234,9 @@ function FMCSAClearinghouseContent() {
             size="lg"
           >
             {submitting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Saving...
-              </>
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</>
             ) : alreadyDesignated ? (
-              'Confirm & Activate Account'
+              'Confirm & Continue'
             ) : (
               "I've Completed This Step"
             )}
