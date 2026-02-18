@@ -1,16 +1,17 @@
 'use client';
 
+import { useEffect, useState } from "react";
 import { useUser, useDoc, useFirestore, useMemoFirebase } from "@/firebase";
-import { doc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { notFound } from 'next/navigation';
-import type { Driver, Review } from '@/lib/data';
+import type { Driver, OwnerOperator, Review } from '@/lib/data';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Star, Truck, User, FileText, MessageSquare } from 'lucide-react';
+import { Star, Truck, User, MessageSquare } from 'lucide-react';
 import Link from "next/link";
 import { format, parseISO } from 'date-fns';
 import { ComplianceScorecard } from '@/components/compliance-scorecard';
@@ -52,6 +53,7 @@ export default function DriverProfilePage({ params }: { params: { id: string } }
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
   const driverId = params.id;
+  const [ownerOperator, setOwnerOperator] = useState<Partial<OwnerOperator> | undefined>(undefined);
 
   console.log(`${LOG_PREFIX} Rendering for driverId: ${driverId}`);
 
@@ -63,6 +65,24 @@ export default function DriverProfilePage({ params }: { params: { id: string } }
   }, [firestore, user?.uid, driverId]);
 
   const { data: driver, isLoading: isDriverLoading } = useDoc<Driver>(driverQuery);
+
+  // Fetch the OO doc so we can pass dotNumber/mcNumber to the scorecard FMCSA row
+  useEffect(() => {
+    async function fetchOO() {
+      if (!firestore || !user?.uid) return;
+      try {
+        const snap = await getDoc(doc(firestore, 'owner_operators', user.uid));
+        if (snap.exists()) {
+          const data = snap.data() as OwnerOperator;
+          setOwnerOperator({ dotNumber: data.dotNumber, mcNumber: data.mcNumber });
+          console.log(`${LOG_PREFIX} OO doc loaded: dotNumber=${data.dotNumber}, mcNumber=${data.mcNumber}`);
+        }
+      } catch (err) {
+        console.warn(`${LOG_PREFIX} Failed to fetch OO doc:`, err);
+      }
+    }
+    fetchOO();
+  }, [firestore, user?.uid]);
 
   if (isUserLoading || isDriverLoading) {
     return (
@@ -92,11 +112,15 @@ export default function DriverProfilePage({ params }: { params: { id: string } }
     notFound();
   }
 
-  console.log(`${LOG_PREFIX} Driver loaded: ${driver.name}, profileStatus: ${driver.profileStatus}, compliance fields:`, {
+  console.log(`${LOG_PREFIX} Driver loaded: ${driver.name}`, {
+    id: driver.id,
+    profileStatus: driver.profileStatus,
     cdlLicense: driver.cdlLicense,
     cdlExpiry: driver.cdlExpiry,
     medicalCardExpiry: driver.medicalCardExpiry,
     insuranceExpiry: driver.insuranceExpiry,
+    insurerName: driver.insurerName,
+    insurancePolicyNumber: driver.insurancePolicyNumber,
     motorVehicleRecordNumber: driver.motorVehicleRecordNumber,
   });
 
@@ -134,16 +158,21 @@ export default function DriverProfilePage({ params }: { params: { id: string } }
         <Card>
           <CardHeader>
             <CardTitle className="font-headline">Compliance Scorecard</CardTitle>
-            <CardDescription>Status of all required documents and screenings.</CardDescription>
+            <CardDescription>Status of all required documents and credentials.</CardDescription>
           </CardHeader>
           <CardContent>
-            <ComplianceScorecard driver={driver} role="owner_operator" />
+            {/* Pass ownerOperator so FMCSA section shows real DOT/MC numbers */}
+            <ComplianceScorecard
+              driver={driver}
+              role="owner_operator"
+              ownerOperator={ownerOperator}
+            />
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="font-headline">Ratings & Reviews</CardTitle>
+            <CardTitle className="font-headline">Ratings &amp; Reviews</CardTitle>
             <CardDescription>Feedback from previous loads.</CardDescription>
           </CardHeader>
           <CardContent>

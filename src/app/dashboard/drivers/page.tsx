@@ -24,10 +24,10 @@ import { DriverStatusBadge } from "@/components/driver-status-badge";
 import { DriverConfirmationCard } from "@/components/driver-confirmation-card";
 import { MoreHorizontal, Star, Truck, User, FileText as FileTextIcon, MessageSquare } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import type { Driver } from "@/lib/data";
+import type { Driver, OwnerOperator } from "@/lib/data";
 import { UploadDriversCSV } from "@/components/upload-drivers-csv";
 import { useUser, useCollection, useFirestore, useMemoFirebase, useDoc } from "@/firebase";
-import { collection, doc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { getComplianceStatus, ComplianceStatus } from "@/lib/compliance";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -202,6 +202,8 @@ export default function DriversPage() {
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [togglingDriver, setTogglingDriver] = useState<Driver | null>(null);
   const [isToggling, setIsToggling] = useState(false);
+  // OO doc — fetched once so FMCSA section gets real DOT/MC numbers
+  const [ooDoc, setOoDoc] = useState<Partial<OwnerOperator> | undefined>(undefined);
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
 
@@ -213,6 +215,24 @@ export default function DriversPage() {
     setIsOnline(navigator.onLine);
     return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline); };
   }, []);
+
+  // Fetch OO doc once user is ready so we can pass dotNumber/mcNumber to FMCSA section
+  useEffect(() => {
+    async function fetchOO() {
+      if (!firestore || !user?.uid) return;
+      try {
+        const snap = await getDoc(doc(firestore, 'owner_operators', user.uid));
+        if (snap.exists()) {
+          const data = snap.data() as OwnerOperator;
+          setOoDoc({ dotNumber: data.dotNumber, mcNumber: data.mcNumber });
+          console.log(`${LOG_PREFIX} OO doc loaded: dotNumber=${data.dotNumber}, mcNumber=${data.mcNumber}`);
+        }
+      } catch (err) {
+        console.warn(`${LOG_PREFIX} Failed to fetch OO doc:`, err);
+      }
+    }
+    fetchOO();
+  }, [firestore, user?.uid]);
 
   const driversQuery = useMemoFirebase(() => {
     if (!firestore || !user?.uid) return null;
@@ -277,6 +297,8 @@ export default function DriversPage() {
         cdlExpiry: selectedDriver.cdlExpiry,
         medicalCardExpiry: selectedDriver.medicalCardExpiry,
         insuranceExpiry: selectedDriver.insuranceExpiry,
+        insurerName: selectedDriver.insurerName,
+        insurancePolicyNumber: selectedDriver.insurancePolicyNumber,
         motorVehicleRecordNumber: selectedDriver.motorVehicleRecordNumber,
         backgroundCheckDate: selectedDriver.backgroundCheckDate,
         drugAndAlcoholScreeningDate: selectedDriver.drugAndAlcoholScreeningDate,
@@ -396,12 +418,17 @@ export default function DriversPage() {
           <Card>
             <CardHeader><CardTitle className="font-headline">Compliance Scorecard</CardTitle><CardDescription>Status of all required documents and screenings.</CardDescription></CardHeader>
             <CardContent>
-              <ComplianceScorecard driver={selectedDriver} role="owner_operator" />
+              {/* Pass ownerOperator so FMCSA section shows real DOT/MC numbers */}
+              <ComplianceScorecard
+                driver={selectedDriver}
+                role="owner_operator"
+                ownerOperator={ooDoc}
+              />
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle className="font-headline">Ratings & Reviews</CardTitle><CardDescription>Feedback from previous loads.</CardDescription></CardHeader>
+            <CardHeader><CardTitle className="font-headline">Ratings &amp; Reviews</CardTitle><CardDescription>Feedback from previous loads.</CardDescription></CardHeader>
             <CardContent>
               {selectedDriver.reviews && selectedDriver.reviews.length > 0 ? (
                 <div className="space-y-4">
