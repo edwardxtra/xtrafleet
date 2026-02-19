@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { lookupByDOT, lookupByMC } from '@/lib/fmcsa';
 import { withCors } from '@/lib/api-cors';
-import { verifyAuthToken } from '@/lib/api-auth';
+import { authenticateRequest } from '@/lib/api-auth';
 
 /**
  * GET /api/fmcsa-lookup?dot=1234567
  * GET /api/fmcsa-lookup?mc=987654
  *
- * Requires a valid Firebase auth token (Bearer).
+ * Requires a valid Firebase auth token (Bearer or session cookie).
  * Returns normalized FMCSA carrier data.
  */
 async function handleGet(request: NextRequest) {
-  // Require authenticated user — don't expose the FMCSA web key to the public
-  const authResult = await verifyAuthToken(request);
-  if (!authResult.success) {
+  try {
+    await authenticateRequest(request);
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
