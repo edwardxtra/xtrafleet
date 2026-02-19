@@ -32,13 +32,17 @@ const profileFormSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
-type VerificationState = 'idle' | 'loading' | 'verified' | 'error';
+// 'typing' = digits entered but debounce hasn't fired yet
+type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'error';
 
 interface FMCSAVerification {
   state: VerificationState;
   carrier?: FMCSACarrier;
   errorMessage?: string;
 }
+
+// USDOT numbers are up to 8 digits; require at least 7 before attempting lookup
+const DOT_MIN_DIGITS = 7;
 
 export function CompanyProfileForm() {
   const [isPending, startTransition] = useTransition();
@@ -75,7 +79,6 @@ export function CompanyProfileForm() {
           if (data.hqAddress) form.setValue('hqAddress', data.hqAddress);
           if (data.operatingStates?.length) form.setValue('operatingStates', data.operatingStates);
           if (data.coi) setCoiData(data.coi);
-          // If already verified, mark as such
           if (data.fmcsaVerified) {
             setFmcsa({ state: 'verified', carrier: data.fmcsaData });
           }
@@ -85,12 +88,9 @@ export function CompanyProfileForm() {
     loadExistingData();
   }, [user, db, form]);
 
-  /**
-   * Call the FMCSA lookup API route and auto-fill fields if we get a hit.
-   */
   const verifyDOT = useCallback(async (dotNumber: string) => {
     const cleaned = dotNumber.replace(/\D/g, '');
-    if (cleaned.length < 5) {
+    if (cleaned.length < DOT_MIN_DIGITS) {
       setFmcsa({ state: 'idle' });
       return;
     }
@@ -112,7 +112,6 @@ export function CompanyProfileForm() {
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
       setFmcsa({ state: 'verified', carrier });
 
-      // Auto-fill fields if they're empty
       if (carrier.legalName && !form.getValues('legalName')) {
         form.setValue('legalName', carrier.legalName, { shouldValidate: true });
       }
@@ -123,7 +122,6 @@ export function CompanyProfileForm() {
         form.setValue('phone', carrier.phone, { shouldValidate: true });
       }
 
-      // Surface authority status issues prominently
       if (!carrier.allowedToOperate) {
         toast({
           title: 'Authority Issue Detected',
@@ -136,11 +134,31 @@ export function CompanyProfileForm() {
     }
   }, [auth, form, toast]);
 
-  // Debounce DOT lookup — fires 800ms after the user stops typing
   const handleDOTChange = useCallback((value: string) => {
-    form.setValue('dotNumber', value, { shouldValidate: true });
+    // Strip non-digits — DOT numbers are numeric only
+    const numbersOnly = value.replace(/\D/g, '');
+    form.setValue('dotNumber', numbersOnly, { shouldValidate: true });
+
     if (dotDebounceRef.current) clearTimeout(dotDebounceRef.current);
-    dotDebounceRef.current = setTimeout(() => verifyDOT(value), 800);
+
+    if (numbersOnly.length === 0) {
+      setFmcsa({ state: 'idle' });
+      return;
+    }
+
+    if (numbersOnly.length < DOT_MIN_DIGITS) {
+      // Not enough digits yet — reset to idle, no spinner
+      setFmcsa({ state: 'idle' });
+      return;
+    }
+
+    // Enough digits — show spinner immediately, then fire lookup after debounce
+    setFmcsa(prev =>
+      prev.state !== 'loading' && prev.state !== 'verified'
+        ? { state: 'typing' }
+        : prev
+    );
+    dotDebounceRef.current = setTimeout(() => verifyDOT(numbersOnly), 800);
   }, [form, verifyDOT]);
 
   const toggleState = (stateValue: string) => {
@@ -169,7 +187,7 @@ export function CompanyProfileForm() {
     if (!hasCoiData) missingFields.push('Certificate of Insurance');
 
     if (missingFields.length > 0) {
-      toast({ title: "Incomplete Profile", description: `Missing: ${missingFields.join(', ')}. Your progress has been saved \u2014 complete these fields to unlock all features.`, variant: "default" });
+      toast({ title: "Incomplete Profile", description: `Missing: ${missingFields.join(', ')}. Your progress has been saved — complete these fields to unlock all features.`, variant: "default" });
     }
 
     startTransition(async () => {
@@ -181,7 +199,6 @@ export function CompanyProfileForm() {
       formData.append('hqAddress', values.hqAddress || '');
       formData.append('operatingStates', JSON.stringify(values.operatingStates || []));
       formData.append('coiData', JSON.stringify(coiData));
-      // Persist FMCSA verification result
       formData.append('fmcsaVerified', String(fmcsa.state === 'verified'));
       if (fmcsa.carrier) formData.append('fmcsaData', JSON.stringify(fmcsa.carrier));
       const isComplete = !!(values.dotNumber && values.mcNumber && values.hqAddress && values.operatingStates?.length && hasCoiData);
@@ -196,6 +213,9 @@ export function CompanyProfileForm() {
     });
   };
 
+  // Show spinner for both 'typing' (debounce pending) and 'loading' (fetch in-flight)
+  const showSpinner = fmcsa.state === 'typing' || fmcsa.state === 'loading';
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -208,7 +228,6 @@ export function CompanyProfileForm() {
         )} />
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          {/* DOT Number with live FMCSA verification */}
           <FormField control={form.control} name="dotNumber" render={({ field }) => (
             <FormItem>
               <FormLabel>Department of Transportation # *</FormLabel>
@@ -217,16 +236,18 @@ export function CompanyProfileForm() {
                   <Input
                     placeholder="e.g., 1234567"
                     {...field}
+                    inputMode="numeric"
                     onChange={(e) => handleDOTChange(e.target.value)}
                     className="pr-9"
                   />
                 </FormControl>
                 <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
-                  {fmcsa.state === 'loading' && <SpinnerIcon className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  {showSpinner && <SpinnerIcon className="h-4 w-4 animate-spin text-muted-foreground" />}
                   {fmcsa.state === 'verified' && <CheckCircle2 className="h-4 w-4 text-green-500" />}
                   {fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground mt-1">Enter your 7–8 digit USDOT number — verified automatically with FMCSA</p>
               <FormMessage />
             </FormItem>
           )} />
@@ -236,7 +257,6 @@ export function CompanyProfileForm() {
           )} />
         </div>
 
-        {/* FMCSA Verification Result Banner */}
         {fmcsa.state === 'verified' && fmcsa.carrier && (
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
             <div className="flex items-start gap-2">
