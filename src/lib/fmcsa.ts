@@ -38,7 +38,7 @@ export interface FMCSALookupResult {
 
 function getWebKey(): string {
   const key = process.env.FMCSA_WEB_KEY;
-  if (!key) throw new Error('FMCSA_WEB_KEY environment variable is not set');
+  if (!key) throw new Error('FMCSA_WEB_KEY_MISSING');
   return key;
 }
 
@@ -48,8 +48,8 @@ function getWebKey(): string {
  */
 export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult> {
   const cleaned = dotNumber.replace(/\D/g, '');
-  if (!cleaned || cleaned.length < 5 || cleaned.length > 8) {
-    return { success: false, error: 'Invalid DOT number format' };
+  if (!cleaned || cleaned.length < 7 || cleaned.length > 8) {
+    return { success: false, error: 'Invalid DOT number format — must be 7 or 8 digits' };
   }
 
   try {
@@ -78,6 +78,9 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[FMCSA] lookupByDOT error:', message);
+    if (message === 'FMCSA_WEB_KEY_MISSING') {
+      return { success: false, error: 'FMCSA API key not configured — add FMCSA_WEB_KEY to environment variables' };
+    }
     return { success: false, error: 'Failed to reach FMCSA API' };
   }
 }
@@ -116,12 +119,17 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[FMCSA] lookupByMC error:', message);
+    if (message === 'FMCSA_WEB_KEY_MISSING') {
+      return { success: false, error: 'FMCSA API key not configured — add FMCSA_WEB_KEY to environment variables' };
+    }
     return { success: false, error: 'Failed to reach FMCSA API' };
   }
 }
 
 function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
-  const authorityStatus = String(raw.allowedToOperate ?? raw.authorityStatus ?? '');
+  // FMCSA returns allowedToOperate as "Y"/"N" string, and authorityStatus as "A"/"I"/"R"
+  const allowedToOperateRaw = String(raw.allowedToOperate ?? '').toUpperCase();
+  const authorityStatusRaw = String(raw.authorityStatus ?? '').toUpperCase();
 
   return {
     dotNumber: String(raw.dotNumber ?? ''),
@@ -134,12 +142,13 @@ function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
     hqZip: raw.phyZip ? String(raw.phyZip) : undefined,
     phone: raw.telephone ? String(raw.telephone) : undefined,
     safetyRating: raw.safetyRating ? String(raw.safetyRating) : 'Not Rated',
-    authorityStatus: authorityStatus || undefined,
+    authorityStatus: authorityStatusRaw || undefined,
     insuranceRequired: raw.insuranceRequired ? String(raw.insuranceRequired) : undefined,
     insuranceOnFile: raw.insuranceOnFile ? String(raw.insuranceOnFile) : undefined,
     bicInsurance: raw.bicInsurance ? String(raw.bicInsurance) : undefined,
     cargoInsuranceRequired: raw.cargoInsuranceRequired ? String(raw.cargoInsuranceRequired) : undefined,
     cargoInsuranceOnFile: raw.cargoInsuranceOnFile ? String(raw.cargoInsuranceOnFile) : undefined,
-    allowedToOperate: authorityStatus === 'A' || String(raw.allowedToOperate).toUpperCase() === 'Y',
+    // Carrier is allowed to operate if allowedToOperate is "Y" OR authorityStatus is "A"
+    allowedToOperate: allowedToOperateRaw === 'Y' || authorityStatusRaw === 'A',
   };
 }
