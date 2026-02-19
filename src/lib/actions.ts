@@ -31,83 +31,93 @@ const updateProfileSchema = z.object({
 // ==================== COMPANY PROFILE ACTIONS ====================
 
 export async function createCompanyProfile(formData: FormData) {
-  const user = await authenticateServerAction();
-  if (!user) {
+  let user;
+  try {
+    user = await authenticateServerAction();
+  } catch {
+    // Session cookie may not be readable yet immediately after registration.
+    // Return gracefully so the client-side redirect to /create-profile still works.
     redirect('/login?error=unauthorized');
   }
+
+  if (!user) redirect('/login?error=unauthorized');
   
   const contactEmail = formData.get('contactEmail') as string || user.email || '';
   const legalName = formData.get('legalName') as string || '';
   const isProfileComplete = formData.get('isProfileComplete') === 'true';
   
-  // Parse operating states from JSON string
   let operatingStates: string[] = [];
   const operatingStatesRaw = formData.get('operatingStates') as string;
   if (operatingStatesRaw) {
     try { operatingStates = JSON.parse(operatingStatesRaw); } catch { operatingStates = []; }
   }
 
-  // Parse COI data from JSON string
-  let coiData: Record<string, any> = {};
+  let coiData: Record<string, unknown> = {};
   const coiDataRaw = formData.get('coiData') as string;
   if (coiDataRaw) {
     try { coiData = JSON.parse(coiDataRaw); } catch { coiData = {}; }
   }
 
-  const profileData: Record<string, any> = {
-      id: user.uid,
-      legalName: legalName,
-      contactEmail: contactEmail,
-      phone: formData.get('phone') || '',
-      dotNumber: formData.get('dotNumber') || '',
-      mcNumber: formData.get('mcNumber') || '',
-      hqAddress: formData.get('hqAddress') || '',
-      operatingStates: operatingStates,
+  // Parse FMCSA verification data if present
+  const fmcsaVerified = formData.get('fmcsaVerified') === 'true';
+  let fmcsaData: Record<string, unknown> | null = null;
+  const fmcsaDataRaw = formData.get('fmcsaData') as string;
+  if (fmcsaDataRaw) {
+    try { fmcsaData = JSON.parse(fmcsaDataRaw); } catch { fmcsaData = null; }
+  }
+
+  const profileData: Record<string, unknown> = {
+    id: user.uid,
+    legalName,
+    contactEmail,
+    phone: formData.get('phone') || '',
+    dotNumber: formData.get('dotNumber') || '',
+    mcNumber: formData.get('mcNumber') || '',
+    hqAddress: formData.get('hqAddress') || '',
+    operatingStates,
   };
 
-  // Add COI data if provided
   if (Object.keys(coiData).length > 0) {
-    profileData.coi = {
-      ...coiData,
-      updatedAt: new Date().toISOString(),
-    };
+    profileData.coi = { ...coiData, updatedAt: new Date().toISOString() };
+  }
+
+  // Persist FMCSA verification result so profile page can restore lock state
+  if (fmcsaVerified && fmcsaData) {
+    profileData.fmcsaVerified = true;
+    profileData.fmcsaData = fmcsaData;
+    profileData.fmcsaVerifiedAt = new Date().toISOString();
   }
   
   try {
-      const { db } = await getFirebaseAdmin();
-      const ownerDocRef = db.collection('owner_operators').doc(user.uid);
-      
-      // Preserve existing onboarding flags
-      const existingDoc = await ownerDocRef.get();
-      const existingStatus = existingDoc.exists ? existingDoc.data()?.onboardingStatus : null;
-      
-      profileData.onboardingStatus = {
-        ...(existingStatus || {}),
-        profileComplete: isProfileComplete,
-        profileCompletedAt: isProfileComplete ? new Date().toISOString() : (existingStatus?.profileCompletedAt || null),
-        // Only set these defaults if they don't already exist
-        complianceAttested: existingStatus?.complianceAttested || false,
-        fmcsaDesignated: existingStatus?.fmcsaDesignated || false,
-        completedAt: existingStatus?.completedAt || null,
-      };
-      
-      await ownerDocRef.set(profileData, { merge: true });
-      
-      // Send profile completion email only when fully complete
-      if (isProfileComplete && contactEmail) {
-        await sendOwnerProfileCompleteEmail(contactEmail, legalName).catch(err => {
-          console.error('Failed to send profile completion email:', err);
-        });
-      }
-      
+    const { db } = await getFirebaseAdmin();
+    const ownerDocRef = db.collection('owner_operators').doc(user.uid);
+    
+    const existingDoc = await ownerDocRef.get();
+    const existingStatus = existingDoc.exists ? existingDoc.data()?.onboardingStatus : null;
+    
+    profileData.onboardingStatus = {
+      ...(existingStatus || {}),
+      profileComplete: isProfileComplete,
+      profileCompletedAt: isProfileComplete ? new Date().toISOString() : (existingStatus?.profileCompletedAt || null),
+      complianceAttested: existingStatus?.complianceAttested || false,
+      fmcsaDesignated: existingStatus?.fmcsaDesignated || false,
+      completedAt: existingStatus?.completedAt || null,
+    };
+    
+    await ownerDocRef.set(profileData, { merge: true });
+    
+    if (isProfileComplete && contactEmail) {
+      await sendOwnerProfileCompleteEmail(contactEmail, legalName).catch(err => {
+        console.error('Failed to send profile completion email:', err);
+      });
+    }
+    
   } catch (error) {
-      console.error('Failed to update company profile:', error);
-      redirect('/create-profile?error=Failed+to+save+profile');
+    console.error('Failed to update company profile:', error);
+    redirect('/create-profile?error=Failed+to+save+profile');
   }
 
   revalidatePath('/dashboard');
-  
-  // After profile, redirect to compliance attestations
   redirect('/onboarding/compliance');
 }
 
@@ -125,18 +135,12 @@ export async function updateCompanyProfile(values: unknown): Promise<{ error?: s
   try {
     const { db } = await getFirebaseAdmin();
     const ownerDocRef = db.collection('owner_operators').doc(user.uid);
-    
-    const dataToSave = {
-      ...validation.data,
-      id: user.uid
-    };
-    
+    const dataToSave = { ...validation.data, id: user.uid };
     await ownerDocRef.set(dataToSave, { merge: true });
-    
     revalidatePath('/dashboard/settings');
     revalidatePath('/dashboard/profile');
     return { message: 'Profile updated successfully.' };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to update company profile:', error);
     return { error: 'An unexpected error occurred while saving your profile.' };
   }
@@ -152,45 +156,45 @@ export async function createPaymentIntent(): Promise<string | { error: string }>
   }
   
   const user = await authenticateServerAction();
-  if (!user) {
-      return { error: 'You must be logged in to create a payment intent.' };
-  }
+  if (!user) return { error: 'You must be logged in to create a payment intent.' };
 
   try {
     const setupIntent = await stripe.setupIntents.create({
-        usage: 'on_session',
-        metadata: { firebase_uid: user.uid },
+      usage: 'on_session',
+      metadata: { firebase_uid: user.uid },
     });
     return setupIntent.client_secret!;
-  } catch (e: any) {
-    console.error('Stripe Error:', e.message);
-    return { error: 'Failed to create Payment Intent. ' + e.message };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('Stripe Error:', msg);
+    return { error: 'Failed to create Payment Intent. ' + msg };
   }
 }
 
 export async function handleSuccessfulPaymentSetup(setupIntentId: string) {
-    if (!stripe) throw new Error('Stripe is not configured.');
-    const user = await authenticateServerAction();
-    if (!user) throw new Error('User not authenticated.');
+  if (!stripe) throw new Error('Stripe is not configured.');
+  const user = await authenticateServerAction();
+  if (!user) throw new Error('User not authenticated.');
 
-    try {
-        const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
-        if (setupIntent.status === 'succeeded' && setupIntent.metadata?.firebase_uid === user.uid) {
-            const { db } = await getFirebaseAdmin();
-            await db.collection('owner_operators').doc(user.uid).set({
-                subscriptionStatus: 'active',
-                stripeCustomerId: setupIntent.customer,
-                stripePaymentMethodId: setupIntent.payment_method,
-            }, { merge: true });
-            revalidatePath('/dashboard');
-            return { success: true };
-        } else {
-            throw new Error('SetupIntent not succeeded or UID mismatch.');
-        }
-    } catch (error: any) {
-        console.error('Failed to handle successful payment setup:', error);
-        return { success: false, error: error.message };
+  try {
+    const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
+    if (setupIntent.status === 'succeeded' && setupIntent.metadata?.firebase_uid === user.uid) {
+      const { db } = await getFirebaseAdmin();
+      await db.collection('owner_operators').doc(user.uid).set({
+        subscriptionStatus: 'active',
+        stripeCustomerId: setupIntent.customer,
+        stripePaymentMethodId: setupIntent.payment_method,
+      }, { merge: true });
+      revalidatePath('/dashboard');
+      return { success: true };
+    } else {
+      throw new Error('SetupIntent not succeeded or UID mismatch.');
     }
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('Failed to handle successful payment setup:', msg);
+    return { success: false, error: msg };
+  }
 }
 
 // ==================== PASSWORD RESET ====================
@@ -222,24 +226,12 @@ export async function sendPasswordReset(
       from: 'XtraFleet <noreply@xtrafleet.com>',
       to: [email],
       subject: 'Reset Your XtraFleet Password',
-      html: `
-        <!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="text-align: center; margin-bottom: 30px;"><h1 style="color: #1a1a1a; font-size: 24px; margin: 0;">XtraFleet</h1></div>
-          <h2 style="color: #1a1a1a; font-size: 20px;">Reset Your Password</h2>
-          <p>We received a request to reset your password. Click the button below to create a new password:</p>
-          <div style="text-align: center; margin: 30px 0;"><a href="${resetLink}" style="display: inline-block; padding: 14px 28px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">Reset Password</a></div>
-          <p style="color: #666; font-size: 14px;">This link will expire in 1 hour for security reasons.</p>
-          <p style="color: #666; font-size: 14px;">If you didn't request a password reset, you can safely ignore this email.</p>
-          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-          <p style="color: #999; font-size: 12px; text-align: center;">If the button doesn't work, copy and paste this link:<br><a href="${resetLink}" style="color: #4F46E5; word-break: break-all;">${resetLink}</a></p>
-        </body></html>
-      `,
+      html: `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;"><div style="text-align: center; margin-bottom: 30px;"><h1 style="color: #1a1a1a; font-size: 24px; margin: 0;">XtraFleet</h1></div><h2 style="color: #1a1a1a; font-size: 20px;">Reset Your Password</h2><p>We received a request to reset your password. Click the button below to create a new password:</p><div style="text-align: center; margin: 30px 0;"><a href="${resetLink}" style="display: inline-block; padding: 14px 28px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">Reset Password</a></div><p style="color: #666; font-size: 14px;">This link will expire in 1 hour for security reasons.</p><p style="color: #666; font-size: 14px;">If you didn't request a password reset, you can safely ignore this email.</p><hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;"><p style="color: #999; font-size: 12px; text-align: center;">If the button doesn't work, copy and paste this link:<br><a href="${resetLink}" style="color: #4F46E5; word-break: break-all;">${resetLink}</a></p></body></html>`,
     });
 
     if (emailError) console.error('Failed to send password reset email:', emailError);
     return { message: 'If an account exists for this email, a reset link has been sent.', error: '' };
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Password reset error:', e);
     return { message: 'If an account exists for this email, a reset link has been sent.', error: '' };
   }
@@ -289,13 +281,15 @@ export async function inviteDriver(prevState: AddDriverState, formData: FormData
     });
 
     if (error) {
-      try { const { db: cleanupDb } = await getFirebaseAdmin(); await cleanupDb.collection('driver_invitations').doc(invitationToken).delete(); } catch {}
+      try { const { db: cleanupDb } = await getFirebaseAdmin(); await cleanupDb.collection('driver_invitations').doc(invitationToken).delete(); } catch { /* ignore */ }
       return { message: '', error: `Failed to send invitation: ${error.message}` };
     }
 
     if (ownerEmail) { await sendDriverInvitationConfirmationEmail(ownerEmail, email, companyName).catch(() => {}); }
+    void data;
     return { message: 'Invitation sent successfully!', error: '' };
-  } catch (error: any) {
-    return { message: '', error: error.message || 'An unexpected error occurred.' };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { message: '', error: msg };
   }
 }
