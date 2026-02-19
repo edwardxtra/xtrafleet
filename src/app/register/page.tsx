@@ -115,6 +115,9 @@ function RegisterContent() {
 
         const token = await newUser.getIdToken();
         
+        // POST session cookie and WAIT for it to complete before redirecting.
+        // This ensures the fb-id-token cookie is set before the server action
+        // in /create-profile tries to authenticate via authenticateServerAction().
         const response = await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -125,7 +128,7 @@ function RegisterContent() {
           throw new Error('Failed to create session');
         }
 
-        // Send welcome/registration email (fire-and-forget)
+        // Send welcome email fire-and-forget — do NOT await
         fetch('/api/send-welcome-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -133,24 +136,27 @@ function RegisterContent() {
         }).catch(err => console.error('Failed to send welcome email:', err));
 
         showSuccess('Account created successfully!');
+
+        // Small settle delay to ensure the cookie is readable by middleware
+        // before the navigation triggers a server-side read.
+        await new Promise(resolve => setTimeout(resolve, 150));
         router.push('/create-profile');
         
       } else {
         throw new Error("Database service is not available.");
       }
 
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Sign-up error:', e);
       let errorMessage = 'An error occurred during sign up.';
-      
-      if (e.code === 'auth/email-already-in-use') {
+      const firebaseError = e as { code?: string };
+      if (firebaseError.code === 'auth/email-already-in-use') {
         errorMessage = 'This email is already in use. Try logging in instead.';
-      } else if (e.code === 'auth/weak-password') {
+      } else if (firebaseError.code === 'auth/weak-password') {
         errorMessage = 'Password does not meet security requirements.';
-      } else if (e.code === 'auth/invalid-email') {
+      } else if (firebaseError.code === 'auth/invalid-email') {
         errorMessage = 'Please enter a valid email address.';
       }
-      
       setError(errorMessage);
       showError(errorMessage);
     } finally {
@@ -178,44 +184,19 @@ function RegisterContent() {
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
         <Card className="mx-auto w-full max-w-sm">
           <CardHeader className="space-y-4 text-center">
-            <Link href="/" passHref className="inline-block">
-              <Logo />
-            </Link>
+            <Link href="/" passHref className="inline-block"><Logo /></Link>
             <CardTitle className="font-headline text-2xl">Already Signed In</CardTitle>
-            <CardDescription>
-              You&apos;re currently logged in as <strong>{user.email}</strong>
-            </CardDescription>
+            <CardDescription>You&apos;re currently logged in as <strong>{user.email}</strong></CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Button 
-              className="w-full" 
-              onClick={() => router.push('/dashboard')}
-            >
-              <LayoutDashboard className="h-4 w-4 mr-2" />
-              Go to Dashboard
+            <Button className="w-full" onClick={() => router.push('/dashboard')}>
+              <LayoutDashboard className="h-4 w-4 mr-2" />Go to Dashboard
             </Button>
-            <Button 
-              variant="outline" 
-              className="w-full" 
-              onClick={handleSignOut}
-              disabled={signingOut}
-            >
-              {signingOut ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Signing out...
-                </>
-              ) : (
-                <>
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Sign Out & Create New Account
-                </>
-              )}
+            <Button variant="outline" className="w-full" onClick={handleSignOut} disabled={signingOut}>
+              {signingOut ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Signing out...</>) : (<><LogOut className="h-4 w-4 mr-2" />Sign Out & Create New Account</>)}
             </Button>
             <div className="text-center text-sm text-muted-foreground">
-              <Link href="/login" className="underline">
-                Back to login
-              </Link>
+              <Link href="/login" className="underline">Back to login</Link>
             </div>
           </CardContent>
         </Card>
@@ -227,61 +208,29 @@ function RegisterContent() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="mx-auto w-full max-w-lg">
         <CardHeader className="space-y-4 text-center">
-          <Link href="/" passHref className="inline-block">
-            <Logo />
-          </Link>
+          <Link href="/" passHref className="inline-block"><Logo /></Link>
           <div className="flex items-center justify-center gap-2 text-primary">
             <Building2 className="h-5 w-5" />
             <span className="text-sm font-medium">For Fleet Owners</span>
           </div>
           <CardTitle className="font-headline text-2xl">Register Your Company</CardTitle>
-          <CardDescription>
-            Create an account to manage your fleet and drivers
-          </CardDescription>
+          <CardDescription>Create an account to manage your fleet and drivers</CardDescription>
         </CardHeader>
         <CardContent>
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+          {error && (<Alert variant="destructive" className="mb-4"><AlertDescription>{error}</AlertDescription></Alert>)}
           <form onSubmit={handleRegister}>
             <div className="grid gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="company-name">Company Name *</Label>
-                <Input 
-                  id="company-name" 
-                  name="companyName" 
-                  placeholder="Acme Trucking LLC" 
-                  required 
-                  disabled={loading}
-                />
+                <Input id="company-name" name="companyName" placeholder="Acme Trucking LLC" required disabled={loading} />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="email">Business Email *</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  name="email"
-                  placeholder="you@company.com"
-                  required
-                  disabled={loading}
-                  autoComplete="email"
-                />
+                <Input id="email" type="email" name="email" placeholder="you@company.com" required disabled={loading} autoComplete="email" />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="password">Password *</Label>
-                <Input 
-                  id="password" 
-                  name="password" 
-                  type="password" 
-                  required 
-                  disabled={loading}
-                  autoComplete="new-password"
-                  value={passwordValue}
-                  onChange={(e) => setPasswordValue(e.target.value)}
-                />
-                
+                <Input id="password" name="password" type="password" required disabled={loading} autoComplete="new-password" value={passwordValue} onChange={(e) => setPasswordValue(e.target.value)} />
                 {passwordValue && (
                   <div className="mt-2 space-y-1">
                     <p className="text-xs text-muted-foreground mb-1">Password must have:</p>
@@ -292,98 +241,50 @@ function RegisterContent() {
                       { label: "One number", met: passwordChecks.number },
                     ].map((req, idx) => (
                       <div key={idx} className="flex items-center gap-2 text-xs">
-                        {req.met ? (
-                          <Check className="h-3 w-3 text-green-600" />
-                        ) : (
-                          <X className="h-3 w-3 text-muted-foreground" />
-                        )}
-                        <span className={req.met ? "text-green-600" : "text-muted-foreground"}>
-                          {req.label}
-                        </span>
+                        {req.met ? <Check className="h-3 w-3 text-green-600" /> : <X className="h-3 w-3 text-muted-foreground" />}
+                        <span className={req.met ? "text-green-600" : "text-muted-foreground"}>{req.label}</span>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-
               <div className="space-y-4 pt-4 border-t">
                 <p className="text-sm font-medium">Legal Agreements</p>
-                
                 <div className="flex items-start gap-3">
-                  <Checkbox
-                    id="userAgreement"
-                    name="userAgreement"
-                    required
-                    disabled={loading}
-                    className="mt-1"
-                  />
+                  <Checkbox id="userAgreement" name="userAgreement" required disabled={loading} className="mt-1" />
                   <Label htmlFor="userAgreement" className="text-sm leading-relaxed cursor-pointer">
-                    I understand that XtraFleet is a technology platform only and that I remain 
-                    solely responsible for regulatory compliance, insurance adequacy, and trip safety.{' '}
-                    <Link href="/legal/user-agreement" target="_blank" className="underline text-primary hover:text-primary/80">
-                      View User Agreement
-                    </Link>
+                    I understand that XtraFleet is a technology platform only and that I remain solely responsible for regulatory compliance, insurance adequacy, and trip safety.{' '}
+                    <Link href="/legal/user-agreement" target="_blank" className="underline text-primary hover:text-primary/80">View User Agreement</Link>
                   </Label>
                 </div>
-
                 <div className="flex items-start gap-3">
-                  <Checkbox
-                    id="esignConsent"
-                    name="esignConsent"
-                    required
-                    disabled={loading}
-                    className="mt-1"
-                  />
+                  <Checkbox id="esignConsent" name="esignConsent" required disabled={loading} className="mt-1" />
                   <Label htmlFor="esignConsent" className="text-sm leading-relaxed cursor-pointer">
-                    You acknowledge that Electronic Records may include payment settlements, 
-                    compliance attestations, and tax-related documentation. You represent and 
-                    warrant that You are authorized to bind the entity on whose behalf You are 
-                    acting and to consent to Electronic Records on its behalf.{' '}
-                    <Link href="/legal/esign-consent" target="_blank" className="underline text-primary hover:text-primary/80">
-                      View E-Sign Agreement
-                    </Link>
+                    You acknowledge that Electronic Records may include payment settlements, compliance attestations, and tax-related documentation. You represent and warrant that You are authorized to bind the entity on whose behalf You are acting and to consent to Electronic Records on its behalf.{' '}
+                    <Link href="/legal/esign-consent" target="_blank" className="underline text-primary hover:text-primary/80">View E-Sign Agreement</Link>
                   </Label>
                 </div>
               </div>
-
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Creating Account...
-                  </>
-                ) : (
-                  'Create Company Account'
-                )}
+                {loading ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating Account...</>) : 'Create Company Account'}
               </Button>
             </div>
           </form>
           <div className="mt-4 text-center text-sm">
-            Already have an account?{" "}
-            <Link href="/login" className="underline">
-              Sign in
-            </Link>
+            Already have an account?{" "}<Link href="/login" className="underline">Sign in</Link>
           </div>
         </CardContent>
         <CardFooter className="flex-col">
           <div className="relative w-full">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
-                Are you a driver?
-              </span>
-            </div>
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+            <div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-2 text-muted-foreground">Are you a driver?</span></div>
           </div>
           <div className="mt-4 p-4 bg-muted/50 rounded-lg w-full">
             <div className="flex items-start gap-3">
               <Truck className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div className="text-sm">
                 <p className="font-medium">Drivers join by invitation</p>
-                <p className="text-muted-foreground mt-1">
-                  Ask your fleet manager to send you an invitation link to create your driver account.
-                </p>
+                <p className="text-muted-foreground mt-1">Ask your fleet manager to send you an invitation link to create your driver account.</p>
               </div>
             </div>
           </div>
@@ -395,11 +296,7 @@ function RegisterContent() {
 
 export default function RegisterPage() {
   return (
-    <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    }>
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>}>
       <RegisterContent />
     </Suspense>
   );
