@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -13,12 +13,13 @@ import { Badge } from "@/components/ui/badge";
 import { createCompanyProfile } from "@/lib/actions";
 import { useTransition } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { useUser, useFirestore } from "@/firebase";
+import { useUser, useFirestore, useAuth } from "@/firebase";
 import { doc, getDoc } from "firebase/firestore";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { US_STATES } from "@/lib/us-states";
-import { X, Search, ChevronDown } from "lucide-react";
+import { X, Search, ChevronDown, CheckCircle2, XCircle, Loader2 as SpinnerIcon, AlertCircle } from "lucide-react";
 import { COIUploadSection, type COIData } from "@/components/coi-upload-section";
+import type { FMCSACarrier } from "@/lib/fmcsa";
 
 const profileFormSchema = z.object({
   legalName: z.string().min(1, "Legal name is required"),
@@ -31,14 +32,25 @@ const profileFormSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
+type VerificationState = 'idle' | 'loading' | 'verified' | 'error';
+
+interface FMCSAVerification {
+  state: VerificationState;
+  carrier?: FMCSACarrier;
+  errorMessage?: string;
+}
+
 export function CompanyProfileForm() {
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
   const { user } = useUser();
+  const auth = useAuth();
   const db = useFirestore();
   const [stateSearch, setStateSearch] = useState("");
   const [stateDropdownOpen, setStateDropdownOpen] = useState(false);
   const [coiData, setCoiData] = useState<COIData>({});
+  const [fmcsa, setFmcsa] = useState<FMCSAVerification>({ state: 'idle' });
+  const dotDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -63,11 +75,73 @@ export function CompanyProfileForm() {
           if (data.hqAddress) form.setValue('hqAddress', data.hqAddress);
           if (data.operatingStates?.length) form.setValue('operatingStates', data.operatingStates);
           if (data.coi) setCoiData(data.coi);
+          // If already verified, mark as such
+          if (data.fmcsaVerified) {
+            setFmcsa({ state: 'verified', carrier: data.fmcsaData });
+          }
         }
       } catch (error) { console.error('Failed to load existing data:', error); }
     }
     loadExistingData();
   }, [user, db, form]);
+
+  /**
+   * Call the FMCSA lookup API route and auto-fill fields if we get a hit.
+   */
+  const verifyDOT = useCallback(async (dotNumber: string) => {
+    const cleaned = dotNumber.replace(/\D/g, '');
+    if (cleaned.length < 5) {
+      setFmcsa({ state: 'idle' });
+      return;
+    }
+
+    setFmcsa({ state: 'loading' });
+
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      const res = await fetch(`/api/fmcsa-lookup?dot=${cleaned}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setFmcsa({ state: 'error', errorMessage: body.error || 'DOT number not found in FMCSA records' });
+        return;
+      }
+
+      const { carrier } = await res.json() as { carrier: FMCSACarrier };
+      setFmcsa({ state: 'verified', carrier });
+
+      // Auto-fill fields if they're empty
+      if (carrier.legalName && !form.getValues('legalName')) {
+        form.setValue('legalName', carrier.legalName, { shouldValidate: true });
+      }
+      if (carrier.hqAddress && carrier.hqCity && carrier.hqState && !form.getValues('hqAddress')) {
+        form.setValue('hqAddress', `${carrier.hqAddress}, ${carrier.hqCity}, ${carrier.hqState} ${carrier.hqZip ?? ''}`.trim(), { shouldValidate: true });
+      }
+      if (carrier.phone && !form.getValues('phone')) {
+        form.setValue('phone', carrier.phone, { shouldValidate: true });
+      }
+
+      // Surface authority status issues prominently
+      if (!carrier.allowedToOperate) {
+        toast({
+          title: 'Authority Issue Detected',
+          description: `FMCSA shows this carrier is not currently allowed to operate. Authority status: ${carrier.authorityStatus ?? 'Unknown'}. Please verify before continuing.`,
+          variant: 'destructive',
+        });
+      }
+    } catch {
+      setFmcsa({ state: 'error', errorMessage: 'Could not reach FMCSA. Check your connection.' });
+    }
+  }, [auth, form, toast]);
+
+  // Debounce DOT lookup — fires 800ms after the user stops typing
+  const handleDOTChange = useCallback((value: string) => {
+    form.setValue('dotNumber', value, { shouldValidate: true });
+    if (dotDebounceRef.current) clearTimeout(dotDebounceRef.current);
+    dotDebounceRef.current = setTimeout(() => verifyDOT(value), 800);
+  }, [form, verifyDOT]);
 
   const toggleState = (stateValue: string) => {
     const current = form.getValues("operatingStates");
@@ -85,7 +159,6 @@ export function CompanyProfileForm() {
   );
 
   const onSubmit = (values: ProfileFormValues) => {
-    // COI is complete if file uploaded OR all manual fields filled
     const hasCoiData = !!(coiData.fileUrl || (coiData.insurerName && coiData.policyNumber && coiData.expiryDate));
 
     const missingFields: string[] = [];
@@ -108,14 +181,17 @@ export function CompanyProfileForm() {
       formData.append('hqAddress', values.hqAddress || '');
       formData.append('operatingStates', JSON.stringify(values.operatingStates || []));
       formData.append('coiData', JSON.stringify(coiData));
+      // Persist FMCSA verification result
+      formData.append('fmcsaVerified', String(fmcsa.state === 'verified'));
+      if (fmcsa.carrier) formData.append('fmcsaData', JSON.stringify(fmcsa.carrier));
       const isComplete = !!(values.dotNumber && values.mcNumber && values.hqAddress && values.operatingStates?.length && hasCoiData);
       formData.append('isProfileComplete', String(isComplete));
       try {
         await createCompanyProfile(formData);
-      } catch (error: any) {
-        if (error?.digest?.startsWith('NEXT_REDIRECT')) throw error;
+      } catch (error: unknown) {
+        if ((error as { digest?: string })?.digest?.startsWith('NEXT_REDIRECT')) throw error;
         console.error("Failed to create profile:", error);
-        toast({ title: "Save Failed", description: error?.message || "An unexpected error occurred.", variant: "destructive" });
+        toast({ title: "Save Failed", description: (error as Error)?.message || "An unexpected error occurred.", variant: "destructive" });
       }
     });
   };
@@ -132,13 +208,69 @@ export function CompanyProfileForm() {
         )} />
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          {/* DOT Number with live FMCSA verification */}
           <FormField control={form.control} name="dotNumber" render={({ field }) => (
-            <FormItem><FormLabel>Department of Transportation # *</FormLabel><FormControl><Input placeholder="e.g., 1234567" {...field} /></FormControl><FormMessage /></FormItem>
+            <FormItem>
+              <FormLabel>Department of Transportation # *</FormLabel>
+              <div className="relative">
+                <FormControl>
+                  <Input
+                    placeholder="e.g., 1234567"
+                    {...field}
+                    onChange={(e) => handleDOTChange(e.target.value)}
+                    className="pr-9"
+                  />
+                </FormControl>
+                <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
+                  {fmcsa.state === 'loading' && <SpinnerIcon className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  {fmcsa.state === 'verified' && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                  {fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
+                </div>
+              </div>
+              <FormMessage />
+            </FormItem>
           )} />
+
           <FormField control={form.control} name="mcNumber" render={({ field }) => (
             <FormItem><FormLabel>Master Carrier # *</FormLabel><FormControl><Input placeholder="e.g., 987654" {...field} /></FormControl><FormMessage /></FormItem>
           )} />
         </div>
+
+        {/* FMCSA Verification Result Banner */}
+        {fmcsa.state === 'verified' && fmcsa.carrier && (
+          <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-green-800 dark:text-green-300">FMCSA Verified</p>
+                <p className="text-green-700 dark:text-green-400">
+                  {fmcsa.carrier.legalName}
+                  {fmcsa.carrier.safetyRating && fmcsa.carrier.safetyRating !== 'Not Rated' && (
+                    <span className="ml-2 text-xs">· Safety: {fmcsa.carrier.safetyRating}</span>
+                  )}
+                  {fmcsa.carrier.allowedToOperate !== undefined && (
+                    <span className="ml-2 text-xs">· Authority: {fmcsa.carrier.allowedToOperate ? 'Active' : 'Inactive'}</span>
+                  )}
+                  {fmcsa.carrier.insuranceOnFile && (
+                    <span className="ml-2 text-xs">· Insurance on file</span>
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {fmcsa.state === 'error' && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-amber-800 dark:text-amber-300">Could not verify DOT number</p>
+                <p className="text-amber-700 dark:text-amber-400">{fmcsa.errorMessage}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <FormField control={form.control} name="hqAddress" render={({ field }) => (
           <FormItem><FormLabel>HQ Address *</FormLabel><FormControl><Input placeholder="e.g., 123 Main St, Anytown, USA 12345" {...field} /></FormControl><FormMessage /></FormItem>
