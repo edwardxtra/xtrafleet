@@ -96,7 +96,10 @@ const ATTESTATION_LABELS: Record<string, { title: string; description: string }>
   },
 };
 
-type VerificationState = 'idle' | 'loading' | 'verified' | 'error';
+// USDOT numbers are up to 8 digits; require at least 7 before attempting lookup
+const DOT_MIN_DIGITS = 7;
+
+type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'error';
 interface FMCSAVerification {
   state: VerificationState;
   carrier?: FMCSACarrier;
@@ -114,30 +117,24 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
 
-  // FMCSA verification state
   const [fmcsa, setFmcsa] = useState<FMCSAVerification>({ state: 'idle' });
   const dotDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  // COI state
   const [coiInsurerName, setCoiInsurerName] = useState('');
   const [coiPolicyNumber, setCoiPolicyNumber] = useState('');
   const [coiExpiryDate, setCoiExpiryDate] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  // Operating states dropdown
   const [stateSearch, setStateSearch] = useState('');
   const [stateDropdownOpen, setStateDropdownOpen] = useState(false);
 
-  // Compliance review expand/collapse
   const [attestationsExpanded, setAttestationsExpanded] = useState(false);
   const [clearinghouseExpanded, setClearinghouseExpanded] = useState(false);
 
-  // Clearinghouse reset dialog
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting] = useState(false);
 
-  // Network detection
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -150,7 +147,6 @@ export default function ProfilePage() {
     };
   }, []);
 
-  // Load profile
   useEffect(() => {
     async function loadProfile() {
       if (!user || !db) return;
@@ -165,7 +161,6 @@ export default function ProfilePage() {
             setCoiPolicyNumber(data.coi.policyNumber || '');
             setCoiExpiryDate(data.coi.expiryDate || '');
           }
-          // Restore prior FMCSA verification state
           if (data.fmcsaVerified && data.fmcsaData) {
             setFmcsa({ state: 'verified', carrier: data.fmcsaData });
           }
@@ -180,14 +175,12 @@ export default function ProfilePage() {
     if (user && db) loadProfile();
   }, [user, db]);
 
-  // Whether DOT/MC/legalName are locked due to prior FMCSA verification
   const fmcsaLocked = profile?.fmcsaVerified === true;
 
-  // FMCSA lookup — only callable when not already locked
   const verifyDOT = useCallback(async (dotNumber: string) => {
     if (fmcsaLocked) return;
     const cleaned = dotNumber.replace(/\D/g, '');
-    if (cleaned.length < 5) { setFmcsa({ state: 'idle' }); return; }
+    if (cleaned.length < DOT_MIN_DIGITS) { setFmcsa({ state: 'idle' }); return; }
 
     setFmcsa({ state: 'loading' });
     try {
@@ -203,7 +196,6 @@ export default function ProfilePage() {
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
       setFmcsa({ state: 'verified', carrier });
 
-      // Auto-fill empty fields
       setEditedProfile(prev => {
         if (!prev) return prev;
         return {
@@ -226,9 +218,26 @@ export default function ProfilePage() {
 
   const handleDOTChange = useCallback((value: string) => {
     if (fmcsaLocked) return;
-    setEditedProfile(prev => prev ? { ...prev, dotNumber: value } : prev);
+    const numbersOnly = value.replace(/\D/g, '');
+    setEditedProfile(prev => prev ? { ...prev, dotNumber: numbersOnly } : prev);
     if (dotDebounceRef.current) clearTimeout(dotDebounceRef.current);
-    dotDebounceRef.current = setTimeout(() => verifyDOT(value), 800);
+
+    if (numbersOnly.length === 0) {
+      setFmcsa({ state: 'idle' });
+      return;
+    }
+    if (numbersOnly.length < DOT_MIN_DIGITS) {
+      setFmcsa({ state: 'idle' });
+      return;
+    }
+
+    // Enough digits — show spinner immediately while debounce counts down
+    setFmcsa(prev =>
+      prev.state !== 'loading' && prev.state !== 'verified'
+        ? { state: 'typing' }
+        : prev
+    );
+    dotDebounceRef.current = setTimeout(() => verifyDOT(numbersOnly), 800);
   }, [fmcsaLocked, verifyDOT]);
 
   const handleChange = (field: keyof OwnerProfile, value: string) => {
@@ -343,7 +352,6 @@ export default function ProfilePage() {
         updatedAt: new Date().toISOString(),
       };
 
-      // Persist FMCSA verification result if newly verified this session
       if (fmcsa.state === 'verified' && fmcsa.carrier && !profile?.fmcsaVerified) {
         updateData.fmcsaVerified = true;
         updateData.fmcsaData = fmcsa.carrier;
@@ -397,6 +405,8 @@ export default function ProfilePage() {
     try { return format(parseISO(ts), "MMM d, yyyy 'at' h:mm a"); } catch { return ts; }
   };
 
+  const showSpinner = fmcsa.state === 'typing' || fmcsa.state === 'loading';
+
   if (isUserLoading || loading) {
     return <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin" /></div>;
   }
@@ -415,14 +425,12 @@ export default function ProfilePage() {
         <p className="text-muted-foreground">View and manage your company information, insurance, and compliance status.</p>
       </div>
 
-      {/* Company Information */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5" /> Company Information</CardTitle>
           <CardDescription>Your business details on XtraFleet</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* FMCSA Verification Banner */}
           {fmcsaLocked && profile.fmcsaData && (
             <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
               <div className="flex items-start gap-2">
@@ -443,7 +451,6 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Live DOT lookup result banner (before locking) */}
           {!fmcsaLocked && fmcsa.state === 'verified' && fmcsa.carrier && (
             <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
               <div className="flex items-start gap-2">
@@ -475,14 +482,7 @@ export default function ProfilePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="legalName">Legal Name {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
-              <Input
-                id="legalName"
-                value={editedProfile?.legalName || ''}
-                onChange={(e) => !fmcsaLocked && handleChange('legalName', e.target.value)}
-                placeholder="Your company legal name"
-                disabled={!isOnline || fmcsaLocked}
-                className={fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''}
-              />
+              <Input id="legalName" value={editedProfile?.legalName || ''} onChange={(e) => !fmcsaLocked && handleChange('legalName', e.target.value)} placeholder="Your company legal name" disabled={!isOnline || fmcsaLocked} className={fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''} />
             </div>
             <div>
               <Label htmlFor="contactEmail">Email</Label>
@@ -500,37 +500,23 @@ export default function ProfilePage() {
             <div>
               <Label htmlFor="dotNumber">DOT Number {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
               <div className="relative">
-                <Input
-                  id="dotNumber"
-                  value={editedProfile?.dotNumber || ''}
-                  onChange={(e) => handleDOTChange(e.target.value)}
-                  placeholder="1234567"
-                  disabled={!isOnline || fmcsaLocked}
-                  className={`pr-9 ${fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''}`}
-                />
+                <Input id="dotNumber" value={editedProfile?.dotNumber || ''} onChange={(e) => handleDOTChange(e.target.value)} placeholder="e.g., 1234567" inputMode="numeric" disabled={!isOnline || fmcsaLocked} className={`pr-9 ${fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''}`} />
                 <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
-                  {!fmcsaLocked && fmcsa.state === 'loading' && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  {!fmcsaLocked && showSpinner && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                   {(fmcsaLocked || fmcsa.state === 'verified') && <CheckCircle2 className="h-4 w-4 text-green-500" />}
                   {!fmcsaLocked && fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground mt-1">Enter your 7–8 digit USDOT number — verified automatically with FMCSA</p>
             </div>
             <div>
               <Label htmlFor="mcNumber">MC Number {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
-              <Input
-                id="mcNumber"
-                value={editedProfile?.mcNumber || ''}
-                onChange={(e) => !fmcsaLocked && handleChange('mcNumber', e.target.value)}
-                placeholder="MC-123456"
-                disabled={!isOnline || fmcsaLocked}
-                className={fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''}
-              />
+              <Input id="mcNumber" value={editedProfile?.mcNumber || ''} onChange={(e) => !fmcsaLocked && handleChange('mcNumber', e.target.value)} placeholder="MC-123456" disabled={!isOnline || fmcsaLocked} className={fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''} />
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Operating States */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" /> Operating States</CardTitle>
@@ -580,7 +566,6 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Certificate of Insurance */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Certificate of Insurance (COI)</CardTitle>
@@ -599,16 +584,9 @@ export default function ProfilePage() {
               <a href={editedProfile.coi.fileUrl} target="_blank" rel="noopener noreferrer"><Button variant="ghost" size="sm"><ExternalLink className="h-4 w-4" /></Button></a>
             </div>
           ) : (
-            <div className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const file = e.dataTransfer.files[0]; if (file) handleCoiUpload(file); }}
-              onClick={() => document.getElementById('coi-file-input')?.click()}>
+            <div className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/50 transition-colors" onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const file = e.dataTransfer.files[0]; if (file) handleCoiUpload(file); }} onClick={() => document.getElementById('coi-file-input')?.click()}>
               {uploading ? (
-                <div className="space-y-2">
-                  <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-                  <p className="text-sm text-muted-foreground">Uploading... {uploadProgress}%</p>
-                  <div className="w-full bg-muted rounded-full h-2 max-w-xs mx-auto"><div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} /></div>
-                </div>
+                <div className="space-y-2"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /><p className="text-sm text-muted-foreground">Uploading... {uploadProgress}%</p><div className="w-full bg-muted rounded-full h-2 max-w-xs mx-auto"><div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} /></div></div>
               ) : (<><UploadCloud className="h-8 w-8 mx-auto text-muted-foreground mb-2" /><p className="text-sm font-medium">Drop your COI here or click to browse</p><p className="text-xs text-muted-foreground mt-1">PDF, JPG, PNG, or WEBP (max 10MB)</p></>)}
             </div>
           )}
@@ -631,7 +609,6 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Compliance Status */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" /> Compliance Status</CardTitle>
@@ -643,9 +620,7 @@ export default function ProfilePage() {
               <span className="text-sm">Company Profile</span>
               {profile.profileCompletedAt && (<p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Clock className="h-3 w-3" /> Completed: {formatTimestamp(profile.profileCompletedAt)}</p>)}
             </div>
-            {profile.onboardingStatus?.profileComplete
-              ? <Badge variant="default" className="bg-green-600">Complete</Badge>
-              : <div className="flex items-center gap-1.5"><Info className="h-3.5 w-3.5 text-amber-500" /><span className="text-xs text-amber-600 dark:text-amber-400">Incomplete &mdash; fill in the fields above and save</span></div>}
+            {profile.onboardingStatus?.profileComplete ? <Badge variant="default" className="bg-green-600">Complete</Badge> : <div className="flex items-center gap-1.5"><Info className="h-3.5 w-3.5 text-amber-500" /><span className="text-xs text-amber-600 dark:text-amber-400">Incomplete &mdash; fill in the fields above and save</span></div>}
           </div>
           <Separator />
           <div>
@@ -655,11 +630,7 @@ export default function ProfilePage() {
                 {profile.onboardingStatus?.complianceAttestedAt && (<p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Clock className="h-3 w-3" /> Completed: {formatTimestamp(profile.onboardingStatus.complianceAttestedAt)}</p>)}
               </div>
               <div className="flex items-center gap-2">
-                {profile.onboardingStatus?.complianceAttested ? (
-                  <><Badge variant="default" className="bg-green-600">Attested</Badge><button type="button" onClick={() => setAttestationsExpanded(!attestationsExpanded)} className="text-muted-foreground hover:text-foreground transition-colors">{attestationsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button></>
-                ) : (
-                  <Button asChild size="sm" variant="outline"><Link href="/onboarding/compliance">Complete <ArrowRight className="h-3 w-3 ml-1" /></Link></Button>
-                )}
+                {profile.onboardingStatus?.complianceAttested ? (<><Badge variant="default" className="bg-green-600">Attested</Badge><button type="button" onClick={() => setAttestationsExpanded(!attestationsExpanded)} className="text-muted-foreground hover:text-foreground transition-colors">{attestationsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button></>) : (<Button asChild size="sm" variant="outline"><Link href="/onboarding/compliance">Complete <ArrowRight className="h-3 w-3 ml-1" /></Link></Button>)}
               </div>
             </div>
             {attestationsExpanded && profile.onboardingStatus?.complianceAttested && (
@@ -667,16 +638,7 @@ export default function ProfilePage() {
                 {Object.entries(ATTESTATION_LABELS).map(([key, { title, description }]) => {
                   const attestation = profile.complianceAttestations?.[key as keyof ComplianceAttestations];
                   return (
-                    <div key={key} className="rounded-lg border bg-muted/30 p-3">
-                      <div className="flex items-start gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                        <div>
-                          <p className="text-sm font-medium">{title}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
-                          {attestation?.acceptedAt && (<p className="text-xs text-muted-foreground mt-1">Accepted: {formatTimestamp(attestation.acceptedAt)}</p>)}
-                        </div>
-                      </div>
-                    </div>
+                    <div key={key} className="rounded-lg border bg-muted/30 p-3"><div className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" /><div><p className="text-sm font-medium">{title}</p><p className="text-xs text-muted-foreground mt-0.5">{description}</p>{attestation?.acceptedAt && (<p className="text-xs text-muted-foreground mt-1">Accepted: {formatTimestamp(attestation.acceptedAt)}</p>)}</div></div></div>
                   );
                 })}
               </div>
@@ -690,28 +652,16 @@ export default function ProfilePage() {
                 {profile.clearinghouseCompletedAt && (<p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Clock className="h-3 w-3" /> Completed: {formatTimestamp(profile.clearinghouseCompletedAt)}</p>)}
               </div>
               <div className="flex items-center gap-2">
-                {profile.onboardingStatus?.fmcsaDesignated === true ? (
-                  <><Badge variant="default" className="bg-green-600">Designated</Badge><button type="button" onClick={() => setClearinghouseExpanded(!clearinghouseExpanded)} className="text-muted-foreground hover:text-foreground transition-colors">{clearinghouseExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button></>
-                ) : profile.onboardingStatus?.fmcsaDesignated === 'pending' ? (
-                  <><Badge variant="outline" className="text-amber-600 border-amber-600">Pending</Badge><button type="button" onClick={() => setClearinghouseExpanded(!clearinghouseExpanded)} className="text-muted-foreground hover:text-foreground transition-colors">{clearinghouseExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button></>
-                ) : (
-                  <Button asChild size="sm" variant="outline"><Link href="/onboarding/fmcsa-clearinghouse">{profile.onboardingStatus?.fmcsaDesignated === 'skipped' ? 'Complete' : 'Start'} <ArrowRight className="h-3 w-3 ml-1" /></Link></Button>
-                )}
+                {profile.onboardingStatus?.fmcsaDesignated === true ? (<><Badge variant="default" className="bg-green-600">Designated</Badge><button type="button" onClick={() => setClearinghouseExpanded(!clearinghouseExpanded)} className="text-muted-foreground hover:text-foreground transition-colors">{clearinghouseExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button></>) : profile.onboardingStatus?.fmcsaDesignated === 'pending' ? (<><Badge variant="outline" className="text-amber-600 border-amber-600">Pending</Badge><button type="button" onClick={() => setClearinghouseExpanded(!clearinghouseExpanded)} className="text-muted-foreground hover:text-foreground transition-colors">{clearinghouseExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button></>) : (<Button asChild size="sm" variant="outline"><Link href="/onboarding/fmcsa-clearinghouse">{profile.onboardingStatus?.fmcsaDesignated === 'skipped' ? 'Complete' : 'Start'} <ArrowRight className="h-3 w-3 ml-1" /></Link></Button>)}
               </div>
             </div>
             {clearinghouseExpanded && (profile.onboardingStatus?.fmcsaDesignated === true || profile.onboardingStatus?.fmcsaDesignated === 'pending') && (
               <div className="mt-3 space-y-3 pl-1">
                 <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                  {profile.fmcsaClearinghouse?.alreadyDesignated ? (
-                    <div className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" /><div><p className="text-sm font-medium">Already Designated</p><p className="text-xs text-muted-foreground mt-0.5">You confirmed that XtraFleet Technologies Inc. has been designated as your Designated Agent in the FMCSA Clearinghouse.</p></div></div>
-                  ) : profile.fmcsaClearinghouse?.acknowledgment ? (
-                    <div className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" /><div><p className="text-sm font-medium">Acknowledged (Pending Designation)</p><p className="text-xs text-muted-foreground mt-0.5">You acknowledged that XtraFleet Technologies Inc. must be designated as a Clearinghouse Designated Agent to facilitate eligibility checks. Designation is still pending.</p></div></div>
-                  ) : (<p className="text-sm text-muted-foreground">Clearinghouse designation was submitted.</p>)}
+                  {profile.fmcsaClearinghouse?.alreadyDesignated ? (<div className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" /><div><p className="text-sm font-medium">Already Designated</p><p className="text-xs text-muted-foreground mt-0.5">You confirmed that XtraFleet Technologies Inc. has been designated as your Designated Agent in the FMCSA Clearinghouse.</p></div></div>) : profile.fmcsaClearinghouse?.acknowledgment ? (<div className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" /><div><p className="text-sm font-medium">Acknowledged (Pending Designation)</p><p className="text-xs text-muted-foreground mt-0.5">You acknowledged that XtraFleet Technologies Inc. must be designated as a Clearinghouse Designated Agent to facilitate eligibility checks. Designation is still pending.</p></div></div>) : (<p className="text-sm text-muted-foreground">Clearinghouse designation was submitted.</p>)}
                   {profile.fmcsaClearinghouse?.submittedAt && (<p className="text-xs text-muted-foreground">Submitted: {formatTimestamp(profile.fmcsaClearinghouse.submittedAt)}</p>)}
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setShowResetDialog(true)} className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30">
-                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />Change Designation
-                </Button>
+                <Button variant="outline" size="sm" onClick={() => setShowResetDialog(true)} className="text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30"><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Change Designation</Button>
               </div>
             )}
           </div>
@@ -732,9 +682,7 @@ export default function ProfilePage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={resetting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleResetClearinghouse} disabled={resetting} className="bg-amber-600 hover:bg-amber-700">
-              {resetting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Resetting...</> : 'Yes, Reset Designation'}
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleResetClearinghouse} disabled={resetting} className="bg-amber-600 hover:bg-amber-700">{resetting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Resetting...</> : 'Yes, Reset Designation'}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
