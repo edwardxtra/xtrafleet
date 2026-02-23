@@ -43,13 +43,22 @@ function getWebKey(): string {
 }
 
 /**
+ * Strip non-digits and leading zeros — FMCSA API treats DOT as a numeric ID.
+ * e.g. "00118651" → "118651", "1886510" → "1886510"
+ */
+function cleanDOT(dotNumber: string): string {
+  const digitsOnly = dotNumber.replace(/\D/g, '');
+  return String(parseInt(digitsOnly, 10)); // removes leading zeros
+}
+
+/**
  * Look up a carrier by US DOT number.
  * Returns normalized carrier data or an error.
  */
 export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult> {
-  const cleaned = dotNumber.replace(/\D/g, '');
-  if (!cleaned || cleaned.length < 7 || cleaned.length > 8) {
-    return { success: false, error: 'Invalid DOT number format — must be 7 or 8 digits' };
+  const cleaned = cleanDOT(dotNumber);
+  if (!cleaned || cleaned === 'NaN' || cleaned.length < 1) {
+    return { success: false, error: 'Invalid DOT number format' };
   }
 
   try {
@@ -127,9 +136,21 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
 }
 
 function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
-  // FMCSA returns allowedToOperate as "Y"/"N" string, and authorityStatus as "A"/"I"/"R"
-  const allowedToOperateRaw = String(raw.allowedToOperate ?? '').toUpperCase();
-  const authorityStatusRaw = String(raw.authorityStatus ?? '').toUpperCase();
+  // FMCSA returns allowedToOperate as "Y"/"N" and authorityStatus as "A"/"I"/"R"
+  const allowedToOperateRaw = String(raw.allowedToOperate ?? '').toUpperCase().trim();
+  const authorityStatusRaw = String(raw.authorityStatus ?? '').toUpperCase().trim();
+
+  // Carrier is active if either field indicates it
+  const isActive = allowedToOperateRaw === 'Y' || authorityStatusRaw === 'A';
+
+  // Human-readable authority label
+  const authorityLabel =
+    authorityStatusRaw === 'A' ? 'Active' :
+    authorityStatusRaw === 'I' ? 'Inactive' :
+    authorityStatusRaw === 'R' ? 'Revoked' :
+    allowedToOperateRaw === 'Y' ? 'Active' :
+    allowedToOperateRaw === 'N' ? 'Inactive' :
+    undefined;
 
   return {
     dotNumber: String(raw.dotNumber ?? ''),
@@ -142,13 +163,12 @@ function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
     hqZip: raw.phyZip ? String(raw.phyZip) : undefined,
     phone: raw.telephone ? String(raw.telephone) : undefined,
     safetyRating: raw.safetyRating ? String(raw.safetyRating) : 'Not Rated',
-    authorityStatus: authorityStatusRaw || undefined,
+    authorityStatus: authorityLabel,
     insuranceRequired: raw.insuranceRequired ? String(raw.insuranceRequired) : undefined,
     insuranceOnFile: raw.insuranceOnFile ? String(raw.insuranceOnFile) : undefined,
     bicInsurance: raw.bicInsurance ? String(raw.bicInsurance) : undefined,
     cargoInsuranceRequired: raw.cargoInsuranceRequired ? String(raw.cargoInsuranceRequired) : undefined,
     cargoInsuranceOnFile: raw.cargoInsuranceOnFile ? String(raw.cargoInsuranceOnFile) : undefined,
-    // Carrier is allowed to operate if allowedToOperate is "Y" OR authorityStatus is "A"
-    allowedToOperate: allowedToOperateRaw === 'Y' || authorityStatusRaw === 'A',
+    allowedToOperate: isActive,
   };
 }
