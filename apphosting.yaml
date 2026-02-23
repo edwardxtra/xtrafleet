@@ -48,6 +48,10 @@ env:
   - variable: FIREBASE_SERVICE_ACCOUNT
     secret: FIREBASE_SERVICE_ACCOUNT
 
+  # FMCSA QCMobile API (free key from https://mobile.fmcsa.dot.gov)
+  - variable: FMCSA_WEB_KEY
+    secret: FMCSA_WEB_KEY
+
   # Environment flag
   - variable: NEXT_PUBLIC_ENV
     value: production
