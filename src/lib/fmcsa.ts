@@ -19,8 +19,8 @@ export interface FMCSACarrier {
   hqCity?: string;
   hqZip?: string;
   phone?: string;
-  safetyRating?: string;        // 'Satisfactory' | 'Conditional' | 'Unsatisfactory' | 'Not Rated'
-  authorityStatus?: string;     // 'A' = Active, 'I' = Inactive, 'R' = Revoked
+  safetyRating?: string;
+  authorityStatus?: string;
   insuranceRequired?: string;
   insuranceOnFile?: string;
   bicInsurance?: string;
@@ -65,8 +65,10 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
     const webKey = getWebKey();
     const url = `${FMCSA_BASE_URL}/carriers/${cleaned}?webKey=${webKey}`;
 
+    // no-store: each DOT number must hit FMCSA directly — never serve a cached
+    // response for a different carrier number
     const res = await fetch(url, {
-      next: { revalidate: 3600 }, // Cache for 1 hour — FMCSA updates nightly
+      cache: 'no-store',
       headers: { 'Accept': 'application/json' },
     });
 
@@ -106,7 +108,7 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
     const url = `${FMCSA_BASE_URL}/carriers/docket-number/${cleaned}?webKey=${webKey}`;
 
     const res = await fetch(url, {
-      next: { revalidate: 3600 },
+      cache: 'no-store',
       headers: { 'Accept': 'application/json' },
     });
 
@@ -116,7 +118,6 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
     }
 
     const json = await res.json();
-    // MC lookup returns an array; take the first match
     const content = Array.isArray(json?.content) ? json.content[0] : json?.content;
 
     if (!content) {
@@ -136,14 +137,11 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
 }
 
 function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
-  // FMCSA returns allowedToOperate as "Y"/"N" and authorityStatus as "A"/"I"/"R"
   const allowedToOperateRaw = String(raw.allowedToOperate ?? '').toUpperCase().trim();
   const authorityStatusRaw = String(raw.authorityStatus ?? '').toUpperCase().trim();
 
-  // Carrier is active if either field indicates it
   const isActive = allowedToOperateRaw === 'Y' || authorityStatusRaw === 'A';
 
-  // Human-readable authority label
   const authorityLabel =
     authorityStatusRaw === 'A' ? 'Active' :
     authorityStatusRaw === 'I' ? 'Inactive' :
