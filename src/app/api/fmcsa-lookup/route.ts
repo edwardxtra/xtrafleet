@@ -10,10 +10,9 @@ import { authenticateRequest } from '@/lib/api-auth';
  * Requires a valid Firebase auth token (Bearer or session cookie).
  * Returns normalized FMCSA carrier data.
  *
- * 200 — verified motor carrier
+ * 200 — verified carrier or broker
  * 400 — missing query params
  * 401 — unauthenticated
- * 403 — valid DOT/MC but entity is a freight broker (not a motor carrier)
  * 404 — DOT/MC not found in FMCSA records
  */
 async function handleGet(request: NextRequest) {
@@ -37,10 +36,6 @@ async function handleGet(request: NextRequest) {
   const result = dot ? await lookupByDOT(dot) : await lookupByMC(mc!);
 
   if (!result.success) {
-    // Broker-only entities get a 403 with a clear user-facing message
-    if (result.isBroker) {
-      return NextResponse.json({ error: result.error, isBroker: true }, { status: 403 });
-    }
     return NextResponse.json({ error: result.error }, { status: 404 });
   }
 
