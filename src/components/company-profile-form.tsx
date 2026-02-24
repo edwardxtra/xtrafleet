@@ -41,8 +41,8 @@ interface FMCSAVerification {
   errorMessage?: string;
 }
 
-// USDOT numbers are up to 8 digits; require at least 7 before attempting lookup
-const DOT_MIN_DIGITS = 7;
+// USDOT numbers range from 5 to 8 digits
+const DOT_MIN_DIGITS = 5;
 
 export function CompanyProfileForm() {
   const [isPending, startTransition] = useTransition();
@@ -247,7 +247,7 @@ export function CompanyProfileForm() {
                   {fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Enter your 7–8 digit USDOT number — verified automatically with FMCSA</p>
+              <p className="text-xs text-muted-foreground mt-1">Enter your USDOT number — verified automatically with FMCSA</p>
               <FormMessage />
             </FormItem>
           )} />
