@@ -14,14 +14,14 @@ export interface FMCSACarrier {
   legalName: string;
   dbaName?: string;
   carrierOperation?: string;
-  isBrokerOnly?: boolean;       // true if this entity has broker authority but no carrier authority
+  isBrokerOnly?: boolean;       // true if entity has broker authority but no carrier authority
   hqState?: string;
   hqAddress?: string;
   hqCity?: string;
   hqZip?: string;
   phone?: string;
   safetyRating?: string;        // 'Satisfactory' | 'Conditional' | 'Unsatisfactory' | 'Not Rated'
-  authorityStatus?: string;     // 'Active' | 'Inactive' | 'Revoked'
+  authorityStatus?: string;     // 'Active' | 'Inactive'
   insuranceRequired?: string;
   insuranceOnFile?: string;
   bicInsurance?: string;
@@ -34,7 +34,6 @@ export interface FMCSALookupResult {
   success: boolean;
   carrier?: FMCSACarrier;
   error?: string;
-  isBroker?: boolean;           // true when rejected because entity is broker-only
   raw?: unknown;
 }
 
@@ -54,20 +53,8 @@ function cleanDOT(dotNumber: string): string {
 }
 
 /**
- * Determine if this FMCSA record is a broker-only entity.
- *
- * FMCSA returns carrierOperation values like:
- *   "A" = Interstate Carrier
- *   "B" = Intrastate Carrier (HM)
- *   "C" = Intrastate Carrier (Non-HM)
- *   "BROKER" or "B" (in some contexts)
- *
- * A record is broker-only when:
- *   - carrierOperation is absent or "BROKER"
- *   - AND the entity has no active carrier authority (commonAuthority/contractAuthority)
- *   - AND brokerAuthority is "A" (active)
- *
- * This is a best-effort check based on the available fields.
+ * Detect whether this entity is a broker-only (no active carrier authority).
+ * Stored as metadata on the carrier but no longer used to reject the lookup.
  */
 function detectBrokerOnly(raw: Record<string, unknown>): boolean {
   const brokerAuth = String(raw.brokerAuthorityStatus ?? raw.brokerAuthority ?? '').toUpperCase().trim();
@@ -75,13 +62,8 @@ function detectBrokerOnly(raw: Record<string, unknown>): boolean {
   const contractAuth = String(raw.contractAuthorityStatus ?? raw.contractAuthority ?? '').toUpperCase().trim();
   const carrierOp = String(raw.carrierOperation ?? '').toUpperCase().trim();
 
-  // If the entity has active carrier authority, it's a carrier (possibly dual carrier+broker like Werner)
   const hasActiveCarrierAuthority = commonAuth === 'A' || contractAuth === 'A';
-
-  // If broker authority is active and no active carrier authority → broker only
   const hasActiveBrokerAuthority = brokerAuth === 'A';
-
-  // Also catch entities with no carrier operation type set but have broker designation
   const neitherCarrierNorBoth = !['A', 'B', 'C'].includes(carrierOp) || carrierOp === 'BROKER';
 
   return hasActiveBrokerAuthority && !hasActiveCarrierAuthority && neitherCarrierNorBoth;
@@ -103,8 +85,6 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
 
     console.log(`[FMCSA] lookupByDOT — requesting DOT ${cleaned}`);
 
-    // no-store: each DOT number must hit FMCSA directly — never serve a cached
-    // response for a different carrier number
     const res = await fetch(url, {
       cache: 'no-store',
       headers: { 'Accept': 'application/json' },
@@ -120,21 +100,10 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
     const json = await res.json();
     const content = json?.content;
 
-    // Debug: log the raw FMCSA response so we can inspect unknown field structures
     console.log(`[FMCSA] lookupByDOT — raw content for DOT ${cleaned}:`, JSON.stringify(content, null, 2));
 
     if (!content) {
       return { success: false, error: 'No carrier data returned for this DOT number' };
-    }
-
-    // Broker-only check — XtraFleet only serves motor carriers
-    if (detectBrokerOnly(content)) {
-      console.log(`[FMCSA] lookupByDOT — DOT ${cleaned} is a broker-only entity, rejecting`);
-      return {
-        success: false,
-        isBroker: true,
-        error: 'This DOT number belongs to a freight broker, not a motor carrier. XtraFleet is for owner-operators and motor carriers only.',
-      };
     }
 
     const carrier = normalizeCarrier(content);
@@ -183,15 +152,6 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
       return { success: false, error: 'No carrier data returned for this MC number' };
     }
 
-    if (detectBrokerOnly(content)) {
-      console.log(`[FMCSA] lookupByMC — MC ${cleaned} is a broker-only entity, rejecting`);
-      return {
-        success: false,
-        isBroker: true,
-        error: 'This MC number belongs to a freight broker, not a motor carrier. XtraFleet is for owner-operators and motor carriers only.',
-      };
-    }
-
     const carrier = normalizeCarrier(content);
     return { success: true, carrier, raw: content };
   } catch (err: unknown) {
@@ -207,27 +167,23 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
 function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
   const allowedToOperateRaw = String(raw.allowedToOperate ?? '').toUpperCase().trim();
 
-  // allowedToOperate is the authoritative field — "Y" means the carrier is
+  // allowedToOperate is the authoritative field — "Y" means the entity is
   // currently permitted to operate regardless of what authorityStatus shows.
-  // authorityStatus can be misleading for dual carrier+broker entities (e.g.
-  // Werner Enterprises) where it may reflect broker status rather than carrier.
   const isActive = allowedToOperateRaw === 'Y';
-
-  const authorityLabel = isActive ? 'Active' : 'Inactive';
 
   return {
     dotNumber: String(raw.dotNumber ?? ''),
     legalName: String(raw.legalName ?? ''),
     dbaName: raw.dbaName ? String(raw.dbaName) : undefined,
     carrierOperation: raw.carrierOperation ? String(raw.carrierOperation) : undefined,
-    isBrokerOnly: false, // never true here — brokers are rejected before normalizing
+    isBrokerOnly: detectBrokerOnly(raw),
     hqState: raw.phyState ? String(raw.phyState) : undefined,
     hqAddress: raw.phyStreet ? String(raw.phyStreet) : undefined,
     hqCity: raw.phyCity ? String(raw.phyCity) : undefined,
     hqZip: raw.phyZip ? String(raw.phyZip) : undefined,
     phone: raw.telephone ? String(raw.telephone) : undefined,
     safetyRating: raw.safetyRating ? String(raw.safetyRating) : 'Not Rated',
-    authorityStatus: authorityLabel,
+    authorityStatus: isActive ? 'Active' : 'Inactive',
     insuranceRequired: raw.insuranceRequired ? String(raw.insuranceRequired) : undefined,
     insuranceOnFile: raw.insuranceOnFile ? String(raw.insuranceOnFile) : undefined,
     bicInsurance: raw.bicInsurance ? String(raw.bicInsurance) : undefined,
