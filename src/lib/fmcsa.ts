@@ -56,23 +56,35 @@ function cleanDOT(dotNumber: string): string {
 /**
  * Determine if this FMCSA record is a broker-only entity.
  *
- * FMCSA authority status fields:
- *   commonAuthorityStatus  — motor carrier (common)
- *   contractAuthorityStatus — motor carrier (contract)
- *   brokerAuthorityStatus  — freight broker
+ * FMCSA returns carrierOperation values like:
+ *   "A" = Interstate Carrier
+ *   "B" = Intrastate Carrier (HM)
+ *   "C" = Intrastate Carrier (Non-HM)
+ *   "BROKER" or "B" (in some contexts)
  *
- * A record is broker-only when broker authority is active AND
- * neither common nor contract carrier authority is active.
+ * A record is broker-only when:
+ *   - carrierOperation is absent or "BROKER"
+ *   - AND the entity has no active carrier authority (commonAuthority/contractAuthority)
+ *   - AND brokerAuthority is "A" (active)
+ *
+ * This is a best-effort check based on the available fields.
  */
 function detectBrokerOnly(raw: Record<string, unknown>): boolean {
   const brokerAuth = String(raw.brokerAuthorityStatus ?? raw.brokerAuthority ?? '').toUpperCase().trim();
   const commonAuth = String(raw.commonAuthorityStatus ?? raw.commonAuthority ?? '').toUpperCase().trim();
   const contractAuth = String(raw.contractAuthorityStatus ?? raw.contractAuthority ?? '').toUpperCase().trim();
+  const carrierOp = String(raw.carrierOperation ?? '').toUpperCase().trim();
 
+  // If the entity has active carrier authority, it's a carrier (possibly dual carrier+broker like Werner)
   const hasActiveCarrierAuthority = commonAuth === 'A' || contractAuth === 'A';
+
+  // If broker authority is active and no active carrier authority → broker only
   const hasActiveBrokerAuthority = brokerAuth === 'A';
 
-  return hasActiveBrokerAuthority && !hasActiveCarrierAuthority;
+  // Also catch entities with no carrier operation type set but have broker designation
+  const neitherCarrierNorBoth = !['A', 'B', 'C'].includes(carrierOp) || carrierOp === 'BROKER';
+
+  return hasActiveBrokerAuthority && !hasActiveCarrierAuthority && neitherCarrierNorBoth;
 }
 
 /**
@@ -108,7 +120,7 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
     const json = await res.json();
     const content = json?.content;
 
-    // Debug: log the raw FMCSA response so we can inspect field structures
+    // Debug: log the raw FMCSA response so we can inspect unknown field structures
     console.log(`[FMCSA] lookupByDOT — raw content for DOT ${cleaned}:`, JSON.stringify(content, null, 2));
 
     if (!content) {
@@ -211,7 +223,7 @@ function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
     legalName: String(raw.legalName ?? ''),
     dbaName: raw.dbaName ? String(raw.dbaName) : undefined,
     carrierOperation: raw.carrierOperation ? String(raw.carrierOperation) : undefined,
-    isBrokerOnly: false,
+    isBrokerOnly: false, // never true here — brokers are rejected before normalizing
     hqState: raw.phyState ? String(raw.phyState) : undefined,
     hqAddress: raw.phyStreet ? String(raw.phyStreet) : undefined,
     hqCity: raw.phyCity ? String(raw.phyCity) : undefined,
