@@ -96,8 +96,8 @@ const ATTESTATION_LABELS: Record<string, { title: string; description: string }>
   },
 };
 
-// USDOT numbers are up to 8 digits; require at least 7 before attempting lookup
-const DOT_MIN_DIGITS = 7;
+// USDOT numbers range from 5 to 8 digits
+const DOT_MIN_DIGITS = 5;
 
 type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'error';
 interface FMCSAVerification {
@@ -507,7 +507,7 @@ export default function ProfilePage() {
                   {!fmcsaLocked && fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Enter your 7–8 digit USDOT number — verified automatically with FMCSA</p>
+              <p className="text-xs text-muted-foreground mt-1">Enter your USDOT number — verified automatically with FMCSA</p>
             </div>
             <div>
               <Label htmlFor="mcNumber">MC Number {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
