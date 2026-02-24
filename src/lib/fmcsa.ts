@@ -14,13 +14,14 @@ export interface FMCSACarrier {
   legalName: string;
   dbaName?: string;
   carrierOperation?: string;
+  isBrokerOnly?: boolean;       // true if this entity has broker authority but no carrier authority
   hqState?: string;
   hqAddress?: string;
   hqCity?: string;
   hqZip?: string;
   phone?: string;
-  safetyRating?: string;
-  authorityStatus?: string;
+  safetyRating?: string;        // 'Satisfactory' | 'Conditional' | 'Unsatisfactory' | 'Not Rated'
+  authorityStatus?: string;     // 'Active' | 'Inactive' | 'Revoked'
   insuranceRequired?: string;
   insuranceOnFile?: string;
   bicInsurance?: string;
@@ -33,6 +34,7 @@ export interface FMCSALookupResult {
   success: boolean;
   carrier?: FMCSACarrier;
   error?: string;
+  isBroker?: boolean;           // true when rejected because entity is broker-only
   raw?: unknown;
 }
 
@@ -52,6 +54,28 @@ function cleanDOT(dotNumber: string): string {
 }
 
 /**
+ * Determine if this FMCSA record is a broker-only entity.
+ *
+ * FMCSA authority status fields:
+ *   commonAuthorityStatus  — motor carrier (common)
+ *   contractAuthorityStatus — motor carrier (contract)
+ *   brokerAuthorityStatus  — freight broker
+ *
+ * A record is broker-only when broker authority is active AND
+ * neither common nor contract carrier authority is active.
+ */
+function detectBrokerOnly(raw: Record<string, unknown>): boolean {
+  const brokerAuth = String(raw.brokerAuthorityStatus ?? raw.brokerAuthority ?? '').toUpperCase().trim();
+  const commonAuth = String(raw.commonAuthorityStatus ?? raw.commonAuthority ?? '').toUpperCase().trim();
+  const contractAuth = String(raw.contractAuthorityStatus ?? raw.contractAuthority ?? '').toUpperCase().trim();
+
+  const hasActiveCarrierAuthority = commonAuth === 'A' || contractAuth === 'A';
+  const hasActiveBrokerAuthority = brokerAuth === 'A';
+
+  return hasActiveBrokerAuthority && !hasActiveCarrierAuthority;
+}
+
+/**
  * Look up a carrier by US DOT number.
  * Returns normalized carrier data or an error.
  */
@@ -65,12 +89,16 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
     const webKey = getWebKey();
     const url = `${FMCSA_BASE_URL}/carriers/${cleaned}?webKey=${webKey}`;
 
+    console.log(`[FMCSA] lookupByDOT — requesting DOT ${cleaned}`);
+
     // no-store: each DOT number must hit FMCSA directly — never serve a cached
     // response for a different carrier number
     const res = await fetch(url, {
       cache: 'no-store',
       headers: { 'Accept': 'application/json' },
     });
+
+    console.log(`[FMCSA] lookupByDOT — HTTP ${res.status} for DOT ${cleaned}`);
 
     if (!res.ok) {
       if (res.status === 404) return { success: false, error: 'DOT number not found in FMCSA records' };
@@ -80,8 +108,21 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
     const json = await res.json();
     const content = json?.content;
 
+    // Debug: log the raw FMCSA response so we can inspect field structures
+    console.log(`[FMCSA] lookupByDOT — raw content for DOT ${cleaned}:`, JSON.stringify(content, null, 2));
+
     if (!content) {
       return { success: false, error: 'No carrier data returned for this DOT number' };
+    }
+
+    // Broker-only check — XtraFleet only serves motor carriers
+    if (detectBrokerOnly(content)) {
+      console.log(`[FMCSA] lookupByDOT — DOT ${cleaned} is a broker-only entity, rejecting`);
+      return {
+        success: false,
+        isBroker: true,
+        error: 'This DOT number belongs to a freight broker, not a motor carrier. XtraFleet is for owner-operators and motor carriers only.',
+      };
     }
 
     const carrier = normalizeCarrier(content);
@@ -107,10 +148,14 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
     const webKey = getWebKey();
     const url = `${FMCSA_BASE_URL}/carriers/docket-number/${cleaned}?webKey=${webKey}`;
 
+    console.log(`[FMCSA] lookupByMC — requesting MC ${cleaned}`);
+
     const res = await fetch(url, {
       cache: 'no-store',
       headers: { 'Accept': 'application/json' },
     });
+
+    console.log(`[FMCSA] lookupByMC — HTTP ${res.status} for MC ${cleaned}`);
 
     if (!res.ok) {
       if (res.status === 404) return { success: false, error: 'MC number not found in FMCSA records' };
@@ -120,8 +165,19 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
     const json = await res.json();
     const content = Array.isArray(json?.content) ? json.content[0] : json?.content;
 
+    console.log(`[FMCSA] lookupByMC — raw content for MC ${cleaned}:`, JSON.stringify(content, null, 2));
+
     if (!content) {
       return { success: false, error: 'No carrier data returned for this MC number' };
+    }
+
+    if (detectBrokerOnly(content)) {
+      console.log(`[FMCSA] lookupByMC — MC ${cleaned} is a broker-only entity, rejecting`);
+      return {
+        success: false,
+        isBroker: true,
+        error: 'This MC number belongs to a freight broker, not a motor carrier. XtraFleet is for owner-operators and motor carriers only.',
+      };
     }
 
     const carrier = normalizeCarrier(content);
@@ -155,6 +211,7 @@ function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
     legalName: String(raw.legalName ?? ''),
     dbaName: raw.dbaName ? String(raw.dbaName) : undefined,
     carrierOperation: raw.carrierOperation ? String(raw.carrierOperation) : undefined,
+    isBrokerOnly: false,
     hqState: raw.phyState ? String(raw.phyState) : undefined,
     hqAddress: raw.phyStreet ? String(raw.phyStreet) : undefined,
     hqCity: raw.phyCity ? String(raw.phyCity) : undefined,
