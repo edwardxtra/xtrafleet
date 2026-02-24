@@ -206,17 +206,14 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
 
 function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
   const allowedToOperateRaw = String(raw.allowedToOperate ?? '').toUpperCase().trim();
-  const authorityStatusRaw = String(raw.authorityStatus ?? '').toUpperCase().trim();
 
-  const isActive = allowedToOperateRaw === 'Y' || authorityStatusRaw === 'A';
+  // allowedToOperate is the authoritative field — "Y" means the carrier is
+  // currently permitted to operate regardless of what authorityStatus shows.
+  // authorityStatus can be misleading for dual carrier+broker entities (e.g.
+  // Werner Enterprises) where it may reflect broker status rather than carrier.
+  const isActive = allowedToOperateRaw === 'Y';
 
-  const authorityLabel =
-    authorityStatusRaw === 'A' ? 'Active' :
-    authorityStatusRaw === 'I' ? 'Inactive' :
-    authorityStatusRaw === 'R' ? 'Revoked' :
-    allowedToOperateRaw === 'Y' ? 'Active' :
-    allowedToOperateRaw === 'N' ? 'Inactive' :
-    undefined;
+  const authorityLabel = isActive ? 'Active' : 'Inactive';
 
   return {
     dotNumber: String(raw.dotNumber ?? ''),
