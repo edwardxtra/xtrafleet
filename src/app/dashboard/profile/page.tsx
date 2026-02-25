@@ -99,7 +99,7 @@ const ATTESTATION_LABELS: Record<string, { title: string; description: string }>
 // USDOT numbers range from 5 to 8 digits
 const DOT_MIN_DIGITS = 5;
 
-type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'error';
+type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'verified_inactive' | 'error';
 interface FMCSAVerification {
   state: VerificationState;
   carrier?: FMCSACarrier;
@@ -194,9 +194,8 @@ export default function ProfilePage() {
         return;
       }
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
-      setFmcsa({ state: 'verified', carrier });
 
-      // Always overwrite with FMCSA data — it's the authoritative source
+      // Auto-populate fields from FMCSA data regardless of authority status
       setEditedProfile(prev => {
         if (!prev) return prev;
         return {
@@ -209,8 +208,11 @@ export default function ProfilePage() {
         };
       });
 
-      if (!carrier.allowedToOperate) {
-        showError(`FMCSA shows this carrier is not currently allowed to operate. Authority: ${carrier.authorityStatus ?? 'Unknown'}.`);
+      // Distinguish active vs found-but-inactive
+      if (carrier.allowedToOperate) {
+        setFmcsa({ state: 'verified', carrier });
+      } else {
+        setFmcsa({ state: 'verified_inactive', carrier });
       }
     } catch {
       setFmcsa({ state: 'error', errorMessage: 'Could not reach FMCSA. Check your connection.' });
@@ -232,9 +234,8 @@ export default function ProfilePage() {
       return;
     }
 
-    // Enough digits — show spinner immediately while debounce counts down
     setFmcsa(prev =>
-      prev.state !== 'loading' && prev.state !== 'verified'
+      prev.state !== 'loading' && prev.state !== 'verified' && prev.state !== 'verified_inactive'
         ? { state: 'typing' }
         : prev
     );
@@ -353,10 +354,16 @@ export default function ProfilePage() {
         updatedAt: new Date().toISOString(),
       };
 
+      // Only lock as fmcsaVerified if authority is fully active
       if (fmcsa.state === 'verified' && fmcsa.carrier && !profile?.fmcsaVerified) {
         updateData.fmcsaVerified = true;
         updateData.fmcsaData = fmcsa.carrier;
         updateData.fmcsaVerifiedAt = new Date().toISOString();
+      }
+
+      // Save fmcsaData even for inactive carriers (for display purposes) but don't lock
+      if (fmcsa.state === 'verified_inactive' && fmcsa.carrier) {
+        updateData.fmcsaData = fmcsa.carrier;
       }
 
       if (isComplete && !profile?.profileCompletedAt) {
@@ -432,6 +439,7 @@ export default function ProfilePage() {
           <CardDescription>Your business details on XtraFleet</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Already saved + fully verified (locked) */}
           {fmcsaLocked && profile.fmcsaData && (
             <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
               <div className="flex items-start gap-2">
@@ -441,7 +449,7 @@ export default function ProfilePage() {
                   <p className="text-green-700 dark:text-green-400">
                     {profile.fmcsaData.legalName}
                     {profile.fmcsaData.safetyRating && profile.fmcsaData.safetyRating !== 'Not Rated' && <span className="ml-2 text-xs">· Safety: {profile.fmcsaData.safetyRating}</span>}
-                    {profile.fmcsaData.allowedToOperate !== undefined && <span className="ml-2 text-xs">· Authority: {profile.fmcsaData.allowedToOperate ? 'Active' : 'Inactive'}</span>}
+                    <span className="ml-2 text-xs">· Authority: Active</span>
                     {profile.fmcsaData.insuranceOnFile && <span className="ml-2 text-xs">· Insurance on file</span>}
                   </p>
                   <p className="text-xs text-green-600 dark:text-green-500 mt-1 flex items-center gap-1">
@@ -452,6 +460,7 @@ export default function ProfilePage() {
             </div>
           )}
 
+          {/* Live lookup — fully active */}
           {!fmcsaLocked && fmcsa.state === 'verified' && fmcsa.carrier && (
             <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
               <div className="flex items-start gap-2">
@@ -461,13 +470,40 @@ export default function ProfilePage() {
                   <p className="text-green-700 dark:text-green-400">
                     {fmcsa.carrier.legalName}
                     {fmcsa.carrier.safetyRating && fmcsa.carrier.safetyRating !== 'Not Rated' && <span className="ml-2 text-xs">· Safety: {fmcsa.carrier.safetyRating}</span>}
-                    {fmcsa.carrier.allowedToOperate !== undefined && <span className="ml-2 text-xs">· Authority: {fmcsa.carrier.allowedToOperate ? 'Active' : 'Inactive'}</span>}
+                    <span className="ml-2 text-xs">· Authority: Active</span>
                   </p>
                 </div>
               </div>
             </div>
           )}
 
+          {/* Live lookup — found but inactive authority */}
+          {!fmcsaLocked && fmcsa.state === 'verified_inactive' && fmcsa.carrier && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
+                  <p className="text-amber-700 dark:text-amber-400">
+                    {fmcsa.carrier.legalName} was found in FMCSA records but is not currently authorized to operate.
+                    Your profile information has been pre-filled. To be fully verified on XtraFleet, please update
+                    your operating authority at{' '}
+                    <a
+                      href="https://www.fmcsa.dot.gov"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200"
+                    >
+                      fmcsa.dot.gov
+                    </a>
+                    .
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Live lookup — error / not found */}
           {!fmcsaLocked && fmcsa.state === 'error' && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
               <div className="flex items-start gap-2">
@@ -505,6 +541,7 @@ export default function ProfilePage() {
                 <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
                   {!fmcsaLocked && showSpinner && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                   {(fmcsaLocked || fmcsa.state === 'verified') && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                  {!fmcsaLocked && fmcsa.state === 'verified_inactive' && <AlertTriangle className="h-4 w-4 text-amber-500" />}
                   {!fmcsaLocked && fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
                 </div>
               </div>
