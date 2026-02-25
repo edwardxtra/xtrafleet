@@ -17,7 +17,7 @@ import { useUser, useFirestore, useAuth } from "@/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useRef } from "react";
 import { US_STATES } from "@/lib/us-states";
-import { X, Search, ChevronDown, CheckCircle2, XCircle, Loader2 as SpinnerIcon, AlertCircle } from "lucide-react";
+import { X, Search, ChevronDown, CheckCircle2, XCircle, Loader2 as SpinnerIcon, AlertCircle, AlertTriangle } from "lucide-react";
 import { COIUploadSection, type COIData } from "@/components/coi-upload-section";
 import type { FMCSACarrier } from "@/lib/fmcsa";
 
@@ -33,7 +33,7 @@ const profileFormSchema = z.object({
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
 // 'typing' = digits entered but debounce hasn't fired yet
-type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'error';
+type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'verified_inactive' | 'error';
 
 interface FMCSAVerification {
   state: VerificationState;
@@ -80,7 +80,9 @@ export function CompanyProfileForm() {
           if (data.operatingStates?.length) form.setValue('operatingStates', data.operatingStates);
           if (data.coi) setCoiData(data.coi);
           if (data.fmcsaVerified) {
-            setFmcsa({ state: 'verified', carrier: data.fmcsaData });
+            const carrier = data.fmcsaData as FMCSACarrier | undefined;
+            const state = carrier?.allowedToOperate === false ? 'verified_inactive' : 'verified';
+            setFmcsa({ state, carrier });
           }
         }
       } catch (error) { console.error('Failed to load existing data:', error); }
@@ -110,9 +112,8 @@ export function CompanyProfileForm() {
       }
 
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
-      setFmcsa({ state: 'verified', carrier });
 
-      // Always overwrite with FMCSA data — it's the authoritative source
+      // Auto-populate fields from FMCSA data regardless of authority status
       if (carrier.legalName) {
         form.setValue('legalName', carrier.legalName, { shouldValidate: true });
       }
@@ -123,17 +124,16 @@ export function CompanyProfileForm() {
         form.setValue('phone', carrier.phone, { shouldValidate: true });
       }
 
-      if (!carrier.allowedToOperate) {
-        toast({
-          title: 'Authority Issue Detected',
-          description: `FMCSA shows this carrier is not currently allowed to operate. Authority status: ${carrier.authorityStatus ?? 'Unknown'}. Please verify before continuing.`,
-          variant: 'destructive',
-        });
+      // Distinguish between fully active vs found-but-inactive authority
+      if (carrier.allowedToOperate) {
+        setFmcsa({ state: 'verified', carrier });
+      } else {
+        setFmcsa({ state: 'verified_inactive', carrier });
       }
     } catch {
       setFmcsa({ state: 'error', errorMessage: 'Could not reach FMCSA. Check your connection.' });
     }
-  }, [auth, form, toast]);
+  }, [auth, form]);
 
   const handleDOTChange = useCallback((value: string) => {
     // Strip non-digits — DOT numbers are numeric only
@@ -148,14 +148,12 @@ export function CompanyProfileForm() {
     }
 
     if (numbersOnly.length < DOT_MIN_DIGITS) {
-      // Not enough digits yet — reset to idle, no spinner
       setFmcsa({ state: 'idle' });
       return;
     }
 
-    // Enough digits — show spinner immediately, then fire lookup after debounce
     setFmcsa(prev =>
-      prev.state !== 'loading' && prev.state !== 'verified'
+      prev.state !== 'loading' && prev.state !== 'verified' && prev.state !== 'verified_inactive'
         ? { state: 'typing' }
         : prev
     );
@@ -200,6 +198,7 @@ export function CompanyProfileForm() {
       formData.append('hqAddress', values.hqAddress || '');
       formData.append('operatingStates', JSON.stringify(values.operatingStates || []));
       formData.append('coiData', JSON.stringify(coiData));
+      // Only count as fully fmcsaVerified if authority is active
       formData.append('fmcsaVerified', String(fmcsa.state === 'verified'));
       if (fmcsa.carrier) formData.append('fmcsaData', JSON.stringify(fmcsa.carrier));
       const isComplete = !!(values.dotNumber && values.mcNumber && values.hqAddress && values.operatingStates?.length && hasCoiData);
@@ -245,6 +244,7 @@ export function CompanyProfileForm() {
                 <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
                   {showSpinner && <SpinnerIcon className="h-4 w-4 animate-spin text-muted-foreground" />}
                   {fmcsa.state === 'verified' && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                  {fmcsa.state === 'verified_inactive' && <AlertTriangle className="h-4 w-4 text-amber-500" />}
                   {fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
                 </div>
               </div>
@@ -258,23 +258,50 @@ export function CompanyProfileForm() {
           )} />
         </div>
 
+        {/* Fully verified + active authority */}
         {fmcsa.state === 'verified' && fmcsa.carrier && (
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
             <div className="flex items-start gap-2">
               <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
               <div className="text-sm">
-                <p className="font-medium text-green-800 dark:text-green-300">FMCSA Verified</p>
+                <p className="font-medium text-green-800 dark:text-green-300">FMCSA Verified — save to lock</p>
                 <p className="text-green-700 dark:text-green-400">
                   {fmcsa.carrier.legalName}
                   {fmcsa.carrier.safetyRating && fmcsa.carrier.safetyRating !== 'Not Rated' && (
                     <span className="ml-2 text-xs">· Safety: {fmcsa.carrier.safetyRating}</span>
                   )}
-                  {fmcsa.carrier.allowedToOperate !== undefined && (
-                    <span className="ml-2 text-xs">· Authority: {fmcsa.carrier.allowedToOperate ? 'Active' : 'Inactive'}</span>
-                  )}
+                  <span className="ml-2 text-xs">· Authority: Active</span>
                   {fmcsa.carrier.insuranceOnFile && (
                     <span className="ml-2 text-xs">· Insurance on file</span>
                   )}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Found in FMCSA but authority is inactive */}
+        {fmcsa.state === 'verified_inactive' && fmcsa.carrier && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-amber-800 dark:text-amber-300">
+                  FMCSA Found — Authority Inactive
+                </p>
+                <p className="text-amber-700 dark:text-amber-400">
+                  {fmcsa.carrier.legalName} was found in FMCSA records but is not currently authorized to operate.
+                  Your profile information has been pre-filled. To be fully verified on XtraFleet, please update
+                  your operating authority at{' '}
+                  <a
+                    href="https://www.fmcsa.dot.gov"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200"
+                  >
+                    fmcsa.dot.gov
+                  </a>
+                  .
                 </p>
               </div>
             </div>
