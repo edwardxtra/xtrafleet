@@ -112,13 +112,14 @@ export function CompanyProfileForm() {
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
       setFmcsa({ state: 'verified', carrier });
 
-      if (carrier.legalName && !form.getValues('legalName')) {
+      // Always overwrite with FMCSA data — it's the authoritative source
+      if (carrier.legalName) {
         form.setValue('legalName', carrier.legalName, { shouldValidate: true });
       }
-      if (carrier.hqAddress && carrier.hqCity && carrier.hqState && !form.getValues('hqAddress')) {
+      if (carrier.hqAddress && carrier.hqCity && carrier.hqState) {
         form.setValue('hqAddress', `${carrier.hqAddress}, ${carrier.hqCity}, ${carrier.hqState} ${carrier.hqZip ?? ''}`.trim(), { shouldValidate: true });
       }
-      if (carrier.phone && !form.getValues('phone')) {
+      if (carrier.phone) {
         form.setValue('phone', carrier.phone, { shouldValidate: true });
       }
 
