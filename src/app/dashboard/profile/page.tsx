@@ -196,15 +196,16 @@ export default function ProfilePage() {
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
       setFmcsa({ state: 'verified', carrier });
 
+      // Always overwrite with FMCSA data — it's the authoritative source
       setEditedProfile(prev => {
         if (!prev) return prev;
         return {
           ...prev,
-          legalName: prev.legalName || carrier.legalName || prev.legalName,
-          hqAddress: prev.hqAddress || (carrier.hqAddress && carrier.hqCity && carrier.hqState
+          legalName: carrier.legalName || prev.legalName,
+          hqAddress: (carrier.hqAddress && carrier.hqCity && carrier.hqState)
             ? `${carrier.hqAddress}, ${carrier.hqCity}, ${carrier.hqState} ${carrier.hqZip ?? ''}`.trim()
-            : prev.hqAddress),
-          phone: prev.phone || carrier.phone || prev.phone,
+            : prev.hqAddress,
+          phone: carrier.phone || prev.phone,
         };
       });
 
