@@ -5,6 +5,13 @@
  * Covers:
  *  - Carrier lookup by DOT number (name, authority status, safety rating)
  *  - Licensing & Insurance snapshot (active insurance carrier + policy)
+ *
+ * Response shape from FMCSA QCMobile API:
+ *   GET /carriers/{dot}         → { content: { carrier: { ... } } }
+ *   GET /carriers/docket/{mc}   → { content: [ { carrier: { ... } } ] }
+ *
+ * The actual carrier fields live inside the nested `carrier` object.
+ * normalizeCarrier() always unwraps this before reading any fields.
  */
 
 const FMCSA_BASE_URL = 'https://mobile.fmcsa.dot.gov/qc/services';
@@ -50,6 +57,22 @@ function getWebKey(): string {
 function cleanDOT(dotNumber: string): string {
   const digitsOnly = dotNumber.replace(/\D/g, '');
   return String(parseInt(digitsOnly, 10)); // removes leading zeros
+}
+
+/**
+ * Unwrap the nested carrier object from the FMCSA API response.
+ *
+ * The QCMobile API wraps carrier data in a `carrier` key:
+ *   content = { carrier: { allowedToOperate: "Y", legalName: "...", ... } }
+ *
+ * If the `carrier` key is present, return its value. Otherwise assume
+ * the content IS the carrier object (defensive fallback).
+ */
+function unwrapCarrier(content: Record<string, unknown>): Record<string, unknown> {
+  if (content.carrier && typeof content.carrier === 'object' && content.carrier !== null) {
+    return content.carrier as Record<string, unknown>;
+  }
+  return content;
 }
 
 /**
@@ -164,7 +187,12 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
   }
 }
 
-function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
+function normalizeCarrier(content: Record<string, unknown>): FMCSACarrier {
+  // The QCMobile API wraps the actual fields inside a `carrier` key.
+  // Unwrap it before reading any fields — this is the root cause of
+  // allowedToOperate always being undefined (and thus always "Inactive").
+  const raw = unwrapCarrier(content);
+
   const allowedToOperateRaw = String(raw.allowedToOperate ?? '').toUpperCase().trim();
 
   // allowedToOperate is the authoritative field — "Y" means the entity is
@@ -184,9 +212,9 @@ function normalizeCarrier(raw: Record<string, unknown>): FMCSACarrier {
     phone: raw.telephone ? String(raw.telephone) : undefined,
     safetyRating: raw.safetyRating ? String(raw.safetyRating) : 'Not Rated',
     authorityStatus: isActive ? 'Active' : 'Inactive',
-    insuranceRequired: raw.insuranceRequired ? String(raw.insuranceRequired) : undefined,
-    insuranceOnFile: raw.insuranceOnFile ? String(raw.insuranceOnFile) : undefined,
-    bicInsurance: raw.bicInsurance ? String(raw.bicInsurance) : undefined,
+    insuranceRequired: raw.bipdInsuranceRequired ? String(raw.bipdInsuranceRequired) : undefined,
+    insuranceOnFile: raw.bipdInsuranceOnFile ? String(raw.bipdInsuranceOnFile) : undefined,
+    bicInsurance: raw.bondInsuranceOnFile ? String(raw.bondInsuranceOnFile) : undefined,
     cargoInsuranceRequired: raw.cargoInsuranceRequired ? String(raw.cargoInsuranceRequired) : undefined,
     cargoInsuranceOnFile: raw.cargoInsuranceOnFile ? String(raw.cargoInsuranceOnFile) : undefined,
     allowedToOperate: isActive,
