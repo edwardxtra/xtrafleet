@@ -69,6 +69,12 @@ interface OwnerProfile {
   phone?: string;
   dotNumber?: string;
   mcNumber?: string;
+  // Split address fields
+  hqStreet?: string;
+  hqCity?: string;
+  hqState?: string;
+  hqZip?: string;
+  // Legacy single-line address (kept for backward compat)
   hqAddress?: string;
   operatingStates?: string[];
   coi?: COIInfo;
@@ -96,7 +102,6 @@ const ATTESTATION_LABELS: Record<string, { title: string; description: string }>
   },
 };
 
-// USDOT numbers range from 5 to 8 digits
 const DOT_MIN_DIGITS = 5;
 
 type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'verified_inactive' | 'error';
@@ -154,6 +159,10 @@ export default function ProfilePage() {
         const ownerDoc = await getDoc(doc(db, 'owner_operators', user.uid));
         if (ownerDoc.exists()) {
           const data = ownerDoc.data() as OwnerProfile;
+          // Migrate legacy hqAddress into split fields if needed
+          if (!data.hqStreet && data.hqAddress) {
+            data.hqStreet = data.hqAddress;
+          }
           setProfile(data);
           setEditedProfile(data);
           if (data.coi) {
@@ -195,20 +204,18 @@ export default function ProfilePage() {
       }
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
 
-      // Auto-populate fields from FMCSA data regardless of authority status
       setEditedProfile(prev => {
         if (!prev) return prev;
         return {
           ...prev,
           legalName: carrier.legalName || prev.legalName,
-          hqAddress: (carrier.hqAddress && carrier.hqCity && carrier.hqState)
-            ? `${carrier.hqAddress}, ${carrier.hqCity}, ${carrier.hqState} ${carrier.hqZip ?? ''}`.trim()
-            : prev.hqAddress,
-          phone: carrier.phone || prev.phone,
+          hqStreet: carrier.hqAddress || prev.hqStreet,
+          hqCity: carrier.hqCity || prev.hqCity,
+          hqState: carrier.hqState || prev.hqState,
+          hqZip: carrier.hqZip || prev.hqZip,
         };
       });
 
-      // Distinguish active vs found-but-inactive
       if (carrier.allowedToOperate) {
         setFmcsa({ state: 'verified', carrier });
       } else {
@@ -224,20 +231,11 @@ export default function ProfilePage() {
     const numbersOnly = value.replace(/\D/g, '');
     setEditedProfile(prev => prev ? { ...prev, dotNumber: numbersOnly } : prev);
     if (dotDebounceRef.current) clearTimeout(dotDebounceRef.current);
-
-    if (numbersOnly.length === 0) {
-      setFmcsa({ state: 'idle' });
-      return;
-    }
-    if (numbersOnly.length < DOT_MIN_DIGITS) {
-      setFmcsa({ state: 'idle' });
-      return;
-    }
-
+    if (numbersOnly.length === 0) { setFmcsa({ state: 'idle' }); return; }
+    if (numbersOnly.length < DOT_MIN_DIGITS) { setFmcsa({ state: 'idle' }); return; }
     setFmcsa(prev =>
       prev.state !== 'loading' && prev.state !== 'verified' && prev.state !== 'verified_inactive'
-        ? { state: 'typing' }
-        : prev
+        ? { state: 'typing' } : prev
     );
     dotDebounceRef.current = setTimeout(() => verifyDOT(numbersOnly), 800);
   }, [fmcsaLocked, verifyDOT]);
@@ -249,17 +247,13 @@ export default function ProfilePage() {
   const toggleState = (stateValue: string) => {
     if (!editedProfile) return;
     const current = editedProfile.operatingStates || [];
-    if (current.includes(stateValue)) {
-      setEditedProfile({ ...editedProfile, operatingStates: current.filter(s => s !== stateValue) });
-    } else {
-      setEditedProfile({ ...editedProfile, operatingStates: [...current, stateValue] });
-    }
+    if (current.includes(stateValue)) setEditedProfile({ ...editedProfile, operatingStates: current.filter(s => s !== stateValue) });
+    else setEditedProfile({ ...editedProfile, operatingStates: [...current, stateValue] });
   };
 
   const removeState = (stateValue: string) => {
     if (!editedProfile) return;
-    const current = editedProfile.operatingStates || [];
-    setEditedProfile({ ...editedProfile, operatingStates: current.filter(s => s !== stateValue) });
+    setEditedProfile({ ...editedProfile, operatingStates: (editedProfile.operatingStates || []).filter(s => s !== stateValue) });
   };
 
   const filteredStates = US_STATES.filter(state =>
@@ -326,9 +320,7 @@ export default function ProfilePage() {
     } catch (error) {
       console.error('Error resetting clearinghouse:', error);
       showError('Failed to reset. Please try again.');
-    } finally {
-      setResetting(false);
-    }
+    } finally { setResetting(false); }
   };
 
   const handleSave = async () => {
@@ -337,14 +329,23 @@ export default function ProfilePage() {
     setSaving(true);
     try {
       const hasCoiData = !!(editedProfile.coi?.fileUrl || (coiInsurerName && coiPolicyNumber && coiExpiryDate));
-      const isComplete = !!(editedProfile.legalName && editedProfile.dotNumber && editedProfile.mcNumber && editedProfile.hqAddress && editedProfile.operatingStates?.length && hasCoiData);
+      const hasAddress = !!(editedProfile.hqStreet && editedProfile.hqCity && editedProfile.hqState);
+      const isComplete = !!(editedProfile.legalName && editedProfile.dotNumber && editedProfile.mcNumber && hasAddress && editedProfile.operatingStates?.length && hasCoiData);
+
+      // Compose legacy hqAddress for any consumers still reading it
+      const hqAddress = [editedProfile.hqStreet, editedProfile.hqCity, editedProfile.hqState, editedProfile.hqZip]
+        .filter(Boolean).join(', ');
 
       const updateData: Record<string, unknown> = {
         legalName: editedProfile.legalName || '',
         phone: editedProfile.phone || '',
         dotNumber: editedProfile.dotNumber || '',
         mcNumber: editedProfile.mcNumber || '',
-        hqAddress: editedProfile.hqAddress || '',
+        hqStreet: editedProfile.hqStreet || '',
+        hqCity: editedProfile.hqCity || '',
+        hqState: editedProfile.hqState || '',
+        hqZip: editedProfile.hqZip || '',
+        hqAddress,
         operatingStates: editedProfile.operatingStates || [],
         'coi.insurerName': coiInsurerName,
         'coi.policyNumber': coiPolicyNumber,
@@ -354,18 +355,14 @@ export default function ProfilePage() {
         updatedAt: new Date().toISOString(),
       };
 
-      // Only lock as fmcsaVerified if authority is fully active
       if (fmcsa.state === 'verified' && fmcsa.carrier && !profile?.fmcsaVerified) {
         updateData.fmcsaVerified = true;
         updateData.fmcsaData = fmcsa.carrier;
         updateData.fmcsaVerifiedAt = new Date().toISOString();
       }
-
-      // Save fmcsaData even for inactive carriers (for display purposes) but don't lock
       if (fmcsa.state === 'verified_inactive' && fmcsa.carrier) {
         updateData.fmcsaData = fmcsa.carrier;
       }
-
       if (isComplete && !profile?.profileCompletedAt) {
         updateData.profileCompletedAt = new Date().toISOString();
       }
@@ -374,6 +371,7 @@ export default function ProfilePage() {
 
       const newProfile = {
         ...editedProfile,
+        hqAddress,
         coi: { ...editedProfile.coi, insurerName: coiInsurerName, policyNumber: coiPolicyNumber, expiryDate: coiExpiryDate },
         onboardingStatus: { ...editedProfile.onboardingStatus, profileComplete: isComplete },
         profileCompletedAt: isComplete && !profile?.profileCompletedAt ? new Date().toISOString() : profile?.profileCompletedAt,
@@ -386,7 +384,7 @@ export default function ProfilePage() {
         if (!editedProfile.legalName) missing.push('Legal Name');
         if (!editedProfile.dotNumber) missing.push('DOT #');
         if (!editedProfile.mcNumber) missing.push('MC #');
-        if (!editedProfile.hqAddress) missing.push('HQ Address');
+        if (!hasAddress) missing.push('HQ Address');
         if (!editedProfile.operatingStates?.length) missing.push('Operating States');
         if (!hasCoiData) missing.push('Certificate of Insurance');
         showSuccess(`Profile saved. Still missing: ${missing.join(', ')}`);
@@ -397,9 +395,7 @@ export default function ProfilePage() {
       console.error('Error saving profile:', error);
       const appError = parseError(error);
       showError(appError.message, 'Failed to save profile');
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   const hasChanges = JSON.stringify(profile) !== JSON.stringify(editedProfile)
@@ -415,12 +411,8 @@ export default function ProfilePage() {
 
   const showSpinner = fmcsa.state === 'typing' || fmcsa.state === 'loading';
 
-  if (isUserLoading || loading) {
-    return <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin" /></div>;
-  }
-  if (!profile) {
-    return <p className="text-center text-muted-foreground py-12">No profile found.</p>;
-  }
+  if (isUserLoading || loading) return <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin" /></div>;
+  if (!profile) return <p className="text-center text-muted-foreground py-12">No profile found.</p>;
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -439,7 +431,8 @@ export default function ProfilePage() {
           <CardDescription>Your business details on XtraFleet</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Already saved + fully verified (locked) */}
+
+          {/* Already verified + locked */}
           {fmcsaLocked && profile.fmcsaData && (
             <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
               <div className="flex items-start gap-2">
@@ -460,7 +453,7 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Live lookup — fully active */}
+          {/* Live lookup — active */}
           {!fmcsaLocked && fmcsa.state === 'verified' && fmcsa.carrier && (
             <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
               <div className="flex items-start gap-2">
@@ -477,7 +470,7 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Live lookup — found but inactive authority */}
+          {/* Live lookup — inactive authority */}
           {!fmcsaLocked && fmcsa.state === 'verified_inactive' && fmcsa.carrier && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
               <div className="flex items-start gap-2">
@@ -486,24 +479,15 @@ export default function ProfilePage() {
                   <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
                   <p className="text-amber-700 dark:text-amber-400">
                     {fmcsa.carrier.legalName} was found in FMCSA records but is not currently authorized to operate.
-                    Your profile information has been pre-filled. To be fully verified on XtraFleet, please update
-                    your operating authority at{' '}
-                    <a
-                      href="https://www.fmcsa.dot.gov"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200"
-                    >
-                      fmcsa.dot.gov
-                    </a>
-                    .
+                    Your profile information has been pre-filled. To be fully verified on XtraFleet, please update your operating authority at{' '}
+                    <a href="https://www.fmcsa.dot.gov" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200">fmcsa.dot.gov</a>.
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Live lookup — error / not found */}
+          {/* Error */}
           {!fmcsaLocked && fmcsa.state === 'error' && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
               <div className="flex items-start gap-2">
@@ -516,7 +500,25 @@ export default function ProfilePage() {
             </div>
           )}
 
+          {/* DOT first */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="dotNumber">DOT Number {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
+              <div className="relative">
+                <Input id="dotNumber" value={editedProfile?.dotNumber || ''} onChange={(e) => handleDOTChange(e.target.value)} placeholder="e.g., 1234567" inputMode="numeric" disabled={!isOnline || fmcsaLocked} className={`pr-9 ${fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''}`} />
+                <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
+                  {!fmcsaLocked && showSpinner && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  {(fmcsaLocked || fmcsa.state === 'verified') && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                  {!fmcsaLocked && fmcsa.state === 'verified_inactive' && <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                  {!fmcsaLocked && fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Enter your USDOT number — fields below auto-fill from FMCSA</p>
+            </div>
+            <div>
+              <Label htmlFor="mcNumber">MC Number {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
+              <Input id="mcNumber" value={editedProfile?.mcNumber || ''} onChange={(e) => !fmcsaLocked && handleChange('mcNumber', e.target.value)} placeholder="MC-123456" disabled={!isOnline || fmcsaLocked} className={fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''} />
+            </div>
             <div>
               <Label htmlFor="legalName">Legal Name {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
               <Input id="legalName" value={editedProfile?.legalName || ''} onChange={(e) => !fmcsaLocked && handleChange('legalName', e.target.value)} placeholder="Your company legal name" disabled={!isOnline || fmcsaLocked} className={fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''} />
@@ -530,28 +532,45 @@ export default function ProfilePage() {
               <Label htmlFor="phone">Phone Number</Label>
               <Input id="phone" type="tel" value={editedProfile?.phone || ''} onChange={(e) => handleChange('phone', e.target.value)} placeholder="(555) 123-4567" disabled={!isOnline} />
             </div>
-            <div>
-              <Label htmlFor="hqAddress">HQ Address</Label>
-              <Input id="hqAddress" value={editedProfile?.hqAddress || ''} onChange={(e) => handleChange('hqAddress', e.target.value)} placeholder="123 Main St, City, State ZIP" disabled={!isOnline} />
-            </div>
-            <div>
-              <Label htmlFor="dotNumber">DOT Number {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
-              <div className="relative">
-                <Input id="dotNumber" value={editedProfile?.dotNumber || ''} onChange={(e) => handleDOTChange(e.target.value)} placeholder="e.g., 1234567" inputMode="numeric" disabled={!isOnline || fmcsaLocked} className={`pr-9 ${fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''}`} />
-                <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
-                  {!fmcsaLocked && showSpinner && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                  {(fmcsaLocked || fmcsa.state === 'verified') && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-                  {!fmcsaLocked && fmcsa.state === 'verified_inactive' && <AlertTriangle className="h-4 w-4 text-amber-500" />}
-                  {!fmcsaLocked && fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
-                </div>
+          </div>
+
+          {/* Split address fields */}
+          <div>
+            <Label className="mb-2 block">HQ Address</Label>
+            <div className="space-y-2">
+              <Input
+                id="hqStreet"
+                value={editedProfile?.hqStreet || ''}
+                onChange={(e) => handleChange('hqStreet', e.target.value)}
+                placeholder="Street address"
+                disabled={!isOnline}
+              />
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                <Input
+                  className="col-span-2 md:col-span-2"
+                  value={editedProfile?.hqCity || ''}
+                  onChange={(e) => handleChange('hqCity', e.target.value)}
+                  placeholder="City"
+                  disabled={!isOnline}
+                />
+                <Input
+                  value={editedProfile?.hqState || ''}
+                  onChange={(e) => handleChange('hqState', e.target.value.toUpperCase())}
+                  placeholder="State"
+                  maxLength={2}
+                  disabled={!isOnline}
+                />
+                <Input
+                  value={editedProfile?.hqZip || ''}
+                  onChange={(e) => handleChange('hqZip', e.target.value)}
+                  placeholder="ZIP"
+                  maxLength={10}
+                  disabled={!isOnline}
+                />
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Enter your USDOT number — verified automatically with FMCSA</p>
-            </div>
-            <div>
-              <Label htmlFor="mcNumber">MC Number {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
-              <Input id="mcNumber" value={editedProfile?.mcNumber || ''} onChange={(e) => !fmcsaLocked && handleChange('mcNumber', e.target.value)} placeholder="MC-123456" disabled={!isOnline || fmcsaLocked} className={fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''} />
             </div>
           </div>
+
         </CardContent>
       </Card>
 
