@@ -26,13 +26,15 @@ const profileFormSchema = z.object({
   phone: z.string().optional(),
   dotNumber: z.string().optional(),
   mcNumber: z.string().optional(),
-  hqAddress: z.string().optional(),
+  hqStreet: z.string().optional(),
+  hqCity: z.string().optional(),
+  hqState: z.string().optional(),
+  hqZip: z.string().optional(),
   operatingStates: z.array(z.string()),
 });
 
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
-// 'typing' = digits entered but debounce hasn't fired yet
 type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'verified_inactive' | 'error';
 
 interface FMCSAVerification {
@@ -41,7 +43,6 @@ interface FMCSAVerification {
   errorMessage?: string;
 }
 
-// USDOT numbers range from 5 to 8 digits
 const DOT_MIN_DIGITS = 5;
 
 export function CompanyProfileForm() {
@@ -59,7 +60,11 @@ export function CompanyProfileForm() {
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
     mode: "onChange",
-    defaultValues: { legalName: "", phone: "", dotNumber: "", mcNumber: "", hqAddress: "", operatingStates: [] },
+    defaultValues: {
+      legalName: "", phone: "", dotNumber: "", mcNumber: "",
+      hqStreet: "", hqCity: "", hqState: "", hqZip: "",
+      operatingStates: [],
+    },
   });
 
   const selectedStates = form.watch("operatingStates") || [];
@@ -76,7 +81,12 @@ export function CompanyProfileForm() {
           if (data.phone) form.setValue('phone', data.phone);
           if (data.dotNumber) form.setValue('dotNumber', data.dotNumber);
           if (data.mcNumber) form.setValue('mcNumber', data.mcNumber);
-          if (data.hqAddress) form.setValue('hqAddress', data.hqAddress);
+          if (data.hqStreet) form.setValue('hqStreet', data.hqStreet);
+          if (data.hqCity) form.setValue('hqCity', data.hqCity);
+          if (data.hqState) form.setValue('hqState', data.hqState);
+          if (data.hqZip) form.setValue('hqZip', data.hqZip);
+          // Legacy: if old single-field address exists, put it in street
+          if (!data.hqStreet && data.hqAddress) form.setValue('hqStreet', data.hqAddress);
           if (data.operatingStates?.length) form.setValue('operatingStates', data.operatingStates);
           if (data.coi) setCoiData(data.coi);
           if (data.fmcsaVerified) {
@@ -92,39 +102,27 @@ export function CompanyProfileForm() {
 
   const verifyDOT = useCallback(async (dotNumber: string) => {
     const cleaned = dotNumber.replace(/\D/g, '');
-    if (cleaned.length < DOT_MIN_DIGITS) {
-      setFmcsa({ state: 'idle' });
-      return;
-    }
-
+    if (cleaned.length < DOT_MIN_DIGITS) { setFmcsa({ state: 'idle' }); return; }
     setFmcsa({ state: 'loading' });
-
     try {
       const token = await auth?.currentUser?.getIdToken();
       const res = await fetch(`/api/fmcsa-lookup?dot=${cleaned}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setFmcsa({ state: 'error', errorMessage: body.error || 'DOT number not found in FMCSA records' });
         return;
       }
-
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
 
-      // Auto-populate fields from FMCSA data regardless of authority status
-      if (carrier.legalName) {
-        form.setValue('legalName', carrier.legalName, { shouldValidate: true });
-      }
-      if (carrier.hqAddress && carrier.hqCity && carrier.hqState) {
-        form.setValue('hqAddress', `${carrier.hqAddress}, ${carrier.hqCity}, ${carrier.hqState} ${carrier.hqZip ?? ''}`.trim(), { shouldValidate: true });
-      }
-      if (carrier.phone) {
-        form.setValue('phone', carrier.phone, { shouldValidate: true });
-      }
+      // Populate each address field separately
+      if (carrier.legalName) form.setValue('legalName', carrier.legalName, { shouldValidate: true });
+      if (carrier.hqAddress) form.setValue('hqStreet', carrier.hqAddress, { shouldValidate: true });
+      if (carrier.hqCity) form.setValue('hqCity', carrier.hqCity, { shouldValidate: true });
+      if (carrier.hqState) form.setValue('hqState', carrier.hqState, { shouldValidate: true });
+      if (carrier.hqZip) form.setValue('hqZip', carrier.hqZip, { shouldValidate: true });
 
-      // Distinguish between fully active vs found-but-inactive authority
       if (carrier.allowedToOperate) {
         setFmcsa({ state: 'verified', carrier });
       } else {
@@ -136,26 +134,14 @@ export function CompanyProfileForm() {
   }, [auth, form]);
 
   const handleDOTChange = useCallback((value: string) => {
-    // Strip non-digits — DOT numbers are numeric only
     const numbersOnly = value.replace(/\D/g, '');
     form.setValue('dotNumber', numbersOnly, { shouldValidate: true });
-
     if (dotDebounceRef.current) clearTimeout(dotDebounceRef.current);
-
-    if (numbersOnly.length === 0) {
-      setFmcsa({ state: 'idle' });
-      return;
-    }
-
-    if (numbersOnly.length < DOT_MIN_DIGITS) {
-      setFmcsa({ state: 'idle' });
-      return;
-    }
-
+    if (numbersOnly.length === 0) { setFmcsa({ state: 'idle' }); return; }
+    if (numbersOnly.length < DOT_MIN_DIGITS) { setFmcsa({ state: 'idle' }); return; }
     setFmcsa(prev =>
       prev.state !== 'loading' && prev.state !== 'verified' && prev.state !== 'verified_inactive'
-        ? { state: 'typing' }
-        : prev
+        ? { state: 'typing' } : prev
     );
     dotDebounceRef.current = setTimeout(() => verifyDOT(numbersOnly), 800);
   }, [form, verifyDOT]);
@@ -177,11 +163,12 @@ export function CompanyProfileForm() {
 
   const onSubmit = (values: ProfileFormValues) => {
     const hasCoiData = !!(coiData.fileUrl || (coiData.insurerName && coiData.policyNumber && coiData.expiryDate));
+    const hasAddress = !!(values.hqStreet && values.hqCity && values.hqState);
 
     const missingFields: string[] = [];
     if (!values.dotNumber) missingFields.push('DOT #');
     if (!values.mcNumber) missingFields.push('MC #');
-    if (!values.hqAddress) missingFields.push('HQ Address');
+    if (!hasAddress) missingFields.push('HQ Address');
     if (!values.operatingStates?.length) missingFields.push('Operating States');
     if (!hasCoiData) missingFields.push('Certificate of Insurance');
 
@@ -195,13 +182,18 @@ export function CompanyProfileForm() {
       formData.append('phone', values.phone || '');
       formData.append('dotNumber', values.dotNumber || '');
       formData.append('mcNumber', values.mcNumber || '');
-      formData.append('hqAddress', values.hqAddress || '');
+      formData.append('hqStreet', values.hqStreet || '');
+      formData.append('hqCity', values.hqCity || '');
+      formData.append('hqState', values.hqState || '');
+      formData.append('hqZip', values.hqZip || '');
+      // Compose legacy hqAddress for backward compatibility
+      const hqAddress = [values.hqStreet, values.hqCity, values.hqState, values.hqZip].filter(Boolean).join(', ');
+      formData.append('hqAddress', hqAddress);
       formData.append('operatingStates', JSON.stringify(values.operatingStates || []));
       formData.append('coiData', JSON.stringify(coiData));
-      // Only count as fully fmcsaVerified if authority is active
       formData.append('fmcsaVerified', String(fmcsa.state === 'verified'));
       if (fmcsa.carrier) formData.append('fmcsaData', JSON.stringify(fmcsa.carrier));
-      const isComplete = !!(values.dotNumber && values.mcNumber && values.hqAddress && values.operatingStates?.length && hasCoiData);
+      const isComplete = !!(values.dotNumber && values.mcNumber && hasAddress && values.operatingStates?.length && hasCoiData);
       formData.append('isProfileComplete', String(isComplete));
       try {
         await createCompanyProfile(formData);
@@ -213,24 +205,17 @@ export function CompanyProfileForm() {
     });
   };
 
-  // Show spinner for both 'typing' (debounce pending) and 'loading' (fetch in-flight)
   const showSpinner = fmcsa.state === 'typing' || fmcsa.state === 'loading';
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <FormField control={form.control} name="legalName" render={({ field }) => (
-          <FormItem><FormLabel>Legal Name</FormLabel><FormControl><Input placeholder="Your company legal name" {...field} /></FormControl><FormMessage /></FormItem>
-        )} />
 
-        <FormField control={form.control} name="phone" render={({ field }) => (
-          <FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input type="tel" placeholder="e.g., (555) 123-4567" {...field} /></FormControl><FormMessage /></FormItem>
-        )} />
-
+        {/* DOT first — everything else populates from it */}
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <FormField control={form.control} name="dotNumber" render={({ field }) => (
             <FormItem>
-              <FormLabel>Department of Transportation # *</FormLabel>
+              <FormLabel>DOT Number *</FormLabel>
               <div className="relative">
                 <FormControl>
                   <Input
@@ -248,17 +233,17 @@ export function CompanyProfileForm() {
                   {fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Enter your USDOT number — verified automatically with FMCSA</p>
+              <p className="text-xs text-muted-foreground mt-1">Enter your USDOT number — fields below auto-fill from FMCSA</p>
               <FormMessage />
             </FormItem>
           )} />
 
           <FormField control={form.control} name="mcNumber" render={({ field }) => (
-            <FormItem><FormLabel>Master Carrier # *</FormLabel><FormControl><Input placeholder="e.g., 987654" {...field} /></FormControl><FormMessage /></FormItem>
+            <FormItem><FormLabel>MC Number *</FormLabel><FormControl><Input placeholder="e.g., 987654" {...field} /></FormControl><FormMessage /></FormItem>
           )} />
         </div>
 
-        {/* Fully verified + active authority */}
+        {/* FMCSA verification banners */}
         {fmcsa.state === 'verified' && fmcsa.carrier && (
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
             <div className="flex items-start gap-2">
@@ -267,47 +252,29 @@ export function CompanyProfileForm() {
                 <p className="font-medium text-green-800 dark:text-green-300">FMCSA Verified — save to lock</p>
                 <p className="text-green-700 dark:text-green-400">
                   {fmcsa.carrier.legalName}
-                  {fmcsa.carrier.safetyRating && fmcsa.carrier.safetyRating !== 'Not Rated' && (
-                    <span className="ml-2 text-xs">· Safety: {fmcsa.carrier.safetyRating}</span>
-                  )}
+                  {fmcsa.carrier.safetyRating && fmcsa.carrier.safetyRating !== 'Not Rated' && <span className="ml-2 text-xs">· Safety: {fmcsa.carrier.safetyRating}</span>}
                   <span className="ml-2 text-xs">· Authority: Active</span>
-                  {fmcsa.carrier.insuranceOnFile && (
-                    <span className="ml-2 text-xs">· Insurance on file</span>
-                  )}
+                  {fmcsa.carrier.insuranceOnFile && <span className="ml-2 text-xs">· Insurance on file</span>}
                 </p>
               </div>
             </div>
           </div>
         )}
-
-        {/* Found in FMCSA but authority is inactive */}
         {fmcsa.state === 'verified_inactive' && fmcsa.carrier && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
             <div className="flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
               <div className="text-sm">
-                <p className="font-medium text-amber-800 dark:text-amber-300">
-                  FMCSA Found — Authority Inactive
-                </p>
+                <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
                 <p className="text-amber-700 dark:text-amber-400">
                   {fmcsa.carrier.legalName} was found in FMCSA records but is not currently authorized to operate.
-                  Your profile information has been pre-filled. To be fully verified on XtraFleet, please update
-                  your operating authority at{' '}
-                  <a
-                    href="https://www.fmcsa.dot.gov"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200"
-                  >
-                    fmcsa.dot.gov
-                  </a>
-                  .
+                  Your profile information has been pre-filled. To be fully verified on XtraFleet, please update your operating authority at{' '}
+                  <a href="https://www.fmcsa.dot.gov" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200">fmcsa.dot.gov</a>.
                 </p>
               </div>
             </div>
           </div>
         )}
-
         {fmcsa.state === 'error' && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
             <div className="flex items-start gap-2">
@@ -320,9 +287,34 @@ export function CompanyProfileForm() {
           </div>
         )}
 
-        <FormField control={form.control} name="hqAddress" render={({ field }) => (
-          <FormItem><FormLabel>HQ Address *</FormLabel><FormControl><Input placeholder="e.g., 123 Main St, Anytown, USA 12345" {...field} /></FormControl><FormMessage /></FormItem>
+        <FormField control={form.control} name="legalName" render={({ field }) => (
+          <FormItem><FormLabel>Legal Name</FormLabel><FormControl><Input placeholder="Your company legal name" {...field} /></FormControl><FormMessage /></FormItem>
         )} />
+
+        <FormField control={form.control} name="phone" render={({ field }) => (
+          <FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input type="tel" placeholder="e.g., (555) 123-4567" {...field} /></FormControl><FormMessage /></FormItem>
+        )} />
+
+        {/* Address — split fields */}
+        <div>
+          <p className="text-sm font-medium mb-2">HQ Address *</p>
+          <div className="space-y-3">
+            <FormField control={form.control} name="hqStreet" render={({ field }) => (
+              <FormItem><FormControl><Input placeholder="Street address" {...field} /></FormControl><FormMessage /></FormItem>
+            )} />
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <FormField control={form.control} name="hqCity" render={({ field }) => (
+                <FormItem className="col-span-2 md:col-span-2"><FormControl><Input placeholder="City" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="hqState" render={({ field }) => (
+                <FormItem><FormControl><Input placeholder="State" maxLength={2} {...field} onChange={e => field.onChange(e.target.value.toUpperCase())} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="hqZip" render={({ field }) => (
+                <FormItem><FormControl><Input placeholder="ZIP" maxLength={10} {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+            </div>
+          </div>
+        </div>
 
         <FormField control={form.control} name="operatingStates" render={() => (
           <FormItem>
