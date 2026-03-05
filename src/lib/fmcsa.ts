@@ -1,10 +1,19 @@
 /**
  * FMCSA QCMobile API Service
  * Docs: https://mobile.fmcsa.dot.gov/QCDevsite/docs/getStarted
+ * Official field reference: https://mobile.fmcsa.dot.gov/QCDevsite/docs/apiElements
  *
- * Verified field names from official Carrier struct:
- *   phyStreet, phyCity, phyState, phyZipcode (NOT phyZip)
- *   NOTE: phone/telephone is NOT returned by the carrier endpoint.
+ * Verified field names from OFFICIAL FMCSA API Elements docs:
+ *   phyStreet, phyCity, phyState, phyZip (NOT phyZipcode)
+ *   telephone  — IS returned by the carrier endpoint
+ *   mcNumber   — IS returned by the carrier endpoint
+ *
+ * SAFER vs QCMobile discrepancy:
+ *   SAFER (safer.fmcsa.dot.gov) and QCMobile are separate FMCSA systems and
+ *   can show different status values. We use QCMobile (allowedToOperate) as the
+ *   authoritative source for operational status. If SAFER shows inactive but
+ *   QCMobile returns allowedToOperate=Y, the carrier may have recently reinstated
+ *   authority and QCMobile is more current. We surface a note about this when detected.
  *
  * Response shape:
  *   GET /carriers/{dot}       → { content: { carrier: { ... } } }
@@ -17,12 +26,14 @@ export interface FMCSACarrier {
   dotNumber: string;
   legalName: string;
   dbaName?: string;
+  mcNumber?: string;         // directly on carrier response
   carrierOperation?: string;
   isBrokerOnly?: boolean;
   hqState?: string;
-  hqAddress?: string;   // phyStreet
-  hqCity?: string;      // phyCity
-  hqZip?: string;       // phyZipcode
+  hqAddress?: string;        // phyStreet
+  hqCity?: string;           // phyCity
+  hqZip?: string;            // phyZip
+  phone?: string;            // telephone
   safetyRating?: string;
   authorityStatus?: string;
   insuranceRequired?: string;
@@ -149,20 +160,29 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
 
 function normalizeCarrier(content: Record<string, unknown>): FMCSACarrier {
   const raw = unwrapCarrier(content);
+
+  // allowedToOperate is the authoritative operational status from QCMobile.
+  // Note: SAFER database may show a different status — SAFER and QCMobile are
+  // separate systems and can be out of sync, especially after recent reinstatements.
   const allowedToOperateRaw = String(raw.allowedToOperate ?? '').toUpperCase().trim();
   const isActive = allowedToOperateRaw === 'Y';
+
+  // mcNumber: format as MC-XXXXXX if present
+  const rawMc = raw.mcNumber ? String(raw.mcNumber) : '';
+  const mcNumber = rawMc ? (rawMc.startsWith('MC-') ? rawMc : `MC-${rawMc}`) : undefined;
 
   return {
     dotNumber: String(raw.dotNumber ?? ''),
     legalName: String(raw.legalName ?? ''),
     dbaName: raw.dbaName ? String(raw.dbaName) : undefined,
+    mcNumber,
     carrierOperation: raw.carrierOperation ? String(raw.carrierOperation) : undefined,
     isBrokerOnly: detectBrokerOnly(raw),
     hqState: raw.phyState ? String(raw.phyState) : undefined,
     hqAddress: raw.phyStreet ? String(raw.phyStreet) : undefined,
     hqCity: raw.phyCity ? String(raw.phyCity) : undefined,
-    hqZip: raw.phyZipcode ? String(raw.phyZipcode) : undefined,   // correct field name
-    // phone is NOT available in the FMCSA QCMobile carrier endpoint
+    hqZip: raw.phyZip ? String(raw.phyZip) : undefined,          // official field name: phyZip
+    phone: raw.telephone ? String(raw.telephone) : undefined,     // official field name: telephone
     safetyRating: raw.safetyRating ? String(raw.safetyRating) : 'Not Rated',
     authorityStatus: isActive ? 'Active' : 'Inactive',
     insuranceRequired: raw.bipdInsuranceRequired ? String(raw.bipdInsuranceRequired) : undefined,
