@@ -3,8 +3,8 @@
  * Confirmed field names from live API response:
  *
  *   phyStreet, phyCity, phyState, phyZipcode
- *   MC number -> GET /carriers/{dot}/mc-numbers  (NOT /docket-numbers)
- *   phone     -> not available in QCMobile API at all
+ *   MC number -> GET /carriers/{dot}/mc-numbers
+ *   phone     -> scraped from SAFER HTML (not in QCMobile API)
  *   carrierOperation -> nested { carrierOperationCode, carrierOperationDesc }
  *
  * SAFER vs QCMobile:
@@ -13,6 +13,7 @@
  */
 
 const FMCSA_BASE = 'https://mobile.fmcsa.dot.gov/qc/services';
+const SAFER_QUERY = 'https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=';
 
 export interface FMCSACarrier {
   dotNumber: string;
@@ -25,7 +26,7 @@ export interface FMCSACarrier {
   hqAddress?: string;
   hqCity?: string;
   hqZip?: string;
-  phone?: string;           // not in QCMobile — user must enter manually
+  phone?: string;
   safetyRating?: string;
   authorityStatus?: string;
   insuranceRequired?: string;
@@ -82,7 +83,6 @@ async function fetchMCNumber(dot: string, webKey: string): Promise<string | unde
     const json = await res.json();
     const list: Record<string, unknown>[] = Array.isArray(json?.content) ? json.content : [];
     if (list.length === 0) return undefined;
-    // Prefer MC prefix, fall back to first entry
     const mc = list.find(d => String(d.prefix ?? '').toUpperCase() === 'MC') ?? list[0];
     if (!mc.docketNumber) return undefined;
     const prefix = mc.prefix ? String(mc.prefix) : 'MC';
@@ -92,15 +92,40 @@ async function fetchMCNumber(dot: string, webKey: string): Promise<string | unde
   }
 }
 
-async function checkSAFERInactive(dot: string): Promise<boolean> {
+interface SAFERResult {
+  inactive: boolean;
+  phone?: string;
+}
+
+/**
+ * Scrape SAFER HTML for inactive status and phone number.
+ * SAFER is the only source that exposes phone (from MCS-150 filings).
+ *
+ * The SAFER snapshot page renders a table row like:
+ *   <th scope="row">Phone:</th><td>(304) 785-0420</td>
+ */
+async function checkSAFER(dot: string): Promise<SAFERResult> {
   try {
-    const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dot}`;
-    const res = await fetch(url, { cache: 'no-store', headers: { Accept: 'text/html' } });
-    if (!res.ok) return false;
+    const res = await fetch(`${SAFER_QUERY}${dot}`, {
+      cache: 'no-store',
+      headers: { Accept: 'text/html' },
+    });
+    if (!res.ok) return { inactive: false };
     const html = await res.text();
-    return html.toUpperCase().includes('IS INACTIVE IN THE SAFER DATABASE');
+
+    const inactive = html.toUpperCase().includes('IS INACTIVE IN THE SAFER DATABASE');
+
+    // Extract phone: look for the text "Phone:" followed by a table cell
+    // SAFER HTML: Phone:</th>\s*<td...>(XXX) XXX-XXXX</td>
+    let phone: string | undefined;
+    const phoneMatch = html.match(/Phone:\s*<\/th>\s*<td[^>]*>\s*([\d\s().+-]{7,20})\s*<\/td>/i);
+    if (phoneMatch) {
+      phone = phoneMatch[1].trim();
+    }
+
+    return { inactive, phone };
   } catch {
-    return false;
+    return { inactive: false };
   }
 }
 
@@ -113,13 +138,14 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
   try {
     const webKey = getWebKey();
 
-    // Fetch carrier data and MC number in parallel
-    const [carrierRes, mcNumber] = await Promise.all([
+    // All three fetches in parallel
+    const [carrierRes, mcNumber, safer] = await Promise.all([
       fetch(`${FMCSA_BASE}/carriers/${cleaned}?webKey=${webKey}`, {
         cache: 'no-store',
         headers: { Accept: 'application/json' },
       }),
       fetchMCNumber(cleaned, webKey),
+      checkSAFER(cleaned),
     ]);
 
     if (!carrierRes.ok) {
@@ -133,11 +159,8 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
 
     const carrier = normalizeCarrier(content);
     if (mcNumber) carrier.mcNumber = mcNumber;
-
-    if (carrier.allowedToOperate) {
-      const saferInactive = await checkSAFERInactive(cleaned);
-      if (saferInactive) carrier.saferDiscrepancy = true;
-    }
+    if (safer.phone) carrier.phone = safer.phone;
+    if (carrier.allowedToOperate && safer.inactive) carrier.saferDiscrepancy = true;
 
     return { success: true, carrier, raw: content };
   } catch (err: unknown) {
