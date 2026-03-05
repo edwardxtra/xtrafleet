@@ -22,31 +22,45 @@ export type Driver = {
   ownerId?: string;
   isActive?: boolean;
   isSelfDriver?: boolean; // OO added themselves as a driver — no separate Auth account
+  // CDL
   cdlLicense?: string;
+  cdlState?: string;
+  cdlClass?: string;
   cdlExpiry?: string;
   cdlLicenseUrl?: string;
   cdlDocumentUrl?: string;
+  endorsements?: string | string[];
+  // Medical
   medicalCardExpiry?: string;
   medicalCardUrl?: string;
+  // Insurance / COI — saved from driver-profile-completion.tsx
   insuranceExpiry?: string;
   insuranceUrl?: string;
+  insurerName?: string;
+  insurancePolicyNumber?: string;
+  // MVR
   motorVehicleRecordNumber?: string;
   mvrUrl?: string;
+  // Background & screenings
   backgroundCheckDate?: string;
   backgroundCheckUrl?: string;
   preEmploymentScreeningDate?: string;
   preEmploymentScreeningUrl?: string;
   drugAndAlcoholScreeningDate?: string;
   drugAndAlcoholScreeningUrl?: string;
-  rating?: number;
-  reviews?: Review[];
-  phoneNumber?: string;
-  phone?: string;
-  endorsements?: string;
+  // Compliance / profile status
   clearinghouseStatus?: string;
+  authorizationConsent?: boolean;
+  verificationConsent?: boolean;
   dqfStatus?: string;
   profileStatus?: string;
   profileComplete?: boolean;
+  // Ratings
+  rating?: number;
+  reviews?: Review[];
+  // Contact
+  phoneNumber?: string;
+  phone?: string;
 };
 
 export type Load = {
@@ -62,6 +76,10 @@ export type Load = {
   ownerId?: string;
   price?: number;
   pickupDate?: string;
+  route?: {
+    distanceText?: string;
+    durationText?: string;
+  };
 };
 
 export type BillingHistoryItem = {
