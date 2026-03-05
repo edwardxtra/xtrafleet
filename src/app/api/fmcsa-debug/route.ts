@@ -1,7 +1,7 @@
 /**
  * DEBUG ONLY — remove before production
  * GET /api/fmcsa-debug?dot=3576923
- * Returns the raw QCMobile response so we can see the exact field names.
+ * Fetches carrier + docket-numbers + basics endpoints and returns all raw responses.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { withCors } from '@/lib/api-cors';
@@ -21,19 +21,36 @@ async function handleGet(request: NextRequest) {
   const webKey = process.env.FMCSA_WEB_KEY;
   if (!webKey) return NextResponse.json({ error: 'FMCSA_WEB_KEY not set' }, { status: 500 });
 
-  const url = `https://mobile.fmcsa.dot.gov/qc/services/carriers/${dot}?webKey=${webKey}`;
-  const res = await fetch(url, { cache: 'no-store', headers: { Accept: 'application/json' } });
-  const json = await res.json();
+  const base = `https://mobile.fmcsa.dot.gov/qc/services/carriers/${dot}`;
 
-  // Return the full raw response — content, all keys, all values
-  const content = json?.content;
-  const carrier = content?.carrier ?? content;
+  const [carrierRes, docketRes, basicsRes] = await Promise.all([
+    fetch(`${base}?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
+    fetch(`${base}/docket-numbers?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
+    fetch(`${base}/basics?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
+  ]);
+
+  const [carrierJson, docketJson, basicsJson] = await Promise.all([
+    carrierRes.json().catch(() => null),
+    docketRes.json().catch(() => null),
+    basicsRes.json().catch(() => null),
+  ]);
+
+  const carrier = carrierJson?.content?.carrier ?? carrierJson?.content ?? null;
 
   return NextResponse.json({
-    status: res.status,
-    rawContent: content,
-    carrierKeys: carrier ? Object.keys(carrier) : [],
-    carrier,
+    carrier: {
+      status: carrierRes.status,
+      keys: carrier ? Object.keys(carrier) : [],
+      data: carrier,
+    },
+    docketNumbers: {
+      status: docketRes.status,
+      data: docketJson,
+    },
+    basics: {
+      status: basicsRes.status,
+      data: basicsJson,
+    },
   });
 }
 
