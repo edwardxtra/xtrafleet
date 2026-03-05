@@ -1,24 +1,22 @@
 /**
  * FMCSA QCMobile API Service
- * Docs: https://mobile.fmcsa.dot.gov/QCDevsite/docs/getStarted
- * Official field reference: https://mobile.fmcsa.dot.gov/QCDevsite/docs/apiElements
+ * Confirmed field names from live API response (DOT 3576923):
  *
- * Field name paranoia: the official docs, the Go client library, and the actual
- * API response have been observed to use different casings/names. We try all
- * known variants for each field so a rename in the upstream API doesn't silently
- * break population.
+ *   phyStreet, phyCity, phyState, phyZipcode   <- ZIP is phyZipcode NOT phyZip
+ *   telephone                                   <- NOT in carrier endpoint, comes from SAFER only
+ *   mcNumber                                    <- NOT in carrier endpoint, must fetch /docket-numbers
+ *   carrierOperation                            <- nested object { carrierOperationCode, carrierOperationDesc }
  *
  * SAFER vs QCMobile:
- *   These are two separate FMCSA databases. QCMobile (allowedToOperate) is more
- *   current. SAFER can lag after reinstatements. When they disagree we set
- *   saferDiscrepancy=true so the UI can warn the user.
+ *   QCMobile allowedToOperate is authoritative for operational status.
+ *   SAFER can lag after reinstatements. When they disagree we set saferDiscrepancy=true.
  *
  * Response shape:
- *   GET /carriers/{dot}       -> { content: { carrier: { ... } } }
- *   GET /carriers/docket/{mc} -> { content: [ { carrier: { ... } } ] }
+ *   GET /carriers/{dot}               -> { carrier: { ... } }
+ *   GET /carriers/{dot}/docket-numbers -> { content: [ { docketNumber, prefix, docketNumberId } ] }
  */
 
-const FMCSA_BASE_URL = 'https://mobile.fmcsa.dot.gov/qc/services';
+const FMCSA_BASE = 'https://mobile.fmcsa.dot.gov/qc/services';
 
 export interface FMCSACarrier {
   dotNumber: string;
@@ -28,10 +26,10 @@ export interface FMCSACarrier {
   carrierOperation?: string;
   isBrokerOnly?: boolean;
   hqState?: string;
-  hqAddress?: string;   // phyStreet
-  hqCity?: string;      // phyCity
-  hqZip?: string;       // phyZip / phyZipcode
-  phone?: string;       // telephone / phone
+  hqAddress?: string;
+  hqCity?: string;
+  hqZip?: string;
+  phone?: string;
   safetyRating?: string;
   authorityStatus?: string;
   insuranceRequired?: string;
@@ -57,8 +55,7 @@ function getWebKey(): string {
 }
 
 function cleanDOT(dotNumber: string): string {
-  const digitsOnly = dotNumber.replace(/\D/g, '');
-  return String(parseInt(digitsOnly, 10));
+  return String(parseInt(dotNumber.replace(/\D/g, ''), 10));
 }
 
 function unwrapCarrier(content: Record<string, unknown>): Record<string, unknown> {
@@ -68,40 +65,50 @@ function unwrapCarrier(content: Record<string, unknown>): Record<string, unknown
   return content;
 }
 
-/**
- * Try multiple field name variants and return the first one that has a value.
- * This guards against discrepancies between the FMCSA API docs, the Go client
- * library, and the actual live response payload.
- */
-function pick(raw: Record<string, unknown>, ...keys: string[]): string | undefined {
-  for (const key of keys) {
-    const val = raw[key];
-    if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '0') {
-      return String(val).trim();
-    }
-  }
-  return undefined;
-}
-
 function detectBrokerOnly(raw: Record<string, unknown>): boolean {
   const brokerAuth = String(raw.brokerAuthorityStatus ?? '').toUpperCase().trim();
   const commonAuth = String(raw.commonAuthorityStatus ?? '').toUpperCase().trim();
   const contractAuth = String(raw.contractAuthorityStatus ?? '').toUpperCase().trim();
-  const carrierOp = String(raw.carrierOperation ?? '').toUpperCase().trim();
-  const hasActiveCarrierAuthority = commonAuth === 'A' || contractAuth === 'A';
-  const hasActiveBrokerAuthority = brokerAuth === 'A';
-  const neitherCarrierNorBoth = !['A', 'B', 'C'].includes(carrierOp) || carrierOp === 'BROKER';
-  return hasActiveBrokerAuthority && !hasActiveCarrierAuthority && neitherCarrierNorBoth;
+  const hasActiveCarrier = commonAuth === 'A' || contractAuth === 'A';
+  const hasActiveBroker = brokerAuth === 'A';
+  return hasActiveBroker && !hasActiveCarrier;
 }
 
 /**
- * Check SAFER to see if the carrier is listed as inactive there.
- * Returns true if SAFER says INACTIVE, false otherwise (fail open on error).
+ * Fetch MC number from the docket-numbers sub-resource.
+ * Returns "MC-XXXXXXX" or undefined if not found.
  */
-async function checkSAFERInactive(dotNumber: string): Promise<boolean> {
+async function fetchMCNumber(dot: string, webKey: string): Promise<string | undefined> {
   try {
-    const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}`;
-    const res = await fetch(url, { cache: 'no-store', headers: { 'Accept': 'text/html' } });
+    const res = await fetch(`${FMCSA_BASE}/carriers/${dot}/docket-numbers?webKey=${webKey}`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return undefined;
+    const json = await res.json();
+    const list = Array.isArray(json?.content) ? json.content : [];
+    // Find MC (prefix = 'MC') or FF number
+    const mc = list.find((d: Record<string, unknown>) =>
+      String(d.prefix ?? '').toUpperCase() === 'MC'
+    );
+    if (mc?.docketNumber) {
+      return `MC-${mc.docketNumber}`;
+    }
+    // Fallback: return first docket number regardless of prefix
+    if (list.length > 0 && list[0].docketNumber) {
+      const prefix = list[0].prefix ? `${list[0].prefix}-` : 'MC-';
+      return `${prefix}${list[0].docketNumber}`;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function checkSAFERInactive(dot: string): Promise<boolean> {
+  try {
+    const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dot}`;
+    const res = await fetch(url, { cache: 'no-store', headers: { Accept: 'text/html' } });
     if (!res.ok) return false;
     const html = await res.text();
     return html.toUpperCase().includes('IS INACTIVE IN THE SAFER DATABASE');
@@ -118,43 +125,39 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
 
   try {
     const webKey = getWebKey();
-    const url = `${FMCSA_BASE_URL}/carriers/${cleaned}?webKey=${webKey}`;
-    console.log(`[FMCSA] lookupByDOT — requesting DOT ${cleaned}`);
 
-    const res = await fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json' } });
-    console.log(`[FMCSA] lookupByDOT — HTTP ${res.status} for DOT ${cleaned}`);
+    // Fetch carrier + docket numbers in parallel
+    const [carrierRes, mcNumber] = await Promise.all([
+      fetch(`${FMCSA_BASE}/carriers/${cleaned}?webKey=${webKey}`, {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      }),
+      fetchMCNumber(cleaned, webKey),
+    ]);
 
-    if (!res.ok) {
-      if (res.status === 404) return { success: false, error: 'DOT number not found in FMCSA records' };
-      return { success: false, error: `FMCSA API error: ${res.status}` };
+    if (!carrierRes.ok) {
+      if (carrierRes.status === 404) return { success: false, error: 'DOT number not found in FMCSA records' };
+      return { success: false, error: `FMCSA API error: ${carrierRes.status}` };
     }
 
-    const json = await res.json();
+    const json = await carrierRes.json();
     const content = json?.content;
-    // Log ALL keys so we can see exactly what FMCSA returns
-    const raw = unwrapCarrier(content ?? {});
-    console.log(`[FMCSA] DOT ${cleaned} raw keys:`, Object.keys(raw));
-    console.log(`[FMCSA] DOT ${cleaned} raw values:`, JSON.stringify(raw, null, 2));
-
     if (!content) return { success: false, error: 'No carrier data returned for this DOT number' };
 
     const carrier = normalizeCarrier(content);
+    if (mcNumber) carrier.mcNumber = mcNumber;
 
     // Cross-check SAFER if QCMobile says active
     if (carrier.allowedToOperate) {
       const saferInactive = await checkSAFERInactive(cleaned);
-      if (saferInactive) {
-        carrier.saferDiscrepancy = true;
-        console.log(`[FMCSA] DOT ${cleaned}: QCMobile=active but SAFER=inactive — flagging discrepancy`);
-      }
+      if (saferInactive) carrier.saferDiscrepancy = true;
     }
 
     return { success: true, carrier, raw: content };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[FMCSA] lookupByDOT error:', message);
     if (message === 'FMCSA_WEB_KEY_MISSING') {
-      return { success: false, error: 'FMCSA API key not configured — add FMCSA_WEB_KEY to environment variables' };
+      return { success: false, error: 'FMCSA API key not configured' };
     }
     return { success: false, error: 'Failed to reach FMCSA API' };
   }
@@ -166,11 +169,10 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
 
   try {
     const webKey = getWebKey();
-    const url = `${FMCSA_BASE_URL}/carriers/docket-number/${cleaned}?webKey=${webKey}`;
-    console.log(`[FMCSA] lookupByMC — requesting MC ${cleaned}`);
-
-    const res = await fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json' } });
-    console.log(`[FMCSA] lookupByMC — HTTP ${res.status} for MC ${cleaned}`);
+    const res = await fetch(`${FMCSA_BASE}/carriers/docket-number/${cleaned}?webKey=${webKey}`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
 
     if (!res.ok) {
       if (res.status === 404) return { success: false, error: 'MC number not found in FMCSA records' };
@@ -182,12 +184,12 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
     if (!content) return { success: false, error: 'No carrier data returned for this MC number' };
 
     const carrier = normalizeCarrier(content);
+    if (!carrier.mcNumber) carrier.mcNumber = `MC-${cleaned}`;
     return { success: true, carrier, raw: content };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[FMCSA] lookupByMC error:', message);
     if (message === 'FMCSA_WEB_KEY_MISSING') {
-      return { success: false, error: 'FMCSA API key not configured — add FMCSA_WEB_KEY to environment variables' };
+      return { success: false, error: 'FMCSA API key not configured' };
     }
     return { success: false, error: 'Failed to reach FMCSA API' };
   }
@@ -196,38 +198,33 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
 function normalizeCarrier(content: Record<string, unknown>): FMCSACarrier {
   const raw = unwrapCarrier(content);
 
-  const allowedToOperateRaw = String(raw.allowedToOperate ?? '').toUpperCase().trim();
-  const isActive = allowedToOperateRaw === 'Y';
+  const isActive = String(raw.allowedToOperate ?? '').toUpperCase().trim() === 'Y';
 
-  // MC number — try all known field name variants
-  const rawMc = pick(raw, 'mcNumber', 'mcNum', 'mcmisNumber', 'docketNumber') ?? '';
-  const mcNumber = rawMc ? (rawMc.startsWith('MC-') ? rawMc : `MC-${rawMc}`) : undefined;
-
-  // ZIP — official docs say phyZip, Go library uses phyZipcode, try both
-  const hqZip = pick(raw, 'phyZip', 'phyZipcode', 'physicalZip', 'zipCode', 'zip');
-
-  // Phone — official docs say telephone, try variants
-  const phone = pick(raw, 'telephone', 'phone', 'phoneNumber', 'telNumber');
+  // carrierOperation is a nested object in the real API response
+  const carrierOpRaw = raw.carrierOperation;
+  const carrierOperation = carrierOpRaw && typeof carrierOpRaw === 'object'
+    ? String((carrierOpRaw as Record<string, unknown>).carrierOperationDesc ?? '')
+    : carrierOpRaw ? String(carrierOpRaw) : undefined;
 
   return {
     dotNumber: String(raw.dotNumber ?? ''),
     legalName: String(raw.legalName ?? ''),
-    dbaName: pick(raw, 'dbaName', 'dba'),
-    mcNumber,
-    carrierOperation: pick(raw, 'carrierOperation', 'carrierOperationCode'),
+    dbaName: raw.dbaName ? String(raw.dbaName) : undefined,
+    mcNumber: undefined, // populated after fetchMCNumber()
+    carrierOperation,
     isBrokerOnly: detectBrokerOnly(raw),
-    hqState: pick(raw, 'phyState', 'physicalState', 'state'),
-    hqAddress: pick(raw, 'phyStreet', 'physicalStreet', 'street'),
-    hqCity: pick(raw, 'phyCity', 'physicalCity', 'city'),
-    hqZip,
-    phone,
-    safetyRating: pick(raw, 'safetyRating', 'safetyRatingDesc') ?? 'Not Rated',
+    hqState: raw.phyState ? String(raw.phyState) : undefined,
+    hqAddress: raw.phyStreet ? String(raw.phyStreet) : undefined,
+    hqCity: raw.phyCity ? String(raw.phyCity) : undefined,
+    hqZip: raw.phyZipcode ? String(raw.phyZipcode) : undefined,  // confirmed: phyZipcode
+    phone: undefined,                                              // not in carrier endpoint
+    safetyRating: raw.safetyRating ? String(raw.safetyRating) : 'Not Rated',
     authorityStatus: isActive ? 'Active' : 'Inactive',
-    insuranceRequired: pick(raw, 'bipdInsuranceRequired'),
-    insuranceOnFile: pick(raw, 'bipdInsuranceOnFile'),
-    bicInsurance: pick(raw, 'bondInsuranceOnFile'),
-    cargoInsuranceRequired: pick(raw, 'cargoInsuranceRequired'),
-    cargoInsuranceOnFile: pick(raw, 'cargoInsuranceOnFile'),
+    insuranceRequired: raw.bipdInsuranceRequired ? String(raw.bipdInsuranceRequired) : undefined,
+    insuranceOnFile: raw.bipdInsuranceOnFile ? String(raw.bipdInsuranceOnFile) : undefined,
+    bicInsurance: raw.bondInsuranceOnFile ? String(raw.bondInsuranceOnFile) : undefined,
+    cargoInsuranceRequired: raw.cargoInsuranceRequired ? String(raw.cargoInsuranceRequired) : undefined,
+    cargoInsuranceOnFile: raw.cargoInsuranceOnFile ? String(raw.cargoInsuranceOnFile) : undefined,
     allowedToOperate: isActive,
     saferDiscrepancy: false,
   };
