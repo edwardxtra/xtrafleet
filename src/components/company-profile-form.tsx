@@ -85,7 +85,6 @@ export function CompanyProfileForm() {
           if (data.hqCity) form.setValue('hqCity', data.hqCity);
           if (data.hqState) form.setValue('hqState', data.hqState);
           if (data.hqZip) form.setValue('hqZip', data.hqZip);
-          // Legacy: if old single-field address exists, put it in street
           if (!data.hqStreet && data.hqAddress) form.setValue('hqStreet', data.hqAddress);
           if (data.operatingStates?.length) form.setValue('operatingStates', data.operatingStates);
           if (data.coi) setCoiData(data.coi);
@@ -116,8 +115,9 @@ export function CompanyProfileForm() {
       }
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
 
-      // Populate each address field separately
       if (carrier.legalName) form.setValue('legalName', carrier.legalName, { shouldValidate: true });
+      if (carrier.mcNumber) form.setValue('mcNumber', carrier.mcNumber, { shouldValidate: true });
+      if (carrier.phone) form.setValue('phone', carrier.phone, { shouldValidate: true });
       if (carrier.hqAddress) form.setValue('hqStreet', carrier.hqAddress, { shouldValidate: true });
       if (carrier.hqCity) form.setValue('hqCity', carrier.hqCity, { shouldValidate: true });
       if (carrier.hqState) form.setValue('hqState', carrier.hqState, { shouldValidate: true });
@@ -186,7 +186,6 @@ export function CompanyProfileForm() {
       formData.append('hqCity', values.hqCity || '');
       formData.append('hqState', values.hqState || '');
       formData.append('hqZip', values.hqZip || '');
-      // Compose legacy hqAddress for backward compatibility
       const hqAddress = [values.hqStreet, values.hqCity, values.hqState, values.hqZip].filter(Boolean).join(', ');
       formData.append('hqAddress', hqAddress);
       formData.append('operatingStates', JSON.stringify(values.operatingStates || []));
@@ -239,7 +238,7 @@ export function CompanyProfileForm() {
           )} />
 
           <FormField control={form.control} name="mcNumber" render={({ field }) => (
-            <FormItem><FormLabel>MC Number *</FormLabel><FormControl><Input placeholder="e.g., 987654" {...field} /></FormControl><FormMessage /></FormItem>
+            <FormItem><FormLabel>MC Number *</FormLabel><FormControl><Input placeholder="e.g., MC-987654" {...field} /></FormControl><FormMessage /></FormItem>
           )} />
         </div>
 
@@ -295,22 +294,38 @@ export function CompanyProfileForm() {
           <FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input type="tel" placeholder="e.g., (555) 123-4567" {...field} /></FormControl><FormMessage /></FormItem>
         )} />
 
-        {/* Address — split fields */}
+        {/* Split address fields with explicit labels */}
         <div>
           <p className="text-sm font-medium mb-2">HQ Address *</p>
           <div className="space-y-3">
             <FormField control={form.control} name="hqStreet" render={({ field }) => (
-              <FormItem><FormControl><Input placeholder="Street address" {...field} /></FormControl><FormMessage /></FormItem>
+              <FormItem>
+                <FormLabel className="text-xs text-muted-foreground">Street</FormLabel>
+                <FormControl><Input placeholder="e.g., 123 Main St" {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
             )} />
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <FormField control={form.control} name="hqCity" render={({ field }) => (
-                <FormItem className="col-span-2 md:col-span-2"><FormControl><Input placeholder="City" {...field} /></FormControl><FormMessage /></FormItem>
+                <FormItem className="col-span-2 md:col-span-2">
+                  <FormLabel className="text-xs text-muted-foreground">City</FormLabel>
+                  <FormControl><Input placeholder="e.g., Baltimore" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
               )} />
               <FormField control={form.control} name="hqState" render={({ field }) => (
-                <FormItem><FormControl><Input placeholder="State" maxLength={2} {...field} onChange={e => field.onChange(e.target.value.toUpperCase())} /></FormControl><FormMessage /></FormItem>
+                <FormItem>
+                  <FormLabel className="text-xs text-muted-foreground">State</FormLabel>
+                  <FormControl><Input placeholder="e.g., MD" maxLength={2} {...field} onChange={e => field.onChange(e.target.value.toUpperCase())} /></FormControl>
+                  <FormMessage />
+                </FormItem>
               )} />
               <FormField control={form.control} name="hqZip" render={({ field }) => (
-                <FormItem><FormControl><Input placeholder="ZIP" maxLength={10} {...field} /></FormControl><FormMessage /></FormItem>
+                <FormItem>
+                  <FormLabel className="text-xs text-muted-foreground">ZIP</FormLabel>
+                  <FormControl><Input placeholder="e.g., 21201" maxLength={10} {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
               )} />
             </div>
           </div>
