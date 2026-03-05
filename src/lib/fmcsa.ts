@@ -1,19 +1,15 @@
 /**
  * FMCSA QCMobile API Service
- * Confirmed field names from live API response (DOT 3576923):
+ * Confirmed field names from live API response:
  *
- *   phyStreet, phyCity, phyState, phyZipcode   <- ZIP is phyZipcode NOT phyZip
- *   telephone                                   <- NOT in carrier endpoint, comes from SAFER only
- *   mcNumber                                    <- NOT in carrier endpoint, must fetch /docket-numbers
- *   carrierOperation                            <- nested object { carrierOperationCode, carrierOperationDesc }
+ *   phyStreet, phyCity, phyState, phyZipcode
+ *   MC number -> GET /carriers/{dot}/mc-numbers  (NOT /docket-numbers)
+ *   phone     -> not available in QCMobile API at all
+ *   carrierOperation -> nested { carrierOperationCode, carrierOperationDesc }
  *
  * SAFER vs QCMobile:
- *   QCMobile allowedToOperate is authoritative for operational status.
- *   SAFER can lag after reinstatements. When they disagree we set saferDiscrepancy=true.
- *
- * Response shape:
- *   GET /carriers/{dot}               -> { carrier: { ... } }
- *   GET /carriers/{dot}/docket-numbers -> { content: [ { docketNumber, prefix, docketNumberId } ] }
+ *   QCMobile allowedToOperate is authoritative. SAFER can lag after reinstatements.
+ *   When they disagree we set saferDiscrepancy=true for the UI to warn the user.
  */
 
 const FMCSA_BASE = 'https://mobile.fmcsa.dot.gov/qc/services';
@@ -29,7 +25,7 @@ export interface FMCSACarrier {
   hqAddress?: string;
   hqCity?: string;
   hqZip?: string;
-  phone?: string;
+  phone?: string;           // not in QCMobile — user must enter manually
   safetyRating?: string;
   authorityStatus?: string;
   insuranceRequired?: string;
@@ -69,37 +65,28 @@ function detectBrokerOnly(raw: Record<string, unknown>): boolean {
   const brokerAuth = String(raw.brokerAuthorityStatus ?? '').toUpperCase().trim();
   const commonAuth = String(raw.commonAuthorityStatus ?? '').toUpperCase().trim();
   const contractAuth = String(raw.contractAuthorityStatus ?? '').toUpperCase().trim();
-  const hasActiveCarrier = commonAuth === 'A' || contractAuth === 'A';
-  const hasActiveBroker = brokerAuth === 'A';
-  return hasActiveBroker && !hasActiveCarrier;
+  return brokerAuth === 'A' && commonAuth !== 'A' && contractAuth !== 'A';
 }
 
 /**
- * Fetch MC number from the docket-numbers sub-resource.
- * Returns "MC-XXXXXXX" or undefined if not found.
+ * Fetch MC number from /carriers/{dot}/mc-numbers
+ * Response: { content: [{ docketNumber, docketNumberId, dotNumber, prefix }] }
  */
 async function fetchMCNumber(dot: string, webKey: string): Promise<string | undefined> {
   try {
-    const res = await fetch(`${FMCSA_BASE}/carriers/${dot}/docket-numbers?webKey=${webKey}`, {
+    const res = await fetch(`${FMCSA_BASE}/carriers/${dot}/mc-numbers?webKey=${webKey}`, {
       cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) return undefined;
     const json = await res.json();
-    const list = Array.isArray(json?.content) ? json.content : [];
-    // Find MC (prefix = 'MC') or FF number
-    const mc = list.find((d: Record<string, unknown>) =>
-      String(d.prefix ?? '').toUpperCase() === 'MC'
-    );
-    if (mc?.docketNumber) {
-      return `MC-${mc.docketNumber}`;
-    }
-    // Fallback: return first docket number regardless of prefix
-    if (list.length > 0 && list[0].docketNumber) {
-      const prefix = list[0].prefix ? `${list[0].prefix}-` : 'MC-';
-      return `${prefix}${list[0].docketNumber}`;
-    }
-    return undefined;
+    const list: Record<string, unknown>[] = Array.isArray(json?.content) ? json.content : [];
+    if (list.length === 0) return undefined;
+    // Prefer MC prefix, fall back to first entry
+    const mc = list.find(d => String(d.prefix ?? '').toUpperCase() === 'MC') ?? list[0];
+    if (!mc.docketNumber) return undefined;
+    const prefix = mc.prefix ? String(mc.prefix) : 'MC';
+    return `${prefix}-${mc.docketNumber}`;
   } catch {
     return undefined;
   }
@@ -126,7 +113,7 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
   try {
     const webKey = getWebKey();
 
-    // Fetch carrier + docket numbers in parallel
+    // Fetch carrier data and MC number in parallel
     const [carrierRes, mcNumber] = await Promise.all([
       fetch(`${FMCSA_BASE}/carriers/${cleaned}?webKey=${webKey}`, {
         cache: 'no-store',
@@ -147,7 +134,6 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
     const carrier = normalizeCarrier(content);
     if (mcNumber) carrier.mcNumber = mcNumber;
 
-    // Cross-check SAFER if QCMobile says active
     if (carrier.allowedToOperate) {
       const saferInactive = await checkSAFERInactive(cleaned);
       if (saferInactive) carrier.saferDiscrepancy = true;
@@ -197,10 +183,8 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
 
 function normalizeCarrier(content: Record<string, unknown>): FMCSACarrier {
   const raw = unwrapCarrier(content);
-
   const isActive = String(raw.allowedToOperate ?? '').toUpperCase().trim() === 'Y';
 
-  // carrierOperation is a nested object in the real API response
   const carrierOpRaw = raw.carrierOperation;
   const carrierOperation = carrierOpRaw && typeof carrierOpRaw === 'object'
     ? String((carrierOpRaw as Record<string, unknown>).carrierOperationDesc ?? '')
@@ -210,14 +194,14 @@ function normalizeCarrier(content: Record<string, unknown>): FMCSACarrier {
     dotNumber: String(raw.dotNumber ?? ''),
     legalName: String(raw.legalName ?? ''),
     dbaName: raw.dbaName ? String(raw.dbaName) : undefined,
-    mcNumber: undefined, // populated after fetchMCNumber()
+    mcNumber: undefined,
     carrierOperation,
     isBrokerOnly: detectBrokerOnly(raw),
     hqState: raw.phyState ? String(raw.phyState) : undefined,
     hqAddress: raw.phyStreet ? String(raw.phyStreet) : undefined,
     hqCity: raw.phyCity ? String(raw.phyCity) : undefined,
-    hqZip: raw.phyZipcode ? String(raw.phyZipcode) : undefined,  // confirmed: phyZipcode
-    phone: undefined,                                              // not in carrier endpoint
+    hqZip: raw.phyZipcode ? String(raw.phyZipcode) : undefined,
+    phone: undefined,
     safetyRating: raw.safetyRating ? String(raw.safetyRating) : 'Not Rated',
     authorityStatus: isActive ? 'Active' : 'Inactive',
     insuranceRequired: raw.bipdInsuranceRequired ? String(raw.bipdInsuranceRequired) : undefined,
