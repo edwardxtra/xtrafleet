@@ -34,8 +34,7 @@ const profileFormSchema = z.object({
 });
 
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
-
-type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'verified_inactive' | 'error';
+type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'verified_safer_discrepancy' | 'verified_inactive' | 'error';
 
 interface FMCSAVerification {
   state: VerificationState;
@@ -123,10 +122,12 @@ export function CompanyProfileForm() {
       if (carrier.hqState) form.setValue('hqState', carrier.hqState, { shouldValidate: true });
       if (carrier.hqZip) form.setValue('hqZip', carrier.hqZip, { shouldValidate: true });
 
-      if (carrier.allowedToOperate) {
-        setFmcsa({ state: 'verified', carrier });
-      } else {
+      if (!carrier.allowedToOperate) {
         setFmcsa({ state: 'verified_inactive', carrier });
+      } else if (carrier.saferDiscrepancy) {
+        setFmcsa({ state: 'verified_safer_discrepancy', carrier });
+      } else {
+        setFmcsa({ state: 'verified', carrier });
       }
     } catch {
       setFmcsa({ state: 'error', errorMessage: 'Could not reach FMCSA. Check your connection.' });
@@ -140,7 +141,7 @@ export function CompanyProfileForm() {
     if (numbersOnly.length === 0) { setFmcsa({ state: 'idle' }); return; }
     if (numbersOnly.length < DOT_MIN_DIGITS) { setFmcsa({ state: 'idle' }); return; }
     setFmcsa(prev =>
-      prev.state !== 'loading' && prev.state !== 'verified' && prev.state !== 'verified_inactive'
+      prev.state !== 'loading' && prev.state !== 'verified' && prev.state !== 'verified_inactive' && prev.state !== 'verified_safer_discrepancy'
         ? { state: 'typing' } : prev
     );
     dotDebounceRef.current = setTimeout(() => verifyDOT(numbersOnly), 800);
@@ -164,18 +165,15 @@ export function CompanyProfileForm() {
   const onSubmit = (values: ProfileFormValues) => {
     const hasCoiData = !!(coiData.fileUrl || (coiData.insurerName && coiData.policyNumber && coiData.expiryDate));
     const hasAddress = !!(values.hqStreet && values.hqCity && values.hqState);
-
     const missingFields: string[] = [];
     if (!values.dotNumber) missingFields.push('DOT #');
     if (!values.mcNumber) missingFields.push('MC #');
     if (!hasAddress) missingFields.push('HQ Address');
     if (!values.operatingStates?.length) missingFields.push('Operating States');
     if (!hasCoiData) missingFields.push('Certificate of Insurance');
-
     if (missingFields.length > 0) {
       toast({ title: "Incomplete Profile", description: `Missing: ${missingFields.join(', ')}. Your progress has been saved — complete these fields to unlock all features.`, variant: "default" });
     }
-
     startTransition(async () => {
       const formData = new FormData();
       formData.append('legalName', values.legalName);
@@ -205,29 +203,24 @@ export function CompanyProfileForm() {
   };
 
   const showSpinner = fmcsa.state === 'typing' || fmcsa.state === 'loading';
+  const isVerifiedActive = fmcsa.state === 'verified' || fmcsa.state === 'verified_safer_discrepancy';
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
 
-        {/* DOT first — everything else populates from it */}
+        {/* DOT first */}
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <FormField control={form.control} name="dotNumber" render={({ field }) => (
             <FormItem>
               <FormLabel>DOT Number *</FormLabel>
               <div className="relative">
                 <FormControl>
-                  <Input
-                    placeholder="e.g., 1234567"
-                    {...field}
-                    inputMode="numeric"
-                    onChange={(e) => handleDOTChange(e.target.value)}
-                    className="pr-9"
-                  />
+                  <Input placeholder="e.g., 1234567" {...field} inputMode="numeric" onChange={(e) => handleDOTChange(e.target.value)} className="pr-9" />
                 </FormControl>
                 <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
                   {showSpinner && <SpinnerIcon className="h-4 w-4 animate-spin text-muted-foreground" />}
-                  {fmcsa.state === 'verified' && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                  {isVerifiedActive && <CheckCircle2 className="h-4 w-4 text-green-500" />}
                   {fmcsa.state === 'verified_inactive' && <AlertTriangle className="h-4 w-4 text-amber-500" />}
                   {fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
                 </div>
@@ -236,13 +229,12 @@ export function CompanyProfileForm() {
               <FormMessage />
             </FormItem>
           )} />
-
           <FormField control={form.control} name="mcNumber" render={({ field }) => (
             <FormItem><FormLabel>MC Number *</FormLabel><FormControl><Input placeholder="e.g., MC-987654" {...field} /></FormControl><FormMessage /></FormItem>
           )} />
         </div>
 
-        {/* FMCSA verification banners */}
+        {/* FMCSA banners */}
         {fmcsa.state === 'verified' && fmcsa.carrier && (
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
             <div className="flex items-start gap-2">
@@ -259,6 +251,22 @@ export function CompanyProfileForm() {
             </div>
           </div>
         )}
+        {fmcsa.state === 'verified_safer_discrepancy' && fmcsa.carrier && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+              <div className="text-sm">
+                <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Status Mismatch</p>
+                <p className="text-amber-700 dark:text-amber-400">
+                  {fmcsa.carrier.legalName} is authorized to operate per QCMobile, but the SAFER database shows this DOT as inactive.
+                  This usually means authority was recently reinstated and SAFER hasn&apos;t synced yet.
+                  Your profile has been pre-filled. If you believe this is an error, visit{' '}
+                  <a href="https://www.fmcsa.dot.gov/registration/dataqs" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900">FMCSA DataQs</a> to dispute it.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         {fmcsa.state === 'verified_inactive' && fmcsa.carrier && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
             <div className="flex items-start gap-2">
@@ -267,8 +275,8 @@ export function CompanyProfileForm() {
                 <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
                 <p className="text-amber-700 dark:text-amber-400">
                   {fmcsa.carrier.legalName} was found in FMCSA records but is not currently authorized to operate.
-                  Your profile information has been pre-filled. To be fully verified on XtraFleet, please update your operating authority at{' '}
-                  <a href="https://www.fmcsa.dot.gov" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200">fmcsa.dot.gov</a>.
+                  Your profile has been pre-filled. To be fully verified on XtraFleet, update your authority at{' '}
+                  <a href="https://www.fmcsa.dot.gov" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900">fmcsa.dot.gov</a>.
                 </p>
               </div>
             </div>
@@ -294,14 +302,14 @@ export function CompanyProfileForm() {
           <FormItem><FormLabel>Phone Number</FormLabel><FormControl><Input type="tel" placeholder="e.g., (555) 123-4567" {...field} /></FormControl><FormMessage /></FormItem>
         )} />
 
-        {/* Split address fields with explicit labels */}
+        {/* Split address with labels */}
         <div>
           <p className="text-sm font-medium mb-2">HQ Address *</p>
           <div className="space-y-3">
             <FormField control={form.control} name="hqStreet" render={({ field }) => (
               <FormItem>
                 <FormLabel className="text-xs text-muted-foreground">Street</FormLabel>
-                <FormControl><Input placeholder="e.g., 123 Main St" {...field} /></FormControl>
+                <FormControl><Input placeholder="e.g., 115 Wood Rail Ln" {...field} /></FormControl>
                 <FormMessage />
               </FormItem>
             )} />
@@ -309,21 +317,21 @@ export function CompanyProfileForm() {
               <FormField control={form.control} name="hqCity" render={({ field }) => (
                 <FormItem className="col-span-2 md:col-span-2">
                   <FormLabel className="text-xs text-muted-foreground">City</FormLabel>
-                  <FormControl><Input placeholder="e.g., Baltimore" {...field} /></FormControl>
+                  <FormControl><Input placeholder="e.g., Van" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
               <FormField control={form.control} name="hqState" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-xs text-muted-foreground">State</FormLabel>
-                  <FormControl><Input placeholder="e.g., MD" maxLength={2} {...field} onChange={e => field.onChange(e.target.value.toUpperCase())} /></FormControl>
+                  <FormControl><Input placeholder="WV" maxLength={2} {...field} onChange={e => field.onChange(e.target.value.toUpperCase())} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
               <FormField control={form.control} name="hqZip" render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-xs text-muted-foreground">ZIP</FormLabel>
-                  <FormControl><Input placeholder="e.g., 21201" maxLength={10} {...field} /></FormControl>
+                  <FormControl><Input placeholder="25206" maxLength={10} {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />

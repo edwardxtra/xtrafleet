@@ -3,21 +3,19 @@
  * Docs: https://mobile.fmcsa.dot.gov/QCDevsite/docs/getStarted
  * Official field reference: https://mobile.fmcsa.dot.gov/QCDevsite/docs/apiElements
  *
- * Verified field names from OFFICIAL FMCSA API Elements docs:
- *   phyStreet, phyCity, phyState, phyZip (NOT phyZipcode)
- *   telephone  — IS returned by the carrier endpoint
- *   mcNumber   — IS returned by the carrier endpoint
+ * Field name paranoia: the official docs, the Go client library, and the actual
+ * API response have been observed to use different casings/names. We try all
+ * known variants for each field so a rename in the upstream API doesn't silently
+ * break population.
  *
- * SAFER vs QCMobile discrepancy:
- *   SAFER (safer.fmcsa.dot.gov) and QCMobile are separate FMCSA systems and
- *   can show different status values. We use QCMobile (allowedToOperate) as the
- *   authoritative source for operational status. If SAFER shows inactive but
- *   QCMobile returns allowedToOperate=Y, the carrier may have recently reinstated
- *   authority and QCMobile is more current.
+ * SAFER vs QCMobile:
+ *   These are two separate FMCSA databases. QCMobile (allowedToOperate) is more
+ *   current. SAFER can lag after reinstatements. When they disagree we set
+ *   saferDiscrepancy=true so the UI can warn the user.
  *
  * Response shape:
- *   GET /carriers/{dot}       → { content: { carrier: { ... } } }
- *   GET /carriers/docket/{mc} → { content: [ { carrier: { ... } } ] }
+ *   GET /carriers/{dot}       -> { content: { carrier: { ... } } }
+ *   GET /carriers/docket/{mc} -> { content: [ { carrier: { ... } } ] }
  */
 
 const FMCSA_BASE_URL = 'https://mobile.fmcsa.dot.gov/qc/services';
@@ -26,14 +24,14 @@ export interface FMCSACarrier {
   dotNumber: string;
   legalName: string;
   dbaName?: string;
-  mcNumber?: string;         // directly on carrier response
+  mcNumber?: string;
   carrierOperation?: string;
   isBrokerOnly?: boolean;
   hqState?: string;
-  hqAddress?: string;        // phyStreet
-  hqCity?: string;           // phyCity
-  hqZip?: string;            // phyZip
-  phone?: string;            // telephone
+  hqAddress?: string;   // phyStreet
+  hqCity?: string;      // phyCity
+  hqZip?: string;       // phyZip / phyZipcode
+  phone?: string;       // telephone / phone
   safetyRating?: string;
   authorityStatus?: string;
   insuranceRequired?: string;
@@ -42,6 +40,7 @@ export interface FMCSACarrier {
   cargoInsuranceRequired?: string;
   cargoInsuranceOnFile?: string;
   allowedToOperate?: boolean;
+  saferDiscrepancy?: boolean;
 }
 
 export interface FMCSALookupResult {
@@ -62,10 +61,6 @@ function cleanDOT(dotNumber: string): string {
   return String(parseInt(digitsOnly, 10));
 }
 
-/**
- * Unwrap the nested carrier object from the FMCSA API response.
- * content = { carrier: { allowedToOperate: "Y", ... } }
- */
 function unwrapCarrier(content: Record<string, unknown>): Record<string, unknown> {
   if (content.carrier && typeof content.carrier === 'object' && content.carrier !== null) {
     return content.carrier as Record<string, unknown>;
@@ -73,17 +68,46 @@ function unwrapCarrier(content: Record<string, unknown>): Record<string, unknown
   return content;
 }
 
+/**
+ * Try multiple field name variants and return the first one that has a value.
+ * This guards against discrepancies between the FMCSA API docs, the Go client
+ * library, and the actual live response payload.
+ */
+function pick(raw: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const val = raw[key];
+    if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '0') {
+      return String(val).trim();
+    }
+  }
+  return undefined;
+}
+
 function detectBrokerOnly(raw: Record<string, unknown>): boolean {
   const brokerAuth = String(raw.brokerAuthorityStatus ?? '').toUpperCase().trim();
   const commonAuth = String(raw.commonAuthorityStatus ?? '').toUpperCase().trim();
   const contractAuth = String(raw.contractAuthorityStatus ?? '').toUpperCase().trim();
   const carrierOp = String(raw.carrierOperation ?? '').toUpperCase().trim();
-
   const hasActiveCarrierAuthority = commonAuth === 'A' || contractAuth === 'A';
   const hasActiveBrokerAuthority = brokerAuth === 'A';
   const neitherCarrierNorBoth = !['A', 'B', 'C'].includes(carrierOp) || carrierOp === 'BROKER';
-
   return hasActiveBrokerAuthority && !hasActiveCarrierAuthority && neitherCarrierNorBoth;
+}
+
+/**
+ * Check SAFER to see if the carrier is listed as inactive there.
+ * Returns true if SAFER says INACTIVE, false otherwise (fail open on error).
+ */
+async function checkSAFERInactive(dotNumber: string): Promise<boolean> {
+  try {
+    const url = `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=${dotNumber}`;
+    const res = await fetch(url, { cache: 'no-store', headers: { 'Accept': 'text/html' } });
+    if (!res.ok) return false;
+    const html = await res.text();
+    return html.toUpperCase().includes('IS INACTIVE IN THE SAFER DATABASE');
+  } catch {
+    return false;
+  }
 }
 
 export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult> {
@@ -107,11 +131,24 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
 
     const json = await res.json();
     const content = json?.content;
-    console.log(`[FMCSA] lookupByDOT — raw content for DOT ${cleaned}:`, JSON.stringify(content, null, 2));
+    // Log ALL keys so we can see exactly what FMCSA returns
+    const raw = unwrapCarrier(content ?? {});
+    console.log(`[FMCSA] DOT ${cleaned} raw keys:`, Object.keys(raw));
+    console.log(`[FMCSA] DOT ${cleaned} raw values:`, JSON.stringify(raw, null, 2));
 
     if (!content) return { success: false, error: 'No carrier data returned for this DOT number' };
 
     const carrier = normalizeCarrier(content);
+
+    // Cross-check SAFER if QCMobile says active
+    if (carrier.allowedToOperate) {
+      const saferInactive = await checkSAFERInactive(cleaned);
+      if (saferInactive) {
+        carrier.saferDiscrepancy = true;
+        console.log(`[FMCSA] DOT ${cleaned}: QCMobile=active but SAFER=inactive — flagging discrepancy`);
+      }
+    }
+
     return { success: true, carrier, raw: content };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -142,8 +179,6 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
 
     const json = await res.json();
     const content = Array.isArray(json?.content) ? json.content[0] : json?.content;
-    console.log(`[FMCSA] lookupByMC — raw content for MC ${cleaned}:`, JSON.stringify(content, null, 2));
-
     if (!content) return { success: false, error: 'No carrier data returned for this MC number' };
 
     const carrier = normalizeCarrier(content);
@@ -161,35 +196,39 @@ export async function lookupByMC(mcNumber: string): Promise<FMCSALookupResult> {
 function normalizeCarrier(content: Record<string, unknown>): FMCSACarrier {
   const raw = unwrapCarrier(content);
 
-  // allowedToOperate is the authoritative operational status from QCMobile.
-  // Note: SAFER database may show a different status — SAFER and QCMobile are
-  // separate systems and can be out of sync, especially after recent reinstatements.
   const allowedToOperateRaw = String(raw.allowedToOperate ?? '').toUpperCase().trim();
   const isActive = allowedToOperateRaw === 'Y';
 
-  // mcNumber: format as MC-XXXXXX if present
-  const rawMc = raw.mcNumber ? String(raw.mcNumber) : '';
+  // MC number — try all known field name variants
+  const rawMc = pick(raw, 'mcNumber', 'mcNum', 'mcmisNumber', 'docketNumber') ?? '';
   const mcNumber = rawMc ? (rawMc.startsWith('MC-') ? rawMc : `MC-${rawMc}`) : undefined;
+
+  // ZIP — official docs say phyZip, Go library uses phyZipcode, try both
+  const hqZip = pick(raw, 'phyZip', 'phyZipcode', 'physicalZip', 'zipCode', 'zip');
+
+  // Phone — official docs say telephone, try variants
+  const phone = pick(raw, 'telephone', 'phone', 'phoneNumber', 'telNumber');
 
   return {
     dotNumber: String(raw.dotNumber ?? ''),
     legalName: String(raw.legalName ?? ''),
-    dbaName: raw.dbaName ? String(raw.dbaName) : undefined,
+    dbaName: pick(raw, 'dbaName', 'dba'),
     mcNumber,
-    carrierOperation: raw.carrierOperation ? String(raw.carrierOperation) : undefined,
+    carrierOperation: pick(raw, 'carrierOperation', 'carrierOperationCode'),
     isBrokerOnly: detectBrokerOnly(raw),
-    hqState: raw.phyState ? String(raw.phyState) : undefined,
-    hqAddress: raw.phyStreet ? String(raw.phyStreet) : undefined,
-    hqCity: raw.phyCity ? String(raw.phyCity) : undefined,
-    hqZip: raw.phyZip ? String(raw.phyZip) : undefined,           // official field: phyZip
-    phone: raw.telephone ? String(raw.telephone) : undefined,      // official field: telephone
-    safetyRating: raw.safetyRating ? String(raw.safetyRating) : 'Not Rated',
+    hqState: pick(raw, 'phyState', 'physicalState', 'state'),
+    hqAddress: pick(raw, 'phyStreet', 'physicalStreet', 'street'),
+    hqCity: pick(raw, 'phyCity', 'physicalCity', 'city'),
+    hqZip,
+    phone,
+    safetyRating: pick(raw, 'safetyRating', 'safetyRatingDesc') ?? 'Not Rated',
     authorityStatus: isActive ? 'Active' : 'Inactive',
-    insuranceRequired: raw.bipdInsuranceRequired ? String(raw.bipdInsuranceRequired) : undefined,
-    insuranceOnFile: raw.bipdInsuranceOnFile ? String(raw.bipdInsuranceOnFile) : undefined,
-    bicInsurance: raw.bondInsuranceOnFile ? String(raw.bondInsuranceOnFile) : undefined,
-    cargoInsuranceRequired: raw.cargoInsuranceRequired ? String(raw.cargoInsuranceRequired) : undefined,
-    cargoInsuranceOnFile: raw.cargoInsuranceOnFile ? String(raw.cargoInsuranceOnFile) : undefined,
+    insuranceRequired: pick(raw, 'bipdInsuranceRequired'),
+    insuranceOnFile: pick(raw, 'bipdInsuranceOnFile'),
+    bicInsurance: pick(raw, 'bondInsuranceOnFile'),
+    cargoInsuranceRequired: pick(raw, 'cargoInsuranceRequired'),
+    cargoInsuranceOnFile: pick(raw, 'cargoInsuranceOnFile'),
     allowedToOperate: isActive,
+    saferDiscrepancy: false,
   };
 }
