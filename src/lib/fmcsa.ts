@@ -113,7 +113,10 @@ async function checkSAFER(dot: string): Promise<SAFERResult> {
     if (!res.ok) return { inactive: false };
     const html = await res.text();
 
-    const inactive = html.toUpperCase().includes('IS INACTIVE IN THE SAFER DATABASE');
+    // SAFER wraps the DOT number and/or the word INACTIVE in <b> tags,
+    // which breaks a raw substring match. Strip tags before checking.
+    const textOnly = html.replace(/<[^>]+>/g, ' ');
+    const inactive = /is\s+inactive\s+in\s+the\s+safer\s+database/i.test(textOnly);
 
     // Extract phone: look for the text "Phone:" followed by a table cell
     // SAFER HTML: Phone:</th>\s*<td...>(XXX) XXX-XXXX</td>
