@@ -197,6 +197,18 @@ export default function ProfilePage() {
   // the UI without waiting for a Firestore round-trip.
   const fmcsaLocked = editedProfile?.fmcsaVerified === true;
 
+  // Unified carrier view: prefer the most recent fresh lookup, fall back to
+  // the saved FMCSA snapshot from Firestore.
+  const fmcsaCarrier = fmcsa.carrier ?? profile?.fmcsaData;
+  // True once we have a completed lookup (fresh or hydrated from saved data).
+  // Used to decide when to show "not on file with FMCSA" empty states vs
+  // hiding fields before the user has run a lookup yet.
+  const fmcsaLookupComplete =
+    fmcsa.state === 'verified' ||
+    fmcsa.state === 'verified_safer_discrepancy' ||
+    fmcsa.state === 'verified_inactive' ||
+    fmcsaLocked;
+
   const verifyDOT = useCallback(async (dotNumber: string, opts: { force?: boolean } = {}) => {
     if (fmcsaLocked && !opts.force) return;
     const cleaned = dotNumber.replace(/\D/g, '');
@@ -267,6 +279,18 @@ export default function ProfilePage() {
     setFmcsa({ state: 'idle' });
     setEditedProfile(prev => prev ? { ...prev, fmcsaVerified: false } : prev);
   }, []);
+
+  // Copy the primary L&I policy (BIPD/Primary when available) into the user's
+  // COI fields. Does not touch the expiry date — L&I has no real expiry field
+  // (only cancl_effective_date for cancelled policies), so the user must
+  // still set it themselves from their certificate.
+  const fillCoiFromFmcsa = useCallback(() => {
+    const summary = fmcsa.carrier?.liInsuranceSummary ?? profile?.fmcsaData?.liInsuranceSummary;
+    if (!summary) return;
+    if (summary.primaryInsurer) setCoiInsurerName(summary.primaryInsurer);
+    if (summary.primaryPolicyNumber) setCoiPolicyNumber(summary.primaryPolicyNumber);
+    showSuccess('Filled from FMCSA L&I — set expiry date and upload your certificate to complete.');
+  }, [fmcsa.carrier, profile?.fmcsaData]);
 
   const handleDOTChange = useCallback((value: string) => {
     if (fmcsaLocked) return;
@@ -630,6 +654,9 @@ export default function ProfilePage() {
             <div>
               <Label htmlFor="mcNumber">MC Number {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
               <Input id="mcNumber" value={editedProfile?.mcNumber || ''} onChange={(e) => !fmcsaLocked && handleChange('mcNumber', e.target.value)} placeholder="MC-123456" disabled={!isOnline || fmcsaLocked} className={fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''} />
+              {fmcsaLookupComplete && !editedProfile?.mcNumber && (
+                <p className="text-xs text-muted-foreground mt-1">No MC number on file with FMCSA.</p>
+              )}
             </div>
             <div>
               <Label htmlFor="legalName">Legal Name {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
@@ -739,10 +766,10 @@ export default function ProfilePage() {
       {(() => {
         const li = (fmcsa.carrier?.liInsurance ?? profile?.fmcsaData?.liInsurance) || [];
         const summary = fmcsa.carrier?.liInsuranceSummary ?? profile?.fmcsaData?.liInsuranceSummary;
-        if (li.length === 0 && !summary) {
-          // No data and no lookup done yet — don't clutter the page.
-          return null;
-        }
+        // Hide the card only before a lookup has ever run. Once we know FMCSA
+        // has nothing on file, show the card with an explicit empty state so
+        // the user doesn't wonder whether the lookup silently failed.
+        if (!fmcsaLookupComplete) return null;
         const hasData = li.length > 0;
         return (
           <Card>
@@ -855,7 +882,14 @@ export default function ProfilePage() {
           )}
           <Separator />
           <div>
-            <h4 className="text-sm font-medium mb-3">Policy Details</h4>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-medium">Policy Details</h4>
+              {(fmcsaCarrier?.liInsuranceSummary?.primaryInsurer || fmcsaCarrier?.liInsuranceSummary?.primaryPolicyNumber) && (
+                <Button type="button" variant="outline" size="sm" onClick={fillCoiFromFmcsa} disabled={!isOnline} className="h-7 text-xs">
+                  <RefreshCw className="h-3 w-3 mr-1" /> Fill from FMCSA
+                </Button>
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div><Label htmlFor="coiInsurer">Insurance Company Name</Label><Input id="coiInsurer" value={coiInsurerName} onChange={(e) => setCoiInsurerName(e.target.value)} placeholder="e.g., Progressive Commercial" disabled={!isOnline} /></div>
               <div><Label htmlFor="coiPolicy">Policy Number</Label><Input id="coiPolicy" value={coiPolicyNumber} onChange={(e) => setCoiPolicyNumber(e.target.value)} placeholder="e.g., COM-12345678" disabled={!isOnline} /></div>
