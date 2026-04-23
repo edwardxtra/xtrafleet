@@ -17,7 +17,7 @@ import { useUser, useFirestore, useAuth } from "@/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useRef } from "react";
 import { US_STATES } from "@/lib/us-states";
-import { X, Search, ChevronDown, CheckCircle2, XCircle, Loader2 as SpinnerIcon, AlertCircle, AlertTriangle } from "lucide-react";
+import { X, Search, ChevronDown, CheckCircle2, XCircle, Loader2 as SpinnerIcon, AlertCircle, AlertTriangle, ExternalLink } from "lucide-react";
 import { COIUploadSection, type COIData } from "@/components/coi-upload-section";
 import type { FMCSACarrier } from "@/lib/fmcsa";
 
@@ -43,6 +43,7 @@ interface FMCSAVerification {
 }
 
 const DOT_MIN_DIGITS = 5;
+const SAFER_SNAPSHOT_URL = 'https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=';
 
 export function CompanyProfileForm() {
   const [isPending, startTransition] = useTransition();
@@ -89,7 +90,13 @@ export function CompanyProfileForm() {
           if (data.coi) setCoiData(data.coi);
           if (data.fmcsaVerified) {
             const carrier = data.fmcsaData as FMCSACarrier | undefined;
-            const state = carrier?.allowedToOperate === false ? 'verified_inactive' : 'verified';
+            const state: VerificationState = !carrier
+              ? 'verified'
+              : !carrier.allowedToOperate
+                ? 'verified_inactive'
+                : carrier.saferDiscrepancy
+                  ? 'verified_safer_discrepancy'
+                  : 'verified';
             setFmcsa({ state, carrier });
           }
         }
@@ -244,7 +251,7 @@ export function CompanyProfileForm() {
                 <p className="text-green-700 dark:text-green-400">
                   {fmcsa.carrier.legalName}
                   {fmcsa.carrier.safetyRating && fmcsa.carrier.safetyRating !== 'Not Rated' && <span className="ml-2 text-xs">· Safety: {fmcsa.carrier.safetyRating}</span>}
-                  <span className="ml-2 text-xs">· Authority: Active</span>
+                  <span className="ml-2 text-xs">· Authority: {fmcsa.carrier.authorityStatus || 'Active'}</span>
                   {fmcsa.carrier.insuranceOnFile && <span className="ml-2 text-xs">· Insurance on file</span>}
                 </p>
               </div>
@@ -259,9 +266,12 @@ export function CompanyProfileForm() {
                 <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Status Mismatch</p>
                 <p className="text-amber-700 dark:text-amber-400">
                   {fmcsa.carrier.legalName} is authorized to operate per QCMobile, but the SAFER database shows this DOT as inactive.
-                  This usually means authority was recently reinstated and SAFER hasn&apos;t synced yet.
-                  Your profile has been pre-filled. If you believe this is an error, visit{' '}
-                  <a href="https://www.fmcsa.dot.gov/registration/dataqs" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900">FMCSA DataQs</a> to dispute it.
+                  This usually means authority was recently reinstated and SAFER hasn&apos;t synced yet.{' '}
+                  <a href={`${SAFER_SNAPSHOT_URL}${encodeURIComponent(fmcsa.carrier.dotNumber)}`} target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 inline-flex items-center gap-1">
+                    View your SAFER record <ExternalLink className="h-3 w-3" />
+                  </a>
+                  {' '}or{' '}
+                  <a href="https://www.fmcsa.dot.gov/registration/dataqs" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900">dispute via FMCSA DataQs</a>.
                 </p>
               </div>
             </div>
@@ -275,7 +285,11 @@ export function CompanyProfileForm() {
                 <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
                 <p className="text-amber-700 dark:text-amber-400">
                   {fmcsa.carrier.legalName} was found in FMCSA records but is not currently authorized to operate.
-                  Your profile has been pre-filled. To be fully verified on XtraFleet, update your authority at{' '}
+                  Your profile has been pre-filled.{' '}
+                  <a href={`${SAFER_SNAPSHOT_URL}${encodeURIComponent(fmcsa.carrier.dotNumber)}`} target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 inline-flex items-center gap-1">
+                    View your SAFER record <ExternalLink className="h-3 w-3" />
+                  </a>
+                  {' '}and update your authority at{' '}
                   <a href="https://www.fmcsa.dot.gov" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900">fmcsa.dot.gov</a>.
                 </p>
               </div>

@@ -103,12 +103,19 @@ const ATTESTATION_LABELS: Record<string, { title: string; description: string }>
 };
 
 const DOT_MIN_DIGITS = 5;
+const SAFER_SNAPSHOT_URL = 'https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=';
 
-type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'verified_inactive' | 'error';
+type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'verified_safer_discrepancy' | 'verified_inactive' | 'error';
 interface FMCSAVerification {
   state: VerificationState;
   carrier?: FMCSACarrier;
   errorMessage?: string;
+}
+
+function stateForCarrier(c: FMCSACarrier): VerificationState {
+  if (!c.allowedToOperate) return 'verified_inactive';
+  if (c.saferDiscrepancy) return 'verified_safer_discrepancy';
+  return 'verified';
 }
 
 export default function ProfilePage() {
@@ -171,7 +178,7 @@ export default function ProfilePage() {
             setCoiExpiryDate(data.coi.expiryDate || '');
           }
           if (data.fmcsaVerified && data.fmcsaData) {
-            setFmcsa({ state: 'verified', carrier: data.fmcsaData });
+            setFmcsa({ state: stateForCarrier(data.fmcsaData), carrier: data.fmcsaData });
           }
         }
       } catch (error) {
@@ -186,8 +193,8 @@ export default function ProfilePage() {
 
   const fmcsaLocked = profile?.fmcsaVerified === true;
 
-  const verifyDOT = useCallback(async (dotNumber: string) => {
-    if (fmcsaLocked) return;
+  const verifyDOT = useCallback(async (dotNumber: string, opts: { force?: boolean } = {}) => {
+    if (fmcsaLocked && !opts.force) return;
     const cleaned = dotNumber.replace(/\D/g, '');
     if (cleaned.length < DOT_MIN_DIGITS) { setFmcsa({ state: 'idle' }); return; }
 
@@ -204,11 +211,16 @@ export default function ProfilePage() {
       }
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
 
+      // On a fresh lookup (DOT not yet locked), also backfill editable fields.
+      // On a re-verify of a locked record, DOT/MC/Legal Name are immutable —
+      // but phone and address can still be refreshed.
       setEditedProfile(prev => {
         if (!prev) return prev;
         return {
           ...prev,
-          legalName: carrier.legalName || prev.legalName,
+          ...(opts.force ? {} : { legalName: carrier.legalName || prev.legalName }),
+          ...(opts.force ? {} : { mcNumber: carrier.mcNumber || prev.mcNumber }),
+          phone: carrier.phone || prev.phone,
           hqStreet: carrier.hqAddress || prev.hqStreet,
           hqCity: carrier.hqCity || prev.hqCity,
           hqState: carrier.hqState || prev.hqState,
@@ -216,15 +228,17 @@ export default function ProfilePage() {
         };
       });
 
-      if (carrier.allowedToOperate) {
-        setFmcsa({ state: 'verified', carrier });
-      } else {
-        setFmcsa({ state: 'verified_inactive', carrier });
-      }
+      setFmcsa({ state: stateForCarrier(carrier), carrier });
     } catch {
       setFmcsa({ state: 'error', errorMessage: 'Could not reach FMCSA. Check your connection.' });
     }
   }, [fmcsaLocked, auth]);
+
+  const reVerify = useCallback(() => {
+    const dot = profile?.dotNumber;
+    if (!dot) return;
+    verifyDOT(dot, { force: true });
+  }, [profile?.dotNumber, verifyDOT]);
 
   const handleDOTChange = useCallback((value: string) => {
     if (fmcsaLocked) return;
@@ -234,7 +248,7 @@ export default function ProfilePage() {
     if (numbersOnly.length === 0) { setFmcsa({ state: 'idle' }); return; }
     if (numbersOnly.length < DOT_MIN_DIGITS) { setFmcsa({ state: 'idle' }); return; }
     setFmcsa(prev =>
-      prev.state !== 'loading' && prev.state !== 'verified' && prev.state !== 'verified_inactive'
+      prev.state !== 'loading' && prev.state !== 'verified' && prev.state !== 'verified_inactive' && prev.state !== 'verified_safer_discrepancy'
         ? { state: 'typing' } : prev
     );
     dotDebounceRef.current = setTimeout(() => verifyDOT(numbersOnly), 800);
@@ -355,13 +369,16 @@ export default function ProfilePage() {
         updatedAt: new Date().toISOString(),
       };
 
-      if (fmcsa.state === 'verified' && fmcsa.carrier && !profile?.fmcsaVerified) {
-        updateData.fmcsaVerified = true;
+      const isVerifiedState =
+        fmcsa.state === 'verified' ||
+        fmcsa.state === 'verified_safer_discrepancy' ||
+        fmcsa.state === 'verified_inactive';
+      if (isVerifiedState && fmcsa.carrier) {
         updateData.fmcsaData = fmcsa.carrier;
-        updateData.fmcsaVerifiedAt = new Date().toISOString();
-      }
-      if (fmcsa.state === 'verified_inactive' && fmcsa.carrier) {
-        updateData.fmcsaData = fmcsa.carrier;
+        if (!profile?.fmcsaVerified && fmcsa.state === 'verified') {
+          updateData.fmcsaVerified = true;
+          updateData.fmcsaVerifiedAt = new Date().toISOString();
+        }
       }
       if (isComplete && !profile?.profileCompletedAt) {
         updateData.profileCompletedAt = new Date().toISOString();
@@ -375,7 +392,8 @@ export default function ProfilePage() {
         coi: { ...editedProfile.coi, insurerName: coiInsurerName, policyNumber: coiPolicyNumber, expiryDate: coiExpiryDate },
         onboardingStatus: { ...editedProfile.onboardingStatus, profileComplete: isComplete },
         profileCompletedAt: isComplete && !profile?.profileCompletedAt ? new Date().toISOString() : profile?.profileCompletedAt,
-        ...(fmcsa.state === 'verified' && fmcsa.carrier && !profile?.fmcsaVerified ? { fmcsaVerified: true, fmcsaData: fmcsa.carrier } : {}),
+        ...(isVerifiedState && fmcsa.carrier ? { fmcsaData: fmcsa.carrier } : {}),
+        ...(fmcsa.state === 'verified' && fmcsa.carrier && !profile?.fmcsaVerified ? { fmcsaVerified: true } : {}),
       };
       setProfile(newProfile);
 
@@ -402,7 +420,8 @@ export default function ProfilePage() {
     || coiInsurerName !== (profile?.coi?.insurerName || '')
     || coiPolicyNumber !== (profile?.coi?.policyNumber || '')
     || coiExpiryDate !== (profile?.coi?.expiryDate || '')
-    || (fmcsa.state === 'verified' && !profile?.fmcsaVerified);
+    || (fmcsa.state === 'verified' && !profile?.fmcsaVerified)
+    || (!!fmcsa.carrier && JSON.stringify(fmcsa.carrier) !== JSON.stringify(profile?.fmcsaData));
 
   const formatTimestamp = (ts?: string) => {
     if (!ts) return null;
@@ -432,54 +451,89 @@ export default function ProfilePage() {
         </CardHeader>
         <CardContent className="space-y-4">
 
-          {/* Already verified + locked */}
-          {fmcsaLocked && profile.fmcsaData && (
+          {/* Verified — active */}
+          {fmcsa.state === 'verified' && fmcsa.carrier && (
             <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                <div className="text-sm">
-                  <p className="font-medium text-green-800 dark:text-green-300">FMCSA Verified</p>
-                  <p className="text-green-700 dark:text-green-400">
-                    {profile.fmcsaData.legalName}
-                    {profile.fmcsaData.safetyRating && profile.fmcsaData.safetyRating !== 'Not Rated' && <span className="ml-2 text-xs">· Safety: {profile.fmcsaData.safetyRating}</span>}
-                    <span className="ml-2 text-xs">· Authority: Active</span>
-                    {profile.fmcsaData.insuranceOnFile && <span className="ml-2 text-xs">· Insurance on file</span>}
-                  </p>
-                  <p className="text-xs text-green-600 dark:text-green-500 mt-1 flex items-center gap-1">
-                    <Lock className="h-3 w-3" /> DOT #, MC #, and Legal Name are locked after FMCSA verification. Contact support to make changes.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Live lookup — active */}
-          {!fmcsaLocked && fmcsa.state === 'verified' && fmcsa.carrier && (
-            <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                <div className="text-sm">
-                  <p className="font-medium text-green-800 dark:text-green-300">FMCSA Verified — save to lock</p>
+                <div className="text-sm flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-green-800 dark:text-green-300">
+                      {fmcsaLocked ? 'FMCSA Verified' : 'FMCSA Verified — save to lock'}
+                    </p>
+                    {fmcsaLocked && (
+                      <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
+                        <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
+                      </Button>
+                    )}
+                  </div>
                   <p className="text-green-700 dark:text-green-400">
                     {fmcsa.carrier.legalName}
                     {fmcsa.carrier.safetyRating && fmcsa.carrier.safetyRating !== 'Not Rated' && <span className="ml-2 text-xs">· Safety: {fmcsa.carrier.safetyRating}</span>}
-                    <span className="ml-2 text-xs">· Authority: Active</span>
+                    <span className="ml-2 text-xs">· Authority: {fmcsa.carrier.authorityStatus || 'Active'}</span>
+                    {fmcsa.carrier.insuranceOnFile && <span className="ml-2 text-xs">· Insurance on file</span>}
+                  </p>
+                  {fmcsaLocked && (
+                    <p className="text-xs text-green-600 dark:text-green-500 mt-1 flex items-center gap-1">
+                      <Lock className="h-3 w-3" /> DOT #, MC #, and Legal Name are locked after FMCSA verification. Contact support to make changes.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Verified — SAFER discrepancy (QCMobile active, SAFER inactive) */}
+          {fmcsa.state === 'verified_safer_discrepancy' && fmcsa.carrier && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                <div className="text-sm flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-amber-800 dark:text-amber-300">SAFER shows this DOT as INACTIVE</p>
+                    {fmcsaLocked && (
+                      <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
+                        <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-amber-700 dark:text-amber-400">
+                    {fmcsa.carrier.legalName} is authorized to operate per QCMobile, but the SAFER database shows this DOT as inactive.
+                    This usually means authority was recently reinstated and SAFER hasn&apos;t synced yet.{' '}
+                    <a href={`${SAFER_SNAPSHOT_URL}${encodeURIComponent(fmcsa.carrier.dotNumber)}`} target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200 inline-flex items-center gap-1">
+                      View your SAFER record <ExternalLink className="h-3 w-3" />
+                    </a>
+                    {' '}or{' '}
+                    <a href="https://www.fmcsa.dot.gov/registration/dataqs" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200">
+                      dispute via FMCSA DataQs
+                    </a>.
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Live lookup — inactive authority */}
-          {!fmcsaLocked && fmcsa.state === 'verified_inactive' && fmcsa.carrier && (
+          {/* Verified — authority inactive */}
+          {fmcsa.state === 'verified_inactive' && fmcsa.carrier && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                <div className="text-sm">
-                  <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
+                <div className="text-sm flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
+                    {fmcsaLocked && (
+                      <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
+                        <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
+                      </Button>
+                    )}
+                  </div>
                   <p className="text-amber-700 dark:text-amber-400">
                     {fmcsa.carrier.legalName} was found in FMCSA records but is not currently authorized to operate.
-                    Your profile information has been pre-filled. To be fully verified on XtraFleet, please update your operating authority at{' '}
+                    Your profile information has been pre-filled.{' '}
+                    <a href={`${SAFER_SNAPSHOT_URL}${encodeURIComponent(fmcsa.carrier.dotNumber)}`} target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200 inline-flex items-center gap-1">
+                      View your SAFER record <ExternalLink className="h-3 w-3" />
+                    </a>
+                    {' '}and update your operating authority at{' '}
                     <a href="https://www.fmcsa.dot.gov" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200">fmcsa.dot.gov</a>.
                   </p>
                 </div>
@@ -488,7 +542,7 @@ export default function ProfilePage() {
           )}
 
           {/* Error */}
-          {!fmcsaLocked && fmcsa.state === 'error' && (
+          {fmcsa.state === 'error' && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
@@ -507,10 +561,10 @@ export default function ProfilePage() {
               <div className="relative">
                 <Input id="dotNumber" value={editedProfile?.dotNumber || ''} onChange={(e) => handleDOTChange(e.target.value)} placeholder="e.g., 1234567" inputMode="numeric" disabled={!isOnline || fmcsaLocked} className={`pr-9 ${fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''}`} />
                 <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
-                  {!fmcsaLocked && showSpinner && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                  {(fmcsaLocked || fmcsa.state === 'verified') && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-                  {!fmcsaLocked && fmcsa.state === 'verified_inactive' && <AlertTriangle className="h-4 w-4 text-amber-500" />}
-                  {!fmcsaLocked && fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
+                  {showSpinner && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  {!showSpinner && fmcsa.state === 'verified' && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                  {!showSpinner && (fmcsa.state === 'verified_inactive' || fmcsa.state === 'verified_safer_discrepancy') && <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                  {!showSpinner && fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-1">Enter your USDOT number — fields below auto-fill from FMCSA</p>
