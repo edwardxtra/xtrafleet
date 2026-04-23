@@ -191,7 +191,10 @@ export default function ProfilePage() {
     if (user && db) loadProfile();
   }, [user, db]);
 
-  const fmcsaLocked = profile?.fmcsaVerified === true;
+  // Read lock state from the edited profile so the "Change DOT" action
+  // (which sets editedProfile.fmcsaVerified = false) immediately unlocks
+  // the UI without waiting for a Firestore round-trip.
+  const fmcsaLocked = editedProfile?.fmcsaVerified === true;
 
   const verifyDOT = useCallback(async (dotNumber: string, opts: { force?: boolean } = {}) => {
     if (fmcsaLocked && !opts.force) return;
@@ -211,20 +214,32 @@ export default function ProfilePage() {
       }
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
 
-      // On a fresh lookup (DOT not yet locked), also backfill editable fields.
-      // On a re-verify of a locked record, DOT/MC/Legal Name are immutable —
-      // but phone and address can still be refreshed.
+      // Fresh lookup: DOT may have changed from a previous verification, so
+      // overwrite all dependent fields with the new carrier's values — empty
+      // strings included — to prevent stale values from persisting.
+      // Re-verify of a locked record: DOT/MC/Legal Name are immutable; only
+      // refresh phone and address from the fresh snapshot.
       setEditedProfile(prev => {
         if (!prev) return prev;
+        if (opts.force) {
+          return {
+            ...prev,
+            phone: carrier.phone || prev.phone,
+            hqStreet: carrier.hqAddress || prev.hqStreet,
+            hqCity: carrier.hqCity || prev.hqCity,
+            hqState: carrier.hqState || prev.hqState,
+            hqZip: carrier.hqZip || prev.hqZip,
+          };
+        }
         return {
           ...prev,
-          ...(opts.force ? {} : { legalName: carrier.legalName || prev.legalName }),
-          ...(opts.force ? {} : { mcNumber: carrier.mcNumber || prev.mcNumber }),
-          phone: carrier.phone || prev.phone,
-          hqStreet: carrier.hqAddress || prev.hqStreet,
-          hqCity: carrier.hqCity || prev.hqCity,
-          hqState: carrier.hqState || prev.hqState,
-          hqZip: carrier.hqZip || prev.hqZip,
+          legalName: carrier.legalName || '',
+          mcNumber: carrier.mcNumber || '',
+          phone: carrier.phone || '',
+          hqStreet: carrier.hqAddress || '',
+          hqCity: carrier.hqCity || '',
+          hqState: carrier.hqState || '',
+          hqZip: carrier.hqZip || '',
         };
       });
 
@@ -235,10 +250,22 @@ export default function ProfilePage() {
   }, [fmcsaLocked, auth]);
 
   const reVerify = useCallback(() => {
-    const dot = profile?.dotNumber;
+    const dot = editedProfile?.dotNumber || profile?.dotNumber;
     if (!dot) return;
     verifyDOT(dot, { force: true });
-  }, [profile?.dotNumber, verifyDOT]);
+  }, [editedProfile?.dotNumber, profile?.dotNumber, verifyDOT]);
+
+  // Change DOT: clear FMCSA verification locally so DOT/MC/Legal Name become
+  // editable. The user must re-verify before saving re-locks the record.
+  // The change is only persisted to Firestore on save.
+  const unlockFMCSA = useCallback(() => {
+    const ok = window.confirm(
+      'Change DOT number?\n\nYour FMCSA verification will be cleared. You\'ll need to enter a new DOT and re-verify before saving.'
+    );
+    if (!ok) return;
+    setFmcsa({ state: 'idle' });
+    setEditedProfile(prev => prev ? { ...prev, fmcsaVerified: false } : prev);
+  }, []);
 
   const handleDOTChange = useCallback((value: string) => {
     if (fmcsaLocked) return;
@@ -373,12 +400,24 @@ export default function ProfilePage() {
         fmcsa.state === 'verified' ||
         fmcsa.state === 'verified_safer_discrepancy' ||
         fmcsa.state === 'verified_inactive';
+      // QCMobile is authoritative: both fully-verified and SAFER-discrepancy
+      // carriers are legally active and should lock. verified_inactive does
+      // NOT lock — carrier isn't authorized to operate yet.
+      const canLock =
+        fmcsa.state === 'verified' || fmcsa.state === 'verified_safer_discrepancy';
+      const userUnlocked = profile?.fmcsaVerified === true && editedProfile.fmcsaVerified === false;
+
       if (isVerifiedState && fmcsa.carrier) {
         updateData.fmcsaData = fmcsa.carrier;
-        if (!profile?.fmcsaVerified && fmcsa.state === 'verified') {
-          updateData.fmcsaVerified = true;
-          updateData.fmcsaVerifiedAt = new Date().toISOString();
-        }
+      }
+      // Final fmcsaVerified for Firestore. A successful verify always locks
+      // (even after an explicit unlock, since they've just re-verified).
+      // Explicit unlock with no successful re-verify yet → persist false.
+      if (canLock && fmcsa.carrier) {
+        updateData.fmcsaVerified = true;
+        updateData.fmcsaVerifiedAt = new Date().toISOString();
+      } else if (userUnlocked) {
+        updateData.fmcsaVerified = false;
       }
       if (isComplete && !profile?.profileCompletedAt) {
         updateData.profileCompletedAt = new Date().toISOString();
@@ -393,7 +432,8 @@ export default function ProfilePage() {
         onboardingStatus: { ...editedProfile.onboardingStatus, profileComplete: isComplete },
         profileCompletedAt: isComplete && !profile?.profileCompletedAt ? new Date().toISOString() : profile?.profileCompletedAt,
         ...(isVerifiedState && fmcsa.carrier ? { fmcsaData: fmcsa.carrier } : {}),
-        ...(fmcsa.state === 'verified' && fmcsa.carrier && !profile?.fmcsaVerified ? { fmcsaVerified: true } : {}),
+        ...(canLock && fmcsa.carrier ? { fmcsaVerified: true } : {}),
+        ...(!canLock && userUnlocked ? { fmcsaVerified: false } : {}),
       };
       setProfile(newProfile);
 
@@ -406,6 +446,8 @@ export default function ProfilePage() {
         if (!editedProfile.operatingStates?.length) missing.push('Operating States');
         if (!hasCoiData) missing.push('Certificate of Insurance');
         showSuccess(`Profile saved. Still missing: ${missing.join(', ')}`);
+      } else if (fmcsa.state === 'verified_safer_discrepancy' && canLock && fmcsa.carrier) {
+        showSuccess('Profile verified and saved. Note: SAFER still shows this DOT as inactive — view your SAFER record or dispute via DataQs.');
       } else {
         showSuccess('Profile saved successfully!');
       }
@@ -462,9 +504,14 @@ export default function ProfilePage() {
                       {fmcsaLocked ? 'FMCSA Verified' : 'FMCSA Verified — save to lock'}
                     </p>
                     {fmcsaLocked && (
-                      <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
-                        <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
+                          <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={unlockFMCSA} disabled={showSpinner} className="h-7 text-xs text-muted-foreground">
+                          Change DOT
+                        </Button>
+                      </div>
                     )}
                   </div>
                   <p className="text-green-700 dark:text-green-400">
@@ -492,9 +539,14 @@ export default function ProfilePage() {
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-medium text-amber-800 dark:text-amber-300">SAFER shows this DOT as INACTIVE</p>
                     {fmcsaLocked && (
-                      <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
-                        <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
+                          <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={unlockFMCSA} disabled={showSpinner} className="h-7 text-xs text-muted-foreground">
+                          Change DOT
+                        </Button>
+                      </div>
                     )}
                   </div>
                   <p className="text-amber-700 dark:text-amber-400">
@@ -522,9 +574,14 @@ export default function ProfilePage() {
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
                     {fmcsaLocked && (
-                      <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
-                        <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
+                          <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={unlockFMCSA} disabled={showSpinner} className="h-7 text-xs text-muted-foreground">
+                          Change DOT
+                        </Button>
+                      </div>
                     )}
                   </div>
                   <p className="text-amber-700 dark:text-amber-400">
