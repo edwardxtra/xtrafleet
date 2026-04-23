@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withCors } from '@/lib/api-cors';
 import { authenticateRequest } from '@/lib/api-auth';
-import { fetchSAFERDebug, fetchLIDebug } from '@/lib/fmcsa';
+import { fetchSAFERDebug, fetchLIDebug, fetchSocrataDebug } from '@/lib/fmcsa';
 
 async function handleGet(request: NextRequest) {
   try {
@@ -51,7 +51,10 @@ async function handleGet(request: NextRequest) {
   const mcNumber = mcRow?.docketNumber
     ? `${mcRow.prefix ?? 'MC'}-${mcRow.docketNumber}`
     : undefined;
-  const li = await fetchLIDebug(dot, mcNumber);
+  const [li, socrata] = await Promise.all([
+    fetchLIDebug(dot, mcNumber),
+    fetchSocrataDebug(dot, mcNumber),
+  ]);
 
   return NextResponse.json({
     carrier: {
@@ -73,6 +76,7 @@ async function handleGet(request: NextRequest) {
     },
     safer,
     li,
+    socrata,
   });
 }
 

@@ -405,6 +405,160 @@ export async function fetchLIDebug(dot: string, mcNumber?: string): Promise<{
   }
 }
 
+// FMCSA L&I Socrata datasets on data.transportation.gov.
+// xkn3-5fci  Insur-All-With-History          (current active/pending policies + history)
+// qh9u-swkp  ActPendInsur-All-With-History   (active/pending dates + amounts)
+// xkmg-ff2t  InsHist                          (cancelled/replaced policies)
+const SOCRATA_BASE = 'https://data.transportation.gov';
+const SOCRATA_DATASETS = {
+  insurAll: 'xkn3-5fci',
+  actPendInsur: 'qh9u-swkp',
+  insHist: 'xkmg-ff2t',
+} as const;
+
+function socrataHeaders(): HeadersInit {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const token = process.env.SOCRATA_APP_TOKEN;
+  if (token) headers['X-App-Token'] = token;
+  return headers;
+}
+
+/**
+ * Debug-only: probe the FMCSA L&I Socrata datasets on data.transportation.gov.
+ *
+ * Per dataset, returns:
+ *   - column metadata (so we can see real field names)
+ *   - a sample row count + first matching row(s) for the given DOT, trying a
+ *     few likely column-name variants since Socrata field names are dataset-
+ *     specific (dot_number / dotnumber / dot_no / usdot_number).
+ *
+ * No API key required for basic access. Set SOCRATA_APP_TOKEN env var to
+ * raise the per-IP rate limit. Aim of this probe is to learn the schema
+ * once so the typed lookup in Phase 2b can use the right column names.
+ */
+export async function fetchSocrataDebug(dot: string, mcNumber?: string): Promise<{
+  steps: Array<{
+    label: string;
+    url: string;
+    status: number;
+    ok: boolean;
+    columns?: Array<{ fieldName: string; dataTypeName?: string; name?: string }>;
+    sampleCount?: number;
+    sample?: unknown;
+    error?: string;
+  }>;
+}> {
+  const steps: Array<{
+    label: string;
+    url: string;
+    status: number;
+    ok: boolean;
+    columns?: Array<{ fieldName: string; dataTypeName?: string; name?: string }>;
+    sampleCount?: number;
+    sample?: unknown;
+    error?: string;
+  }> = [];
+
+  const docketDigits = mcNumber?.replace(/^[A-Z]{2,3}-?/i, '').trim();
+
+  async function fetchJson(url: string): Promise<{ status: number; body: unknown; ok: boolean; error?: string }> {
+    try {
+      const res = await fetch(url, { cache: 'no-store', headers: socrataHeaders() });
+      const status = res.status;
+      const ok = res.ok;
+      const text = await res.text();
+      try {
+        return { status, ok, body: text ? JSON.parse(text) : null };
+      } catch {
+        return { status, ok, body: text.slice(0, 500), error: 'non-JSON response' };
+      }
+    } catch (err) {
+      return { status: 0, ok: false, body: null, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  for (const [label, id] of Object.entries(SOCRATA_DATASETS)) {
+    // 1. Column metadata for this dataset.
+    const colsUrl = `${SOCRATA_BASE}/api/views/${id}/columns.json`;
+    const cols = await fetchJson(colsUrl);
+    type SocrataColumn = { fieldName?: string; name?: string; dataTypeName?: string };
+    const columns: Array<{ fieldName: string; dataTypeName?: string; name?: string }> = Array.isArray(cols.body)
+      ? (cols.body as SocrataColumn[]).map(c => ({
+          fieldName: String(c.fieldName ?? ''),
+          dataTypeName: c.dataTypeName,
+          name: c.name,
+        }))
+      : [];
+    steps.push({
+      label: `${label}_columns`,
+      url: colsUrl,
+      status: cols.status,
+      ok: cols.ok,
+      columns,
+      error: cols.error,
+    });
+
+    // 2. Try sample queries against likely DOT-keyed column names.
+    //    Pick the field whose name looks DOT-ish from the columns list, plus
+    //    candidate fallbacks. Querying a non-existent field returns 400.
+    const dotCandidates = Array.from(new Set([
+      ...columns.map(c => c.fieldName).filter(f =>
+        /^(dot|usdot)/i.test(f) || /dot_?(no|number|num)$/i.test(f)
+      ),
+      'dot_number',
+      'dotnumber',
+      'dot_no',
+      'usdot_number',
+    ])).filter(Boolean);
+
+    for (const field of dotCandidates) {
+      const qUrl = `${SOCRATA_BASE}/resource/${id}.json?${encodeURIComponent(field)}=${encodeURIComponent(dot)}&$limit=3`;
+      const q = await fetchJson(qUrl);
+      const sample = Array.isArray(q.body) ? q.body : q.body;
+      const sampleCount = Array.isArray(q.body) ? q.body.length : undefined;
+      steps.push({
+        label: `${label}_query_by_${field}`,
+        url: qUrl,
+        status: q.status,
+        ok: q.ok,
+        sampleCount,
+        sample,
+        error: q.error,
+      });
+      // If we got rows back, no need to try more variants for this dataset.
+      if (q.ok && Array.isArray(q.body) && q.body.length > 0) break;
+    }
+
+    // 3. Optional: try a docket-keyed query if we have one.
+    if (docketDigits) {
+      const docketCandidates = Array.from(new Set([
+        ...columns.map(c => c.fieldName).filter(f => /^docket/i.test(f)),
+        'docket_number',
+        'docketnumber',
+      ])).filter(Boolean);
+
+      for (const field of docketCandidates) {
+        const qUrl = `${SOCRATA_BASE}/resource/${id}.json?${encodeURIComponent(field)}=${encodeURIComponent(docketDigits)}&$limit=3`;
+        const q = await fetchJson(qUrl);
+        const sample = Array.isArray(q.body) ? q.body : q.body;
+        const sampleCount = Array.isArray(q.body) ? q.body.length : undefined;
+        steps.push({
+          label: `${label}_query_by_${field}`,
+          url: qUrl,
+          status: q.status,
+          ok: q.ok,
+          sampleCount,
+          sample,
+          error: q.error,
+        });
+        if (q.ok && Array.isArray(q.body) && q.body.length > 0) break;
+      }
+    }
+  }
+
+  return { steps };
+}
+
 export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult> {
   const cleaned = cleanDOT(dotNumber);
   if (!cleaned || cleaned === 'NaN') {
