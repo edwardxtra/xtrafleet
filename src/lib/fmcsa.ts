@@ -406,13 +406,17 @@ export async function fetchLIDebug(dot: string, mcNumber?: string): Promise<{
 }
 
 // FMCSA L&I Socrata datasets on data.transportation.gov.
-// xkn3-5fci  Insur-All-With-History          (current active/pending policies + history)
-// qh9u-swkp  ActPendInsur-All-With-History   (active/pending dates + amounts)
-// xkmg-ff2t  InsHist                          (cancelled/replaced policies)
+// qh9u-swkp  ActPendInsur-All-With-History   (active/pending — confirmed queryable schema)
+// chgs-tx6x  ActPendInsur daily diff         (incremental)
+// xkn3-5fci  Insur-All-With-History           (view of m7rw-edbr base)
+// m7rw-edbr  Insur base dataset               (probe: view xkn3-5fci returned empty columns)
+// xkmg-ff2t  InsHist view                    (probe: returned empty columns — need base id)
 const SOCRATA_BASE = 'https://data.transportation.gov';
 const SOCRATA_DATASETS = {
-  insurAll: 'xkn3-5fci',
   actPendInsur: 'qh9u-swkp',
+  actPendInsurDiff: 'chgs-tx6x',
+  insurAll: 'xkn3-5fci',
+  insurAllBase: 'm7rw-edbr',
   insHist: 'xkmg-ff2t',
 } as const;
 
@@ -498,7 +502,21 @@ export async function fetchSocrataDebug(dot: string, mcNumber?: string): Promise
       error: cols.error,
     });
 
-    // 2. Try sample queries against likely DOT-keyed column names.
+    // 2. Unfiltered sample — first 3 rows, to see the real field-value format
+    //    (e.g. whether dot_number has leading zeros or "USDOT" prefix).
+    const sampleUrl = `${SOCRATA_BASE}/resource/${id}.json?$limit=3`;
+    const sampleRes = await fetchJson(sampleUrl);
+    steps.push({
+      label: `${label}_unfiltered_sample`,
+      url: sampleUrl,
+      status: sampleRes.status,
+      ok: sampleRes.ok,
+      sampleCount: Array.isArray(sampleRes.body) ? sampleRes.body.length : undefined,
+      sample: sampleRes.body,
+      error: sampleRes.error,
+    });
+
+    // 3. Try sample queries against likely DOT-keyed column names.
     //    Pick the field whose name looks DOT-ish from the columns list, plus
     //    candidate fallbacks. Querying a non-existent field returns 400.
     const dotCandidates = Array.from(new Set([
@@ -514,7 +532,6 @@ export async function fetchSocrataDebug(dot: string, mcNumber?: string): Promise
     for (const field of dotCandidates) {
       const qUrl = `${SOCRATA_BASE}/resource/${id}.json?${encodeURIComponent(field)}=${encodeURIComponent(dot)}&$limit=3`;
       const q = await fetchJson(qUrl);
-      const sample = Array.isArray(q.body) ? q.body : q.body;
       const sampleCount = Array.isArray(q.body) ? q.body.length : undefined;
       steps.push({
         label: `${label}_query_by_${field}`,
@@ -522,11 +539,38 @@ export async function fetchSocrataDebug(dot: string, mcNumber?: string): Promise
         status: q.status,
         ok: q.ok,
         sampleCount,
-        sample,
+        sample: q.body,
         error: q.error,
       });
-      // If we got rows back, no need to try more variants for this dataset.
       if (q.ok && Array.isArray(q.body) && q.body.length > 0) break;
+    }
+
+    // 4. If exact-match by the discovered DOT columns returned zero rows,
+    //    try $where variants that tolerate leading zeros / substring match.
+    const dotColumnsFromSchema = columns
+      .map(c => c.fieldName)
+      .filter(f => /^(dot|usdot)/i.test(f) || /dot_?(no|number|num)$/i.test(f));
+    for (const field of dotColumnsFromSchema) {
+      const whereExact = `${field}='${dot}'`;
+      const whereLike = `${field} LIKE '%${dot}'`;
+      for (const [variant, whereClause] of [
+        ['where_exact', whereExact],
+        ['where_like', whereLike],
+      ] as const) {
+        const url = `${SOCRATA_BASE}/resource/${id}.json?$where=${encodeURIComponent(whereClause)}&$limit=3`;
+        const q = await fetchJson(url);
+        const sampleCount = Array.isArray(q.body) ? q.body.length : undefined;
+        steps.push({
+          label: `${label}_${variant}_${field}`,
+          url,
+          status: q.status,
+          ok: q.ok,
+          sampleCount,
+          sample: q.body,
+          error: q.error,
+        });
+        if (q.ok && Array.isArray(q.body) && q.body.length > 0) break;
+      }
     }
 
     // 3. Optional: try a docket-keyed query if we have one.
