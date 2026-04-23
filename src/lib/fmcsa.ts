@@ -252,19 +252,24 @@ export async function fetchSAFERDebug(dot: string): Promise<{
 /**
  * Debug-only: probe FMCSA L&I (Licensing & Insurance).
  *
- * L&I uses a two-step HTML lookup:
- *   1. Carrier list by USDOT returns links containing an internal pv_apcant_id.
- *   2. Detail pages (active insurance, authority history) are keyed by that id.
+ * L&I uses an Oracle PL/SQL form-submit model:
+ *   1. The carrier list page (prc_carrlist) is the search FORM. Submitting
+ *      the search appears to require POST with form-encoded parameters and
+ *      returns a results page with links containing pv_apcant_id.
+ *   2. Detail pages (active insurance, authority history) are GET, keyed
+ *      by that pv_apcant_id.
  *
- * We try the two-step path first (list → detail). We also attempt a direct
- * USDOT-keyed insurance URL that some FMCSA clients use undocumented as a
- * fallback. Both are returned so we can see what L&I actually serves and
- * write a parser against real HTML in a follow-up PR.
+ * Some clients also use a docket-keyed deep link via pkg_html_query.
+ *
+ * This debug probe tries multiple URL variants and HTTP methods so we can
+ * see which paths actually return carrier data, then write a parser
+ * against the right HTML in a follow-up PR.
  */
-export async function fetchLIDebug(dot: string): Promise<{
+export async function fetchLIDebug(dot: string, mcNumber?: string): Promise<{
   steps: Array<{
     label: string;
     url: string;
+    method: string;
     status: number;
     ok: boolean;
     htmlLength: number;
@@ -273,11 +278,13 @@ export async function fetchLIDebug(dot: string): Promise<{
     extracted?: { apcantId?: string };
   }>;
   apcantId?: string;
+  mcNumber?: string;
   error?: string;
 }> {
   const steps: Array<{
     label: string;
     url: string;
+    method: string;
     status: number;
     ok: boolean;
     htmlLength: number;
@@ -286,14 +293,24 @@ export async function fetchLIDebug(dot: string): Promise<{
     extracted?: { apcantId?: string };
   }> = [];
 
-  async function probe(label: string, url: string): Promise<string> {
+  async function probe(
+    label: string,
+    url: string,
+    init: RequestInit & { method?: string } = {},
+  ): Promise<string> {
+    const method = init.method ?? 'GET';
     try {
-      const res = await fetch(url, { cache: 'no-store', headers: FMCSA_SCRAPE_HEADERS });
+      const res = await fetch(url, {
+        cache: 'no-store',
+        ...init,
+        headers: { ...FMCSA_SCRAPE_HEADERS, ...(init.headers ?? {}) },
+      });
       const html = res.ok ? await res.text() : '';
       const text = stripSAFERHtml(html);
       steps.push({
         label,
         url,
+        method,
         status: res.status,
         ok: res.ok,
         htmlLength: html.length,
@@ -305,6 +322,7 @@ export async function fetchLIDebug(dot: string): Promise<{
       steps.push({
         label,
         url,
+        method,
         status: 0,
         ok: false,
         htmlLength: 0,
@@ -315,24 +333,61 @@ export async function fetchLIDebug(dot: string): Promise<{
     }
   }
 
+  // Strip "MC-" / "MX-" / "FF-" prefix to get just the docket number digits.
+  const docketNum = mcNumber?.replace(/^[A-Z]{2,3}-?/i, '').trim();
+  const docketPrefix = mcNumber?.match(/^[A-Z]{2,3}/i)?.[0]?.toUpperCase();
+
   try {
-    // Step 1: carrier list by USDOT — response contains links with pv_apcant_id.
-    const listHtml = await probe(
-      'carrlist_by_dot',
+    // 1. POST the carrier search form. Oracle PL/SQL form submit.
+    const postBody = new URLSearchParams({
+      pv_vpath: 'LIVIEW',
+      n_dotno: dot,
+      s_prefix: '',
+      n_docket: '',
+      s_legalname: '',
+      s_dbaname: '',
+      s_state: 'NONE',
+    });
+    const carrlistPostHtml = await probe(
+      'carrlist_post_by_dot',
+      `${LI_BASE}/pkg_carrquery.prc_carrlist`,
+      {
+        method: 'POST',
+        body: postBody.toString(),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      },
+    );
+
+    // 2. GET the same with USDOT in querystring (returned the blank form last
+    //    time, but kept for comparison after any header changes).
+    const carrlistGetHtml = await probe(
+      'carrlist_get_by_dot',
       `${LI_BASE}/pkg_carrquery.prc_carrlist?n_dotno=${encodeURIComponent(dot)}`,
     );
 
-    const idMatch = listHtml.match(/pv_apcant_id=(\d+)/i);
-    const apcantId = idMatch?.[1];
-    if (steps[0]) steps[0].extracted = { apcantId };
+    // 3. Docket-keyed deep link (works in some L&I scrapers without going
+    //    through the search form). Only run when we have an MC/MX/FF.
+    if (docketNum && docketPrefix) {
+      await probe(
+        'limain_by_docket',
+        `${LI_BASE}/pkg_html_query.prc_limain?pn_docket_no=${encodeURIComponent(docketNum)}&s_prefix=${encodeURIComponent(docketPrefix)}`,
+      );
+      // Alt: prc_getdetail by docket prefix + number.
+      await probe(
+        'getdetail_by_docket',
+        `${LI_BASE}/pkg_carrquery.prc_getdetail?pv_vpath=LIVIEW&pn_docket_no=${encodeURIComponent(docketNum)}&s_prefix=${encodeURIComponent(docketPrefix)}`,
+      );
+    }
 
-    // Step 2a: direct USDOT-keyed insurance (undocumented, may or may not work).
-    await probe(
-      'insurance_by_dot',
-      `${LI_BASE}/pkg_carrquery.prc_insurance?pn_usdot_number=${encodeURIComponent(dot)}`,
-    );
+    // Try to extract apcant_id from any of the responses we got back.
+    const idFromAny = (
+      carrlistPostHtml.match(/pv_apcant_id=(\d+)/i) ??
+      carrlistGetHtml.match(/pv_apcant_id=(\d+)/i)
+    )?.[1];
+    if (steps[0]) steps[0].extracted = { apcantId: idFromAny };
+    const apcantId = idFromAny;
 
-    // Step 2b: active insurance by apcant_id (canonical path, needs step 1).
+    // 4. Detail pages keyed by apcant_id, if we found one.
     if (apcantId) {
       await probe(
         'activeinsurance_by_apcantid',
@@ -344,7 +399,7 @@ export async function fetchLIDebug(dot: string): Promise<{
       );
     }
 
-    return { steps, apcantId };
+    return { steps, apcantId, mcNumber };
   } catch (err) {
     return { steps, error: err instanceof Error ? err.message : String(err) };
   }
