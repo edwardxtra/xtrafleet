@@ -173,6 +173,65 @@ async function checkSAFER(dot: string): Promise<SAFERResult> {
   }
 }
 
+/**
+ * Debug: fetch SAFER and return status, response size, a snippet of the HTML,
+ * and what our extractor parsed. Used by /api/fmcsa-debug to diagnose why
+ * phone / MC / inactive detection might be failing for a given DOT.
+ */
+export async function fetchSAFERDebug(dot: string): Promise<{
+  url: string;
+  status: number;
+  ok: boolean;
+  htmlLength: number;
+  htmlSnippet: string;
+  parsed: {
+    inactive: boolean;
+    phone?: string;
+    mcNumber?: string;
+    phoneRaw?: string;
+    mcRaw?: string;
+  };
+  error?: string;
+}> {
+  const url = `${SAFER_QUERY}${dot}`;
+  try {
+    const res = await fetch(url, { cache: 'no-store', headers: SAFER_HEADERS });
+    const html = res.ok ? await res.text() : '';
+    const textOnly = html.replace(/<[^>]+>/g, ' ');
+    const inactive = /is\s+inactive\s+in\s+the\s+safer\s+database/i.test(textOnly);
+    const phoneRaw = extractSAFERField(html, 'Phone:');
+    const phone = phoneRaw && /\d{3}/.test(phoneRaw) ? phoneRaw : undefined;
+    const mcRaw = extractSAFERField(html, 'MC/MX/FF Number\\(s\\):');
+    let mcNumber: string | undefined;
+    if (mcRaw) {
+      const tokens = mcRaw.match(/(MC|MX|FF)[-\s]?\d+/gi) ?? [];
+      const normalized = tokens.map(t => t.replace(/\s+/g, '-').toUpperCase());
+      mcNumber =
+        normalized.find(t => t.startsWith('MC-')) ??
+        normalized.find(t => t.startsWith('MX-')) ??
+        normalized.find(t => t.startsWith('FF-'));
+    }
+    return {
+      url,
+      status: res.status,
+      ok: res.ok,
+      htmlLength: html.length,
+      htmlSnippet: html.slice(0, 3000),
+      parsed: { inactive, phone, mcNumber, phoneRaw, mcRaw },
+    };
+  } catch (err) {
+    return {
+      url,
+      status: 0,
+      ok: false,
+      htmlLength: 0,
+      htmlSnippet: '',
+      parsed: { inactive: false },
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult> {
   const cleaned = cleanDOT(dotNumber);
   if (!cleaned || cleaned === 'NaN') {
