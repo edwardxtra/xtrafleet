@@ -108,23 +108,54 @@ interface SAFERResult {
 }
 
 /**
- * Extract the value cell that follows a labeled <th> row.
- * Returns tag-stripped, whitespace-collapsed text.
- *
- * SAFER wraps values in nested tags (<font>, <b>) and uses &nbsp;, so we
- * strip everything and normalize whitespace before returning.
+ * Strip scripts, styles, comments, tags, and entities from SAFER HTML and
+ * collapse whitespace. SAFER's HTML wraps labels and values in deeply nested
+ * legacy tags (<font>, <b>, etc.), which makes DOM-structure regexes
+ * unreliable. Matching against plain text is simpler and more robust.
  */
-function extractSAFERField(html: string, label: string): string | undefined {
-  const pattern = new RegExp(`${label}\\s*<\\/th>\\s*<td[^>]*>([\\s\\S]*?)<\\/td>`, 'i');
-  const match = html.match(pattern);
-  if (!match) return undefined;
-  const text = match[1]
+function stripSAFERHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/\s+/g, ' ')
     .trim();
-  return text || undefined;
+}
+
+interface SAFERParsed {
+  inactive: boolean;
+  phone?: string;
+  phoneRaw?: string;
+  mcNumber?: string;
+  mcRaw?: string;
+}
+
+/**
+ * Parse the tag-stripped SAFER text for the fields we care about.
+ */
+function parseSAFERText(text: string): SAFERParsed {
+  const inactive = /is\s+inactive\s+in\s+the\s+safer\s+database/i.test(text);
+
+  const phoneMatch = text.match(/\bPhone:\s*([()\d\s.+-]{7,20})/i);
+  const phoneRaw = phoneMatch?.[1]?.trim();
+  const phone = phoneRaw && /\d{3}/.test(phoneRaw) ? phoneRaw : undefined;
+
+  const mcMatch = text.match(/MC\/MX\/FF Number\(s\):\s*((?:(?:MC|MX|FF)[-\s]?\d+[\s,]*)+)/i);
+  const mcRaw = mcMatch?.[1]?.trim();
+  let mcNumber: string | undefined;
+  if (mcRaw) {
+    const tokens = mcRaw.match(/(MC|MX|FF)[-\s]?\d+/gi) ?? [];
+    const normalized = tokens.map(t => t.replace(/\s+/g, '-').toUpperCase());
+    mcNumber =
+      normalized.find(t => t.startsWith('MC-')) ??
+      normalized.find(t => t.startsWith('MX-')) ??
+      normalized.find(t => t.startsWith('FF-'));
+  }
+
+  return { inactive, phone, phoneRaw, mcNumber, mcRaw };
 }
 
 /**
@@ -144,29 +175,9 @@ async function checkSAFER(dot: string): Promise<SAFERResult> {
       return { inactive: false };
     }
     const html = await res.text();
-
-    // SAFER wraps the DOT number and/or the word INACTIVE in <b> tags,
-    // which breaks a raw substring match. Strip tags before checking.
-    const textOnly = html.replace(/<[^>]+>/g, ' ');
-    const inactive = /is\s+inactive\s+in\s+the\s+safer\s+database/i.test(textOnly);
-
-    const phoneRaw = extractSAFERField(html, 'Phone:');
-    const phone = phoneRaw && /\d{3}/.test(phoneRaw) ? phoneRaw : undefined;
-
-    // "MC/MX/FF Number(s):" may contain multiple tokens across <br>-separated lines.
-    // Prefer MC, then MX, then FF.
-    const mcRaw = extractSAFERField(html, 'MC/MX/FF Number\\(s\\):');
-    let mcNumber: string | undefined;
-    if (mcRaw) {
-      const tokens = mcRaw.match(/(MC|MX|FF)[-\s]?\d+/gi) ?? [];
-      const normalized = tokens.map(t => t.replace(/\s+/g, '-').toUpperCase());
-      mcNumber =
-        normalized.find(t => t.startsWith('MC-')) ??
-        normalized.find(t => t.startsWith('MX-')) ??
-        normalized.find(t => t.startsWith('FF-'));
-    }
-
-    return { inactive, phone, mcNumber };
+    const text = stripSAFERHtml(html);
+    const parsed = parseSAFERText(text);
+    return { inactive: parsed.inactive, phone: parsed.phone, mcNumber: parsed.mcNumber };
   } catch (err) {
     console.warn(`[fmcsa] SAFER fetch failed for DOT ${dot}:`, err);
     return { inactive: false };
@@ -174,50 +185,54 @@ async function checkSAFER(dot: string): Promise<SAFERResult> {
 }
 
 /**
- * Debug: fetch SAFER and return status, response size, a snippet of the HTML,
- * and what our extractor parsed. Used by /api/fmcsa-debug to diagnose why
- * phone / MC / inactive detection might be failing for a given DOT.
+ * Debug: fetch SAFER and return status, response size, stripped-text
+ * length and context windows around each label we care about, plus what
+ * our extractor parsed. Used by /api/fmcsa-debug to diagnose why phone /
+ * MC / inactive detection might be failing for a given DOT.
  */
 export async function fetchSAFERDebug(dot: string): Promise<{
   url: string;
   status: number;
   ok: boolean;
   htmlLength: number;
-  htmlSnippet: string;
-  parsed: {
-    inactive: boolean;
-    phone?: string;
-    mcNumber?: string;
-    phoneRaw?: string;
-    mcRaw?: string;
+  textLength: number;
+  context: {
+    aroundPhone?: string;
+    aroundMcFfMx?: string;
+    aroundInactive?: string;
   };
+  parsed: SAFERParsed;
   error?: string;
 }> {
   const url = `${SAFER_QUERY}${dot}`;
   try {
     const res = await fetch(url, { cache: 'no-store', headers: SAFER_HEADERS });
     const html = res.ok ? await res.text() : '';
-    const textOnly = html.replace(/<[^>]+>/g, ' ');
-    const inactive = /is\s+inactive\s+in\s+the\s+safer\s+database/i.test(textOnly);
-    const phoneRaw = extractSAFERField(html, 'Phone:');
-    const phone = phoneRaw && /\d{3}/.test(phoneRaw) ? phoneRaw : undefined;
-    const mcRaw = extractSAFERField(html, 'MC/MX/FF Number\\(s\\):');
-    let mcNumber: string | undefined;
-    if (mcRaw) {
-      const tokens = mcRaw.match(/(MC|MX|FF)[-\s]?\d+/gi) ?? [];
-      const normalized = tokens.map(t => t.replace(/\s+/g, '-').toUpperCase());
-      mcNumber =
-        normalized.find(t => t.startsWith('MC-')) ??
-        normalized.find(t => t.startsWith('MX-')) ??
-        normalized.find(t => t.startsWith('FF-'));
-    }
+    const text = stripSAFERHtml(html);
+    const parsed = parseSAFERText(text);
+
+    // Return 120 chars of context around each interesting label so we can
+    // see what the extractor is scanning without dumping the whole page.
+    const window = (label: RegExp): string | undefined => {
+      const match = text.match(label);
+      if (!match || match.index === undefined) return undefined;
+      const start = Math.max(0, match.index - 40);
+      const end = Math.min(text.length, match.index + 200);
+      return text.slice(start, end);
+    };
+
     return {
       url,
       status: res.status,
       ok: res.ok,
       htmlLength: html.length,
-      htmlSnippet: html.slice(0, 3000),
-      parsed: { inactive, phone, mcNumber, phoneRaw, mcRaw },
+      textLength: text.length,
+      context: {
+        aroundPhone: window(/\bPhone:/i),
+        aroundMcFfMx: window(/MC\/MX\/FF Number\(s\):/i),
+        aroundInactive: window(/inactive in the safer database/i),
+      },
+      parsed,
     };
   } catch (err) {
     return {
@@ -225,7 +240,8 @@ export async function fetchSAFERDebug(dot: string): Promise<{
       status: 0,
       ok: false,
       htmlLength: 0,
-      htmlSnippet: '',
+      textLength: 0,
+      context: {},
       parsed: { inactive: false },
       error: err instanceof Error ? err.message : String(err),
     };
