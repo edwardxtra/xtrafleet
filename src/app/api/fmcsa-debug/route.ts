@@ -26,13 +26,12 @@ async function handleGet(request: NextRequest) {
 
   const base = `https://mobile.fmcsa.dot.gov/qc/services/carriers/${dot}`;
 
-  const [carrierRes, docketRes, mcRes, basicsRes, safer, li] = await Promise.all([
+  const [carrierRes, docketRes, mcRes, basicsRes, safer] = await Promise.all([
     fetch(`${base}?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
     fetch(`${base}/docket-numbers?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
     fetch(`${base}/mc-numbers?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
     fetch(`${base}/basics?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
     fetchSAFERDebug(dot),
-    fetchLIDebug(dot),
   ]);
 
   const [carrierJson, docketJson, mcJson, basicsJson] = await Promise.all([
@@ -43,6 +42,16 @@ async function handleGet(request: NextRequest) {
   ]);
 
   const carrier = carrierJson?.content?.carrier ?? carrierJson?.content ?? null;
+
+  // Pull the MC docket out of QCMobile (prefer MC, fall back to first entry)
+  // so the L&I probe can try the docket-keyed deep links too.
+  type DocketRow = { prefix?: string; docketNumber?: number };
+  const mcRows: DocketRow[] = Array.isArray(mcJson?.content) ? mcJson.content : [];
+  const mcRow = mcRows.find(d => String(d.prefix ?? '').toUpperCase() === 'MC') ?? mcRows[0];
+  const mcNumber = mcRow?.docketNumber
+    ? `${mcRow.prefix ?? 'MC'}-${mcRow.docketNumber}`
+    : undefined;
+  const li = await fetchLIDebug(dot, mcNumber);
 
   return NextResponse.json({
     carrier: {
