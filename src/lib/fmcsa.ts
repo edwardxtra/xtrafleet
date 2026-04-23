@@ -25,6 +25,29 @@ const FMCSA_SCRAPE_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 };
 
+export interface LIInsurancePolicy {
+  docketNumber: string;       // e.g. "MC359197", "FF023551"
+  formCode: string;           // "91X", "91", "34", "84", "85" (FMCSA filing form)
+  insuranceType: string;      // "BIPD/Primary", "CARGO", "SURETY", etc.
+  insurer: string;            // "TRANSGUARD INSURANCE COMPANY OF AMERICA INC."
+  policyNumber: string;
+  effectiveDate?: string;     // MM/DD/YYYY as served by Socrata
+  cancellationDate?: string;
+  maxCoverage?: string;       // "750" = $750k
+  underlyingLimit?: string;
+}
+
+export interface LIInsuranceSummary {
+  primaryInsurer?: string;
+  primaryPolicyNumber?: string;
+  primaryEffectiveDate?: string;
+  primaryMaxCoverage?: string;
+  hasBIPD: boolean;
+  hasCargo: boolean;
+  hasSurety: boolean;
+  policyCount: number;
+}
+
 export interface FMCSACarrier {
   dotNumber: string;
   legalName: string;
@@ -46,6 +69,8 @@ export interface FMCSACarrier {
   cargoInsuranceOnFile?: string;
   allowedToOperate?: boolean;
   saferDiscrepancy?: boolean;
+  liInsurance?: LIInsurancePolicy[];
+  liInsuranceSummary?: LIInsuranceSummary;
 }
 
 export interface FMCSALookupResult {
@@ -427,6 +452,110 @@ function socrataHeaders(): HeadersInit {
   return headers;
 }
 
+/** DOT numbers in qh9u-swkp are stored as text padded to 8 digits. */
+function padDotForSocrata(dot: string): string {
+  const digits = dot.replace(/\D/g, '');
+  return digits.padStart(8, '0').slice(-8);
+}
+
+/**
+ * Map FMCSA form codes to a human-readable insurance type. The dataset stores
+ * the type in mod_col_1 too but we normalize it here to keep the UI consistent.
+ */
+function describeInsuranceType(formCode: string, modCol1?: string): string {
+  if (modCol1 && modCol1.trim()) return modCol1.trim();
+  switch (formCode) {
+    case '91':
+    case '91X':
+      return 'BIPD / Public Liability';
+    case '34':
+      return 'Cargo';
+    case '82':
+      return 'Broker Trust Fund';
+    case '84':
+    case '85':
+      return 'Surety Bond';
+    default:
+      return `Form ${formCode}`;
+  }
+}
+
+/**
+ * Fetch FMCSA L&I active/pending insurance policies for a given DOT from the
+ * Socrata dataset qh9u-swkp. Dataset provides insurer name, policy number,
+ * coverage amounts, and effective / cancellation dates per filed policy.
+ *
+ * Schema confirmed by phase 2a/2a.2 probe. DOT must be zero-padded to 8
+ * chars because the column is stored as text. Query by exact dot_number and
+ * order by effective_date DESC so the most recent filings come first.
+ *
+ * Returns undefined on any error — this is an enrichment signal, not a
+ * blocking lookup, so SAFER/QCMobile should remain the authoritative path.
+ */
+async function fetchLIInsurance(dot: string): Promise<{
+  policies: LIInsurancePolicy[];
+  summary: LIInsuranceSummary;
+} | undefined> {
+  try {
+    const padded = padDotForSocrata(dot);
+    const where = `dot_number='${padded}'`;
+    const url =
+      `${SOCRATA_BASE}/resource/${SOCRATA_DATASETS.actPendInsur}.json` +
+      `?$where=${encodeURIComponent(where)}` +
+      `&$order=${encodeURIComponent('effective_date DESC')}` +
+      `&$limit=50`;
+
+    const res = await fetch(url, { cache: 'no-store', headers: socrataHeaders() });
+    if (!res.ok) {
+      console.warn(`[fmcsa] Socrata L&I returned ${res.status} for DOT ${dot}`);
+      return undefined;
+    }
+    const rows = (await res.json()) as Array<{
+      docket_number?: string;
+      dot_number?: string;
+      ins_form_code?: string;
+      mod_col_1?: string;
+      name_company?: string;
+      policy_no?: string;
+      trans_date?: string;
+      underl_lim_amount?: string;
+      max_cov_amount?: string;
+      effective_date?: string;
+      cancl_effective_date?: string;
+    }>;
+
+    const policies: LIInsurancePolicy[] = rows.map(r => ({
+      docketNumber: String(r.docket_number ?? ''),
+      formCode: String(r.ins_form_code ?? ''),
+      insuranceType: describeInsuranceType(String(r.ins_form_code ?? ''), r.mod_col_1),
+      insurer: String(r.name_company ?? '').trim(),
+      policyNumber: String(r.policy_no ?? ''),
+      effectiveDate: r.effective_date?.trim() || undefined,
+      cancellationDate: r.cancl_effective_date?.trim() || undefined,
+      maxCoverage: r.max_cov_amount?.trim() || undefined,
+      underlyingLimit: r.underl_lim_amount?.trim() || undefined,
+    }));
+
+    const primary =
+      policies.find(p => p.formCode === '91X' || p.formCode === '91') ?? policies[0];
+    const summary: LIInsuranceSummary = {
+      primaryInsurer: primary?.insurer,
+      primaryPolicyNumber: primary?.policyNumber,
+      primaryEffectiveDate: primary?.effectiveDate,
+      primaryMaxCoverage: primary?.maxCoverage,
+      hasBIPD: policies.some(p => p.formCode === '91' || p.formCode === '91X'),
+      hasCargo: policies.some(p => p.formCode === '34'),
+      hasSurety: policies.some(p => p.formCode === '84' || p.formCode === '85' || p.formCode === '82'),
+      policyCount: policies.length,
+    };
+
+    return { policies, summary };
+  } catch (err) {
+    console.warn(`[fmcsa] Socrata L&I fetch failed for DOT ${dot}:`, err);
+    return undefined;
+  }
+}
+
 /**
  * Debug-only: probe the FMCSA L&I Socrata datasets on data.transportation.gov.
  *
@@ -612,14 +741,16 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
   try {
     const webKey = getWebKey();
 
-    // All three fetches in parallel
-    const [carrierRes, mcNumber, safer] = await Promise.all([
+    // All four fetches in parallel. L&I is enrichment — if it fails we still
+    // return a valid carrier result.
+    const [carrierRes, mcNumber, safer, liInsurance] = await Promise.all([
       fetch(`${FMCSA_BASE}/carriers/${cleaned}?webKey=${webKey}`, {
         cache: 'no-store',
         headers: { Accept: 'application/json' },
       }),
       fetchMCNumber(cleaned, webKey),
       checkSAFER(cleaned),
+      fetchLIInsurance(cleaned),
     ]);
 
     if (!carrierRes.ok) {
@@ -638,6 +769,10 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
     else if (safer.mcNumber) carrier.mcNumber = safer.mcNumber;
     if (safer.phone) carrier.phone = safer.phone;
     if (carrier.allowedToOperate && safer.inactive) carrier.saferDiscrepancy = true;
+    if (liInsurance) {
+      carrier.liInsurance = liInsurance.policies;
+      carrier.liInsuranceSummary = liInsurance.summary;
+    }
 
     return { success: true, carrier, raw: content };
   } catch (err: unknown) {

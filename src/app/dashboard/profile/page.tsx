@@ -143,6 +143,7 @@ export default function ProfilePage() {
 
   const [attestationsExpanded, setAttestationsExpanded] = useState(false);
   const [clearinghouseExpanded, setClearinghouseExpanded] = useState(false);
+  const [liInsuranceExpanded, setLiInsuranceExpanded] = useState(false);
 
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -733,6 +734,93 @@ export default function ProfilePage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Insurance on File with FMCSA (from Socrata L&I dataset, read-only) */}
+      {(() => {
+        const li = (fmcsa.carrier?.liInsurance ?? profile?.fmcsaData?.liInsurance) || [];
+        const summary = fmcsa.carrier?.liInsuranceSummary ?? profile?.fmcsaData?.liInsuranceSummary;
+        if (li.length === 0 && !summary) {
+          // No data and no lookup done yet — don't clutter the page.
+          return null;
+        }
+        const hasData = li.length > 0;
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" /> Insurance on File with FMCSA
+              </CardTitle>
+              <CardDescription>
+                Reported to FMCSA&apos;s Licensing & Insurance program. This is separate from the COI you upload below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-start justify-between gap-2">
+                <div className="text-sm flex-1">
+                  {hasData && summary ? (
+                    <>
+                      <p className="font-medium">
+                        {summary.primaryInsurer || 'Policy on file'}
+                      </p>
+                      <p className="text-muted-foreground text-xs mt-0.5">
+                        {summary.primaryPolicyNumber && <>Policy {summary.primaryPolicyNumber} · </>}
+                        {summary.primaryEffectiveDate && <>Effective {summary.primaryEffectiveDate} · </>}
+                        {summary.primaryMaxCoverage && <>Coverage ${summary.primaryMaxCoverage}k · </>}
+                        {summary.policyCount} {summary.policyCount === 1 ? 'policy' : 'policies'} on file
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 flex gap-3">
+                        {summary.hasBIPD && <span className="inline-flex items-center gap-1"><Check className="h-3 w-3 text-green-600" /> BIPD</span>}
+                        {summary.hasCargo && <span className="inline-flex items-center gap-1"><Check className="h-3 w-3 text-green-600" /> Cargo</span>}
+                        {summary.hasSurety && <span className="inline-flex items-center gap-1"><Check className="h-3 w-3 text-green-600" /> Surety</span>}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No active insurance policies found in FMCSA L&I records.</p>
+                  )}
+                </div>
+                {hasData && (
+                  <button
+                    type="button"
+                    onClick={() => setLiInsuranceExpanded(v => !v)}
+                    className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                    aria-label={liInsuranceExpanded ? 'Collapse insurance details' : 'Expand insurance details'}
+                  >
+                    {liInsuranceExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
+
+              {hasData && liInsuranceExpanded && (
+                <div className="mt-4 space-y-2">
+                  {li.map((p, idx) => (
+                    <div key={`${p.docketNumber}-${p.formCode}-${p.policyNumber}-${idx}`} className="rounded-lg border bg-muted/30 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="text-sm">
+                          <p className="font-medium">{p.insurer}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {p.insuranceType} · Form {p.formCode} · {p.docketNumber}
+                          </p>
+                        </div>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {p.maxCoverage ? `$${p.maxCoverage}k` : ''}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Policy {p.policyNumber || '—'}
+                        {p.effectiveDate && <> · Effective {p.effectiveDate}</>}
+                        {p.cancellationDate && <> · Cancelled {p.cancellationDate}</>}
+                      </p>
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground italic mt-2">
+                    Source: FMCSA Licensing &amp; Insurance (data.transportation.gov). Updates can lag actual policy changes by several days.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <Card>
         <CardHeader>
