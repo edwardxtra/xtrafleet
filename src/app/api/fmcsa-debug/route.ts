@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withCors } from '@/lib/api-cors';
 import { authenticateRequest } from '@/lib/api-auth';
-import { fetchSAFERDebug } from '@/lib/fmcsa';
+import { fetchSAFERDebug, fetchLIDebug } from '@/lib/fmcsa';
 
 async function handleGet(request: NextRequest) {
   try {
@@ -26,12 +26,13 @@ async function handleGet(request: NextRequest) {
 
   const base = `https://mobile.fmcsa.dot.gov/qc/services/carriers/${dot}`;
 
-  const [carrierRes, docketRes, mcRes, basicsRes, safer] = await Promise.all([
+  const [carrierRes, docketRes, mcRes, basicsRes, safer, li] = await Promise.all([
     fetch(`${base}?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
     fetch(`${base}/docket-numbers?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
     fetch(`${base}/mc-numbers?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
     fetch(`${base}/basics?webKey=${webKey}`, { cache: 'no-store', headers: { Accept: 'application/json' } }),
     fetchSAFERDebug(dot),
+    fetchLIDebug(dot),
   ]);
 
   const [carrierJson, docketJson, mcJson, basicsJson] = await Promise.all([
@@ -62,6 +63,7 @@ async function handleGet(request: NextRequest) {
       data: basicsJson,
     },
     safer,
+    li,
   });
 }
 
