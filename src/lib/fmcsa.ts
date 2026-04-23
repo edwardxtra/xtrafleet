@@ -14,11 +14,12 @@
 
 const FMCSA_BASE = 'https://mobile.fmcsa.dot.gov/qc/services';
 const SAFER_QUERY = 'https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=';
+const LI_BASE = 'https://li-public.fmcsa.dot.gov/LIVIEW';
 
-// SAFER sits behind Akamai, which 403s requests without a browser-like
-// User-Agent and realistic Accept header. Without these, our fetch silently
-// fails and phone / inactive detection never work in production.
-const SAFER_HEADERS = {
+// FMCSA's public scraping hosts (safer, li-public) sit behind Akamai, which
+// 403s requests without a browser-like User-Agent. Without these headers our
+// fetch silently fails and nothing scraped populates in production.
+const FMCSA_SCRAPE_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.9',
@@ -168,7 +169,7 @@ async function checkSAFER(dot: string): Promise<SAFERResult> {
   try {
     const res = await fetch(`${SAFER_QUERY}${dot}`, {
       cache: 'no-store',
-      headers: SAFER_HEADERS,
+      headers: FMCSA_SCRAPE_HEADERS,
     });
     if (!res.ok) {
       console.warn(`[fmcsa] SAFER returned ${res.status} for DOT ${dot}`);
@@ -206,7 +207,7 @@ export async function fetchSAFERDebug(dot: string): Promise<{
 }> {
   const url = `${SAFER_QUERY}${dot}`;
   try {
-    const res = await fetch(url, { cache: 'no-store', headers: SAFER_HEADERS });
+    const res = await fetch(url, { cache: 'no-store', headers: FMCSA_SCRAPE_HEADERS });
     const html = res.ok ? await res.text() : '';
     const text = stripSAFERHtml(html);
     const parsed = parseSAFERText(text);
@@ -245,6 +246,107 @@ export async function fetchSAFERDebug(dot: string): Promise<{
       parsed: { inactive: false },
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+/**
+ * Debug-only: probe FMCSA L&I (Licensing & Insurance).
+ *
+ * L&I uses a two-step HTML lookup:
+ *   1. Carrier list by USDOT returns links containing an internal pv_apcant_id.
+ *   2. Detail pages (active insurance, authority history) are keyed by that id.
+ *
+ * We try the two-step path first (list → detail). We also attempt a direct
+ * USDOT-keyed insurance URL that some FMCSA clients use undocumented as a
+ * fallback. Both are returned so we can see what L&I actually serves and
+ * write a parser against real HTML in a follow-up PR.
+ */
+export async function fetchLIDebug(dot: string): Promise<{
+  steps: Array<{
+    label: string;
+    url: string;
+    status: number;
+    ok: boolean;
+    htmlLength: number;
+    textLength: number;
+    textSnippet: string; // up to 5KB of stripped text
+    extracted?: { apcantId?: string };
+  }>;
+  apcantId?: string;
+  error?: string;
+}> {
+  const steps: Array<{
+    label: string;
+    url: string;
+    status: number;
+    ok: boolean;
+    htmlLength: number;
+    textLength: number;
+    textSnippet: string;
+    extracted?: { apcantId?: string };
+  }> = [];
+
+  async function probe(label: string, url: string): Promise<string> {
+    try {
+      const res = await fetch(url, { cache: 'no-store', headers: FMCSA_SCRAPE_HEADERS });
+      const html = res.ok ? await res.text() : '';
+      const text = stripSAFERHtml(html);
+      steps.push({
+        label,
+        url,
+        status: res.status,
+        ok: res.ok,
+        htmlLength: html.length,
+        textLength: text.length,
+        textSnippet: text.slice(0, 5000),
+      });
+      return html;
+    } catch (err) {
+      steps.push({
+        label,
+        url,
+        status: 0,
+        ok: false,
+        htmlLength: 0,
+        textLength: 0,
+        textSnippet: err instanceof Error ? err.message : String(err),
+      });
+      return '';
+    }
+  }
+
+  try {
+    // Step 1: carrier list by USDOT — response contains links with pv_apcant_id.
+    const listHtml = await probe(
+      'carrlist_by_dot',
+      `${LI_BASE}/pkg_carrquery.prc_carrlist?n_dotno=${encodeURIComponent(dot)}`,
+    );
+
+    const idMatch = listHtml.match(/pv_apcant_id=(\d+)/i);
+    const apcantId = idMatch?.[1];
+    if (steps[0]) steps[0].extracted = { apcantId };
+
+    // Step 2a: direct USDOT-keyed insurance (undocumented, may or may not work).
+    await probe(
+      'insurance_by_dot',
+      `${LI_BASE}/pkg_carrquery.prc_insurance?pn_usdot_number=${encodeURIComponent(dot)}`,
+    );
+
+    // Step 2b: active insurance by apcant_id (canonical path, needs step 1).
+    if (apcantId) {
+      await probe(
+        'activeinsurance_by_apcantid',
+        `${LI_BASE}/pkg_carrquery.prc_activeinsurance?pv_apcant_id=${apcantId}`,
+      );
+      await probe(
+        'authhistory_by_apcantid',
+        `${LI_BASE}/pkg_carrquery.prc_authhistory?pv_apcant_id=${apcantId}`,
+      );
+    }
+
+    return { steps, apcantId };
+  } catch (err) {
+    return { steps, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
