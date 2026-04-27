@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -22,16 +23,26 @@ import {
   Calendar,
   Star,
   CheckCircle,
-  Mail
+  Mail,
+  Shield,
 } from "lucide-react";
 import type { Load } from "@/lib/data";
 import type { MatchScore } from "@/lib/matching";
 import { useUser, useFirestore } from "@/firebase";
-import { collection, addDoc, doc, getDoc } from "firebase/firestore";
+import { collection, addDoc, doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import { notify } from "@/lib/notifications";
+import { ATTESTATIONS, buildAttestationEntry, type AttestationType } from "@/lib/attestations";
+
+const BORROWER_ATTESTATIONS: AttestationType[] = [
+  'matchBorrowerClearinghouse',
+  'matchBorrowerResponsibility',
+  'matchBorrowerInsurance',
+];
+
+type BorrowerChecks = Record<AttestationType, boolean>;
 
 interface MatchRequestModalProps {
   open: boolean;
@@ -64,6 +75,14 @@ export function MatchRequestModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notes, setNotes] = useState<string>("");
   const [driverOwnerEmail, setDriverOwnerEmail] = useState<string>("");
+  const [borrowerChecks, setBorrowerChecks] = useState<BorrowerChecks>(
+    () =>
+      BORROWER_ATTESTATIONS.reduce(
+        (acc, t) => ({ ...acc, [t]: false }),
+        {} as BorrowerChecks,
+      ),
+  );
+  const allBorrowerChecked = BORROWER_ATTESTATIONS.every(t => borrowerChecks[t]);
 
   const driver = matchScore.driver;
 
@@ -180,6 +199,25 @@ export function MatchRequestModal({
 
       console.log("Match request created:", matchRef.id);
 
+      // DEV-154 phase 2: record the borrower's match-confirmation attestations
+      // against the just-created matchId so we have a contextual audit trail.
+      // Non-blocking — if this fails the match is still valid; we just log.
+      try {
+        const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : undefined;
+        await updateDoc(doc(firestore, 'owner_operators', user.uid), {
+          attestations: arrayUnion(
+            ...BORROWER_ATTESTATIONS.map(type =>
+              buildAttestationEntry(type, user.uid, {
+                userAgent,
+                context: { matchId: matchRef.id },
+              }),
+            ),
+          ),
+        });
+      } catch (err) {
+        console.error('Failed to record borrower match attestations:', err);
+      }
+
       // Send email notification to driver owner
       if (driverOwnerEmailFetched) {
         notify.matchRequest({
@@ -198,6 +236,12 @@ export function MatchRequestModal({
 
       // Reset form
       setNotes("");
+      setBorrowerChecks(
+        BORROWER_ATTESTATIONS.reduce(
+          (acc, t) => ({ ...acc, [t]: false }),
+          {} as BorrowerChecks,
+        ),
+      );
 
       if (onSuccess) onSuccess();
     } catch (error) {
@@ -313,6 +357,39 @@ export function MatchRequestModal({
             The driver owner will receive this request and can accept, decline, or send a counter offer.
             This request expires in 48 hours.
           </p>
+
+          {/* DEV-154 phase 2: borrower compliance attestations.
+              Required to send the request. Persisted with context.matchId. */}
+          <div className="space-y-3 p-3 md:p-4 border rounded-lg bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900">
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-amber-600" />
+              <h4 className="font-medium text-sm">Compliance Confirmation</h4>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Required before sending the request. By checking each box you confirm:
+            </p>
+            <div className="space-y-2.5">
+              {BORROWER_ATTESTATIONS.map(type => {
+                const def = ATTESTATIONS[type];
+                return (
+                  <div key={type} className="flex items-start gap-2.5">
+                    <Checkbox
+                      id={`borrower-${type}`}
+                      checked={borrowerChecks[type]}
+                      onCheckedChange={(checked) =>
+                        setBorrowerChecks(prev => ({ ...prev, [type]: checked === true }))
+                      }
+                      disabled={isSubmitting}
+                      className="mt-0.5"
+                    />
+                    <Label htmlFor={`borrower-${type}`} className="text-xs leading-relaxed cursor-pointer">
+                      {def.text}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         <DialogFooter>
@@ -323,7 +400,7 @@ export function MatchRequestModal({
           >
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
+          <Button onClick={handleSubmit} disabled={isSubmitting || !allBorrowerChecked}>
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

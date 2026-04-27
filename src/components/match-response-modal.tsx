@@ -17,17 +17,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { 
-  Loader2, 
-  Truck, 
-  User, 
-  MapPin, 
+import {
+  Loader2,
+  Truck,
+  User,
+  MapPin,
   DollarSign,
   Calendar,
   Check,
@@ -36,16 +37,25 @@ import {
   Clock,
   Building2,
   Star,
-  Mail
+  Mail,
+  Shield,
 } from "lucide-react";
 import type { Match } from "@/lib/data";
 import { useUser, useFirestore } from "@/firebase";
-import { doc, updateDoc, getDoc, collection, addDoc } from "firebase/firestore";
+import { doc, updateDoc, getDoc, collection, addDoc, arrayUnion } from "firebase/firestore";
 import { showSuccess, showError, showInfo } from "@/lib/toast-utils";
 import { format, parseISO } from "date-fns";
 import { generateTLA } from "@/lib/tla";
 import { notify } from "@/lib/notifications";
 import { createConversation } from "@/lib/messaging-utils";
+import { ATTESTATIONS, buildAttestationEntry, type AttestationType } from "@/lib/attestations";
+
+const LENDER_ATTESTATIONS: AttestationType[] = [
+  'matchLenderQualified',
+  'matchLenderAuthority',
+];
+
+type LenderChecks = Record<AttestationType, boolean>;
 
 interface MatchResponseModalProps {
   open: boolean;
@@ -73,6 +83,16 @@ export function MatchResponseModal({
 
   // Decline state
   const [declineReason, setDeclineReason] = useState<string>("");
+
+  // DEV-154 phase 2: lender (driver owner) compliance attestations on accept.
+  const [lenderChecks, setLenderChecks] = useState<LenderChecks>(
+    () =>
+      LENDER_ATTESTATIONS.reduce(
+        (acc, t) => ({ ...acc, [t]: false }),
+        {} as LenderChecks,
+      ),
+  );
+  const allLenderChecked = LENDER_ATTESTATIONS.every(t => lenderChecks[t]);
 
   // Determine direction - who initiated this match?
   // If load_owner initiated, driver_owner is responding (current behavior)
@@ -159,6 +179,25 @@ export function MatchResponseModal({
         respondedAt: new Date().toISOString(),
         tlaId: tlaRef.id,
       });
+
+      // DEV-154 phase 2: record the lender's match-confirmation attestations
+      // against this matchId + tlaId so we have a contextual audit trail.
+      // Non-blocking — TLA generation already succeeded; if this fails we log.
+      try {
+        const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : undefined;
+        await updateDoc(doc(firestore, 'owner_operators', user.uid), {
+          attestations: arrayUnion(
+            ...LENDER_ATTESTATIONS.map(type =>
+              buildAttestationEntry(type, user.uid, {
+                userAgent,
+                context: { matchId: match.id, tlaId: tlaRef.id },
+              }),
+            ),
+          ),
+        });
+      } catch (err) {
+        console.error('Failed to record lender match attestations:', err);
+      }
   
       // Update load status to "Matched"
       console.log('Updating load status to Matched...');
@@ -492,13 +531,46 @@ export function MatchResponseModal({
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="accept" className="mt-4">
+              <TabsContent value="accept" className="mt-4 space-y-4">
                 <div className="text-center p-4 bg-green-50 dark:bg-green-950/20 rounded-lg">
                   <Check className="h-8 w-8 mx-auto text-green-600 mb-2" />
                   <p className="font-medium">Accept these terms?</p>
                   <p className="text-sm text-muted-foreground mt-1">
                     A Trip Lease Agreement will be generated and messaging enabled.
                   </p>
+                </div>
+
+                {/* DEV-154 phase 2: lender compliance attestations.
+                    Required to accept. Persisted with context.matchId + tlaId. */}
+                <div className="space-y-3 p-3 md:p-4 border rounded-lg bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900">
+                  <div className="flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-amber-600" />
+                    <h4 className="font-medium text-sm">Compliance Confirmation</h4>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Required before accepting. By checking each box you confirm:
+                  </p>
+                  <div className="space-y-2.5">
+                    {LENDER_ATTESTATIONS.map(type => {
+                      const def = ATTESTATIONS[type];
+                      return (
+                        <div key={type} className="flex items-start gap-2.5">
+                          <Checkbox
+                            id={`lender-${type}`}
+                            checked={lenderChecks[type]}
+                            onCheckedChange={(checked) =>
+                              setLenderChecks(prev => ({ ...prev, [type]: checked === true }))
+                            }
+                            disabled={isSubmitting}
+                            className="mt-0.5"
+                          />
+                          <Label htmlFor={`lender-${type}`} className="text-xs leading-relaxed cursor-pointer">
+                            {def.text}
+                          </Label>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </TabsContent>
 
@@ -582,7 +654,7 @@ export function MatchResponseModal({
             </Button>
             
             {activeTab === "accept" && (
-              <Button onClick={handleAccept} disabled={isSubmitting} className="bg-green-600 hover:bg-green-700">
+              <Button onClick={handleAccept} disabled={isSubmitting || !allLenderChecked} className="bg-green-600 hover:bg-green-700">
                 {isSubmitting ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
