@@ -11,11 +11,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Play, Square, Truck, PartyPopper, CheckCircle } from "lucide-react";
+import { Loader2, Play, Square, Truck, PartyPopper, CheckCircle, Shield } from "lucide-react";
 import type { TLA } from "@/lib/data";
 import { useFirestore } from "@/firebase";
+import { doc, updateDoc, arrayUnion } from "firebase/firestore";
 import { startTrip, endTrip, updateDriverAvailability } from "@/lib/tla-actions";
 import { formatTLADate, formatTripDuration } from "@/lib/tla-utils";
+import { ATTESTATIONS, buildAttestationEntry, type AttestationType } from "@/lib/attestations";
+
+const POST_TRIP_ATTESTATIONS: AttestationType[] = [
+  'postTripCompleted',
+  'postTripNoIncidents',
+];
+type PostTripChecks = Record<AttestationType, boolean>;
 
 interface TLATripControlsProps {
   tla: TLA;
@@ -39,6 +47,16 @@ export function TLATripControls({
   const [isEnding, setIsEnding] = useState(false);
   const [showCompletedModal, setShowCompletedModal] = useState(false);
   const [markDriverAvailable, setMarkDriverAvailable] = useState(true);
+  // DEV-154 phase 5: optional post-trip attestations. Default ON because
+  // the typical trip completes successfully without incidents, but the user
+  // can uncheck either before clicking Done.
+  const [postTripChecks, setPostTripChecks] = useState<PostTripChecks>(
+    () =>
+      POST_TRIP_ATTESTATIONS.reduce(
+        (acc, t) => ({ ...acc, [t]: true }),
+        {} as PostTripChecks,
+      ),
+  );
 
   const handleStartTrip = async () => {
     if (!firestore) return;
@@ -94,6 +112,29 @@ export function TLATripControls({
     }
 
     await updateDriverAvailability(firestore, tla, markDriverAvailable);
+
+    // DEV-154 phase 5: record any optional post-trip attestations the user
+    // confirmed before closing the modal. Non-blocking — driver-availability
+    // update is the primary side-effect and already succeeded.
+    const checked = POST_TRIP_ATTESTATIONS.filter(t => postTripChecks[t]);
+    if (checked.length > 0) {
+      try {
+        const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : undefined;
+        await updateDoc(doc(firestore, 'owner_operators', userId), {
+          attestations: arrayUnion(
+            ...checked.map(type =>
+              buildAttestationEntry(type, userId, {
+                userAgent,
+                context: { tlaId, matchId: tla.matchId },
+              }),
+            ),
+          ),
+        });
+      } catch (err) {
+        console.error('Failed to record post-trip attestations:', err);
+      }
+    }
+
     setShowCompletedModal(false);
   };
 
@@ -214,6 +255,34 @@ export function TLATripControls({
                 </div>
               </div>
             )}
+
+            {/* DEV-154 phase 5: optional post-trip attestations. Defaulted on,
+                user can uncheck. Recorded in the unified attestations array
+                with context.tlaId so the audit trail is complete. */}
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4 text-muted-foreground" />
+                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Post-Trip Confirmation (Optional)</h4>
+              </div>
+              {POST_TRIP_ATTESTATIONS.map(type => {
+                const def = ATTESTATIONS[type];
+                return (
+                  <div key={type} className="flex items-start space-x-3">
+                    <Checkbox
+                      id={`posttrip-${type}`}
+                      checked={postTripChecks[type]}
+                      onCheckedChange={checked =>
+                        setPostTripChecks(prev => ({ ...prev, [type]: checked === true }))
+                      }
+                      className="mt-0.5"
+                    />
+                    <Label htmlFor={`posttrip-${type}`} className="text-xs leading-relaxed cursor-pointer">
+                      {def.text}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <DialogFooter>
