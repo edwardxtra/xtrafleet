@@ -147,8 +147,16 @@ export const ATTESTATIONS: Record<AttestationType, AttestationDef> = {
 export interface AttestationContext {
   /** Match doc id, when the attestation is per-match. */
   matchId?: string;
-  /** Driver doc id, when per-driver. */
+  /** Driver doc id, when per-driver and the driver already has a uid. */
   driverId?: string;
+  /**
+   * Driver invitation token (driver_invitations doc id) when the attestation
+   * is captured at invite time, before the driver registers and gets a uid.
+   * Audit trails can later resolve this to the driver's eventual uid.
+   */
+  driverInvitationToken?: string;
+  /** Email of the invitee, captured at invite time for audit clarity. */
+  driverInvitationEmail?: string;
   /** TLA doc id, when per-TLA. */
   tlaId?: string;
 }
