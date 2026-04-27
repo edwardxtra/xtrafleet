@@ -16,8 +16,16 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useRef } from "react";
 import { useAuth } from "@/firebase";
-import { Loader2, Plus, X, ExternalLink } from "lucide-react";
+import { Loader2, Plus, X, Shield } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ATTESTATIONS, type AttestationType } from "@/lib/attestations";
+
+const DRIVER_ADD_ATTESTATIONS: AttestationType[] = [
+  'driverDqf',
+  'driverFmcsaChecks',
+  'driverAuthority',
+];
+type DriverChecks = Record<AttestationType, boolean>;
 
 interface DriverInvite {
   id: string;
@@ -31,7 +39,14 @@ export function AddDriverForm() {
   const auth = useAuth();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hasCertifiedDQF, setHasCertifiedDQF] = useState(false);
+  const [driverChecks, setDriverChecks] = useState<DriverChecks>(
+    () =>
+      DRIVER_ADD_ATTESTATIONS.reduce(
+        (acc, t) => ({ ...acc, [t]: false }),
+        {} as DriverChecks,
+      ),
+  );
+  const allDriverChecked = DRIVER_ADD_ATTESTATIONS.every(t => driverChecks[t]);
   
   const [drivers, setDrivers] = useState<DriverInvite[]>([
     { id: crypto.randomUUID(), firstName: "", lastName: "", email: "" }
@@ -72,8 +87,8 @@ export function AddDriverForm() {
       toast({ title: "Error", description: "You must be logged in.", variant: "destructive" });
       return;
     }
-    if (!hasCertifiedDQF) {
-      toast({ title: "Certification Required", description: "Please certify drivers have complete DQFs.", variant: "destructive" });
+    if (!allDriverChecked) {
+      toast({ title: "Attestations Required", description: "Please confirm all three driver compliance attestations.", variant: "destructive" });
       return;
     }
     const errors = validateDrivers();
@@ -88,19 +103,27 @@ export function AddDriverForm() {
       const response = await fetch('/api/add-drivers-bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           drivers: drivers.map(d => ({ firstName: d.firstName.trim(), lastName: d.lastName.trim(), email: d.email.trim().toLowerCase() })),
-          dqfCertification: { accepted: true, timestamp: new Date().toISOString(), userId: user.uid }
+          // DEV-154 phase 3: server records 3 attestations per invited driver
+          // (driverDqf, driverFmcsaChecks, driverAuthority) on the owner's
+          // unified attestations array.
+          attestDriverAdd: true,
         }),
       });
 
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed to send invitations');
-      
+
       const count = result.successful || drivers.length;
       toast({ title: "Success", description: `${count} invitation${count !== 1 ? 's' : ''} sent!` });
       setDrivers([{ id: crypto.randomUUID(), firstName: "", lastName: "", email: "" }]);
-      setHasCertifiedDQF(false);
+      setDriverChecks(
+        DRIVER_ADD_ATTESTATIONS.reduce(
+          (acc, t) => ({ ...acc, [t]: false }),
+          {} as DriverChecks,
+        ),
+      );
       closeRef.current?.click();
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -153,19 +176,34 @@ export function AddDriverForm() {
             <Plus className="h-4 w-4 mr-2" />Add Another Driver
           </Button>
         </div>
-        <div className="p-4 bg-muted/50 rounded-lg space-y-3 border">
-          <div className="flex items-start space-x-3">
-            <Checkbox id="dqf-certification" checked={hasCertifiedDQF}
-              onCheckedChange={(checked) => setHasCertifiedDQF(checked as boolean)} />
-            <div className="flex-1">
-              <label htmlFor="dqf-certification" className="text-sm font-medium cursor-pointer">
-                We certify that these drivers have complete and current Driver Qualification Files as required by applicable law and that we remain responsible for all driver qualification and compliance obligations.
-              </label>
-              <a href="/legal/dqf-requirements" target="_blank" rel="noopener noreferrer"
-                className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-2">
-                Learn More <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
+        <div className="rounded-lg border bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4 text-amber-600" />
+            <h4 className="font-medium text-sm">Driver Compliance Attestations</h4>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Required for each driver you invite. By checking each box you confirm:
+          </p>
+          <div className="space-y-2.5">
+            {DRIVER_ADD_ATTESTATIONS.map(type => {
+              const def = ATTESTATIONS[type];
+              return (
+                <div key={type} className="flex items-start space-x-3">
+                  <Checkbox
+                    id={`driver-${type}`}
+                    checked={driverChecks[type]}
+                    onCheckedChange={checked =>
+                      setDriverChecks(prev => ({ ...prev, [type]: checked === true }))
+                    }
+                    disabled={isSubmitting}
+                    className="mt-0.5"
+                  />
+                  <Label htmlFor={`driver-${type}`} className="text-xs leading-relaxed cursor-pointer">
+                    {def.text}
+                  </Label>
+                </div>
+              );
+            })}
           </div>
         </div>
         <Alert>
@@ -177,7 +215,7 @@ export function AddDriverForm() {
           <SheetClose asChild>
             <Button ref={closeRef} type="button" variant="secondary" disabled={isSubmitting}>Cancel</Button>
           </SheetClose>
-          <Button type="submit" variant="accent" disabled={isSubmitting || !hasCertifiedDQF}>
+          <Button type="submit" variant="accent" disabled={isSubmitting || !allDriverChecked}>
             {isSubmitting ? (
               <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending...</>
             ) : (
