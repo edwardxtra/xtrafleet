@@ -39,7 +39,9 @@ export type AttestationType =
   // Match confirmation — Fleet A (lender) — Phase 2
   | 'matchLenderQualified'
   | 'matchLenderAuthority'
-  // Post-trip (optional)
+  // TLA execution — Phase 4
+  | 'tlaEsignConsent'
+  // Post-trip (optional) — Phase 5
   | 'postTripCompleted'
   | 'postTripNoIncidents';
 
@@ -55,6 +57,7 @@ export interface AttestationDef {
     | 'driver_add'
     | 'match_confirm_borrower'
     | 'match_confirm_lender'
+    | 'tla'
     | 'post_trip';
   /**
    * Whether the attestation must be accepted to proceed at its surface.
@@ -128,6 +131,12 @@ export const ATTESTATIONS: Record<AttestationType, AttestationDef> = {
     v: 1,
     text: 'Driver is authorized to operate under the agreed authority structure.',
     surface: 'match_confirm_lender',
+    blocking: true,
+  },
+  tlaEsignConsent: {
+    v: 1,
+    text: 'I consent to use electronic signatures and understand my electronic signature is legally binding.',
+    surface: 'tla',
     blocking: true,
   },
   postTripCompleted: {
