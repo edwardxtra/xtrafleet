@@ -29,6 +29,7 @@ import { showSuccess, showError } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
 import { format, parseISO } from 'date-fns';
 import type { FMCSACarrier } from '@/lib/fmcsa';
+import { ATTESTATIONS, type AttestationEntry } from '@/lib/attestations';
 
 interface COIInfo {
   fileUrl?: string;
@@ -43,8 +44,6 @@ interface COIInfo {
 
 interface OnboardingStatus {
   profileComplete?: boolean;
-  complianceAttested?: boolean;
-  complianceAttestedAt?: string;
   fmcsaDesignated?: boolean | string;
   fmcsaDesignatedAt?: string;
   completedAt?: string | null;
@@ -54,12 +53,6 @@ interface FmcsaClearinghouse {
   alreadyDesignated?: boolean;
   acknowledgment?: boolean;
   submittedAt?: string;
-}
-
-interface ComplianceAttestations {
-  employmentCompliance?: { accepted: boolean; acceptedAt: string };
-  verificationAuth?: { accepted: boolean; acceptedAt: string };
-  noRelianceDisclaimer?: { accepted: boolean; acceptedAt: string };
 }
 
 interface OwnerProfile {
@@ -81,26 +74,14 @@ interface OwnerProfile {
   onboardingStatus?: OnboardingStatus;
   profileCompletedAt?: string;
   clearinghouseCompletedAt?: string;
-  complianceAttestations?: ComplianceAttestations;
   fmcsaClearinghouse?: FmcsaClearinghouse;
   fmcsaVerified?: boolean;
   fmcsaData?: FMCSACarrier;
+  // DEV-154 unified attestations array (replaces the old complianceAttestations
+  // shape and the consents.{userAgreement,esignAgreement} fields).
+  attestations?: AttestationEntry[];
 }
 
-const ATTESTATION_LABELS: Record<string, { title: string; description: string }> = {
-  employmentCompliance: {
-    title: 'Employment & Compliance Responsibility',
-    description: 'We acknowledge that our company retains full responsibility for employment decisions, compliance determinations, and regulatory obligations related to our drivers.',
-  },
-  verificationAuth: {
-    title: 'Verification Use Authorization',
-    description: 'We authorize XtraFleet to facilitate limited, transaction-based eligibility verification (e.g., license status, endorsements, Clearinghouse eligibility) on our behalf, subject to driver consent.',
-  },
-  noRelianceDisclaimer: {
-    title: 'No Reliance Disclaimer',
-    description: 'We understand that verification results provided through XtraFleet are eligibility signals only and do not replace our independent compliance or safety obligations.',
-  },
-};
 
 const DOT_MIN_DIGITS = 5;
 const SAFER_SNAPSHOT_URL = 'https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=';
@@ -916,19 +897,55 @@ export default function ProfilePage() {
           <div>
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-sm">Compliance Attestations</span>
-                {profile.onboardingStatus?.complianceAttestedAt && (<p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Clock className="h-3 w-3" /> Completed: {formatTimestamp(profile.onboardingStatus.complianceAttestedAt)}</p>)}
+                <span className="text-sm">Attestations on File</span>
+                {profile.attestations && profile.attestations.length > 0 && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                    <Clock className="h-3 w-3" />
+                    {profile.attestations.length} on file
+                    {profile.attestations[profile.attestations.length - 1]?.acceptedAt && (
+                      <> · last {formatTimestamp(profile.attestations[profile.attestations.length - 1].acceptedAt)}</>
+                    )}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
-                {profile.onboardingStatus?.complianceAttested ? (<><Badge variant="default" className="bg-green-600">Attested</Badge><button type="button" onClick={() => setAttestationsExpanded(!attestationsExpanded)} className="text-muted-foreground hover:text-foreground transition-colors">{attestationsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button></>) : (<Button asChild size="sm" variant="outline"><Link href="/onboarding/compliance">Complete <ArrowRight className="h-3 w-3 ml-1" /></Link></Button>)}
+                {profile.attestations && profile.attestations.length > 0 ? (
+                  <>
+                    <Badge variant="default" className="bg-green-600">{profile.attestations.length}</Badge>
+                    <button type="button" onClick={() => setAttestationsExpanded(!attestationsExpanded)} className="text-muted-foreground hover:text-foreground transition-colors">
+                      {attestationsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs text-muted-foreground">None recorded</span>
+                )}
               </div>
             </div>
-            {attestationsExpanded && profile.onboardingStatus?.complianceAttested && (
+            {attestationsExpanded && profile.attestations && profile.attestations.length > 0 && (
               <div className="mt-3 space-y-2 pl-1">
-                {Object.entries(ATTESTATION_LABELS).map(([key, { title, description }]) => {
-                  const attestation = profile.complianceAttestations?.[key as keyof ComplianceAttestations];
+                {profile.attestations.map((entry, idx) => {
+                  const def = ATTESTATIONS[entry.type];
+                  const stale = def && entry.version < def.v;
                   return (
-                    <div key={key} className="rounded-lg border bg-muted/30 p-3"><div className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" /><div><p className="text-sm font-medium">{title}</p><p className="text-xs text-muted-foreground mt-0.5">{description}</p>{attestation?.acceptedAt && (<p className="text-xs text-muted-foreground mt-1">Accepted: {formatTimestamp(attestation.acceptedAt)}</p>)}</div></div></div>
+                    <div key={`${entry.type}-${entry.acceptedAt}-${idx}`} className="rounded-lg border bg-muted/30 p-3">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className={`h-4 w-4 mt-0.5 shrink-0 ${stale ? 'text-amber-500' : 'text-green-600'}`} />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">
+                            {entry.type}
+                            <span className="ml-2 text-xs text-muted-foreground font-normal">
+                              v{entry.version}{stale && ` (current: v${def.v})`}
+                            </span>
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{entry.text}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Accepted: {formatTimestamp(entry.acceptedAt)}
+                            {entry.context?.matchId && <> · match {entry.context.matchId}</>}
+                            {entry.context?.driverId && <> · driver {entry.context.driverId}</>}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   );
                 })}
               </div>

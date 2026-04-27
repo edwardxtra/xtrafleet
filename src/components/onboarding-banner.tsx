@@ -7,7 +7,6 @@ import { useState } from "react";
 
 interface OnboardingStatus {
   profileComplete?: boolean;
-  complianceAttested?: boolean;
   fmcsaDesignated?: boolean | string;
   completedAt?: string | null;
 }
@@ -22,9 +21,11 @@ export function OnboardingBanner({ onboardingStatus }: OnboardingBannerProps) {
   if (dismissed) return null;
   if (!onboardingStatus) return null;
 
+  // Compliance attestations were retired in DEV-154 — they now happen
+  // contextually at marketplace, driver-add, and match-confirm surfaces
+  // rather than as a setup step.
   const steps = [
     { key: 'profile', label: 'Company Profile', complete: !!onboardingStatus.profileComplete, href: '/dashboard/profile' },
-    { key: 'compliance', label: 'Compliance Attestations', complete: !!onboardingStatus.complianceAttested, href: '/onboarding/compliance' },
     { key: 'fmcsa', label: 'FMCSA Clearinghouse', complete: onboardingStatus.fmcsaDesignated === true, href: '/onboarding/fmcsa-clearinghouse' },
   ];
 
