@@ -99,7 +99,6 @@ export async function createCompanyProfile(formData: FormData) {
       ...(existingStatus || {}),
       profileComplete: isProfileComplete,
       profileCompletedAt: isProfileComplete ? new Date().toISOString() : (existingStatus?.profileCompletedAt || null),
-      complianceAttested: existingStatus?.complianceAttested || false,
       fmcsaDesignated: existingStatus?.fmcsaDesignated || false,
       completedAt: existingStatus?.completedAt || null,
     };
@@ -118,7 +117,10 @@ export async function createCompanyProfile(formData: FormData) {
   }
 
   revalidatePath('/dashboard');
-  redirect('/onboarding/compliance');
+  // /onboarding/compliance was retired in DEV-154. Profile-stage attestations
+  // will be captured inline on the marketplace gate (Phase 3); for now we hand
+  // off to Clearinghouse designation, the next remaining onboarding step.
+  redirect('/onboarding/fmcsa-clearinghouse');
 }
 
 export async function updateCompanyProfile(values: unknown): Promise<{ error?: string; message?: string }> {
