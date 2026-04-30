@@ -25,6 +25,9 @@
 export type AttestationType =
   // Signup
   | 'signupAuthorized'
+  | 'signupUserAgreement'
+  | 'signupEsignConsent'
+  | 'signupTermsOfService'
   // Profile completion (light, gates marketplace access — Phase 3)
   | 'profileInsurance'
   | 'profileAuthority'
@@ -70,6 +73,24 @@ export const ATTESTATIONS: Record<AttestationType, AttestationDef> = {
   signupAuthorized: {
     v: 1,
     text: 'I confirm I am authorized to act on behalf of this company.',
+    surface: 'signup',
+    blocking: true,
+  },
+  signupUserAgreement: {
+    v: 1,
+    text: 'By clicking Create Company Account, I acknowledge and accept the XtraFleet User Agreement.',
+    surface: 'signup',
+    blocking: true,
+  },
+  signupEsignConsent: {
+    v: 1,
+    text: 'By clicking Create Company Account, I consent to use electronic records and signatures, as described in the E-Sign Consent.',
+    surface: 'signup',
+    blocking: true,
+  },
+  signupTermsOfService: {
+    v: 1,
+    text: 'By clicking Create Company Account, I acknowledge and accept the Terms of Service.',
     surface: 'signup',
     blocking: true,
   },
