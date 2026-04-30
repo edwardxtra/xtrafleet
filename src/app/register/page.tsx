@@ -93,11 +93,16 @@ function RegisterContent() {
             fmcsaDesignated: false,
             completedAt: null,
           },
-          // DEV-154 staged-attestation model: a single signup attestation;
-          // additional ones are captured at the moment of risk
-          // (profile / driver-add / match-confirm).
+          // DEV-154 staged-attestation model. signupAuthorized is the explicit
+          // checkbox; the other three are click-acknowledged via the text
+          // below the Create Company Account button (User Agreement, E-Sign,
+          // Terms of Service). Additional attestations are captured later
+          // at moments of risk (profile / driver-add / match-confirm).
           attestations: [
             buildAttestationEntry('signupAuthorized', newUser.uid),
+            buildAttestationEntry('signupUserAgreement', newUser.uid),
+            buildAttestationEntry('signupEsignConsent', newUser.uid),
+            buildAttestationEntry('signupTermsOfService', newUser.uid),
           ],
         });
         
@@ -247,16 +252,19 @@ function RegisterContent() {
                 <div className="flex items-start gap-3">
                   <Checkbox id="signupAuthorized" name="signupAuthorized" required disabled={loading} className="mt-1" />
                   <Label htmlFor="signupAuthorized" className="text-sm leading-relaxed cursor-pointer">
-                    {ATTESTATIONS.signupAuthorized.text}{' '}
-                    <Link href="/legal/user-agreement" target="_blank" className="underline text-primary hover:text-primary/80">User Agreement</Link>
-                    {' · '}
-                    <Link href="/legal/esign-consent" target="_blank" className="underline text-primary hover:text-primary/80">E-Sign</Link>
+                    {ATTESTATIONS.signupAuthorized.text}
                   </Label>
                 </div>
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating Account...</>) : 'Create Company Account'}
               </Button>
+              <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                By clicking Create Company Account, you acknowledge and accept the{' '}
+                <Link href="/legal/user-agreement" target="_blank" className="underline hover:text-foreground">User Agreement</Link>,{' '}
+                <Link href="/legal/esign-consent" target="_blank" className="underline hover:text-foreground">E-Sign Consent</Link>, and{' '}
+                <Link href="/legal/terms" target="_blank" className="underline hover:text-foreground">Terms of Service</Link>.
+              </p>
             </div>
           </form>
           <div className="mt-4 text-center text-sm">
