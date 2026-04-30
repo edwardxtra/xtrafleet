@@ -22,6 +22,12 @@ const bulkInviteSchema = z.object({
     firstName: z.string().min(1, 'First name required'),
     lastName: z.string().min(1, 'Last name required'),
     email: z.string().email('Invalid email'),
+    // Optional pre-fill captured at invite time. Driver can correct on
+    // registration. Persisted on the driver_invitations doc so the
+    // registration UI can pre-populate it.
+    cdlNumber: z.string().min(1).max(40).optional(),
+    cdlState: z.string().length(2).optional(),
+    medicalCertExpiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   })).min(1).max(10),
   attestDriverAdd: z.boolean().optional(),
   dqfCertification: z.object({
@@ -99,7 +105,9 @@ async function handlePost(req: NextRequest) {
         );
         ownerAttestationEntries.push(...entries);
 
-        await db.collection('driver_invitations').doc(token).set({
+        // Build the invitation doc, only setting optional pre-fill fields
+        // when they were actually provided (Firestore disallows undefined).
+        const invitationDoc: Record<string, unknown> = {
           email: driver.email.toLowerCase(),
           firstName: driver.firstName,
           lastName: driver.lastName,
@@ -112,7 +120,11 @@ async function handlePost(req: NextRequest) {
           createdAt: FieldValue.serverTimestamp(),
           expiresAt: Timestamp.fromDate(expiresAt),
           status: 'pending',
-        });
+        };
+        if (driver.cdlNumber) invitationDoc.cdlNumber = driver.cdlNumber;
+        if (driver.cdlState) invitationDoc.cdlState = driver.cdlState;
+        if (driver.medicalCertExpiry) invitationDoc.medicalCertExpiry = driver.medicalCertExpiry;
+        await db.collection('driver_invitations').doc(token).set(invitationDoc);
 
         if (resend) {
           const inviteLink = `${baseUrl}/driver-register?token=${token}`;

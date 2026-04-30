@@ -32,6 +32,10 @@ interface DriverInvite {
   firstName: string;
   lastName: string;
   email: string;
+  // Optional pre-fill — driver can correct on registration.
+  cdlNumber: string;
+  cdlState: string;
+  medicalCertExpiry: string;
 }
 
 export function AddDriverForm() {
@@ -49,11 +53,11 @@ export function AddDriverForm() {
   const allDriverChecked = DRIVER_ADD_ATTESTATIONS.every(t => driverChecks[t]);
   
   const [drivers, setDrivers] = useState<DriverInvite[]>([
-    { id: crypto.randomUUID(), firstName: "", lastName: "", email: "" }
+    { id: crypto.randomUUID(), firstName: "", lastName: "", email: "", cdlNumber: "", cdlState: "", medicalCertExpiry: "" }
   ]);
 
   const addDriver = () => {
-    setDrivers([...drivers, { id: crypto.randomUUID(), firstName: "", lastName: "", email: "" }]);
+    setDrivers([...drivers, { id: crypto.randomUUID(), firstName: "", lastName: "", email: "", cdlNumber: "", cdlState: "", medicalCertExpiry: "" }]);
   };
 
   const removeDriver = (id: string) => {
@@ -104,7 +108,14 @@ export function AddDriverForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
         body: JSON.stringify({
-          drivers: drivers.map(d => ({ firstName: d.firstName.trim(), lastName: d.lastName.trim(), email: d.email.trim().toLowerCase() })),
+          drivers: drivers.map(d => ({
+            firstName: d.firstName.trim(),
+            lastName: d.lastName.trim(),
+            email: d.email.trim().toLowerCase(),
+            cdlNumber: d.cdlNumber.trim() || undefined,
+            cdlState: d.cdlState.trim().toUpperCase() || undefined,
+            medicalCertExpiry: d.medicalCertExpiry || undefined,
+          })),
           // DEV-154 phase 3: server records 3 attestations per invited driver
           // (driverDqf, driverFmcsaChecks, driverAuthority) on the owner's
           // unified attestations array.
@@ -117,7 +128,7 @@ export function AddDriverForm() {
 
       const count = result.successful || drivers.length;
       toast({ title: "Success", description: `${count} invitation${count !== 1 ? 's' : ''} sent!` });
-      setDrivers([{ id: crypto.randomUUID(), firstName: "", lastName: "", email: "" }]);
+      setDrivers([{ id: crypto.randomUUID(), firstName: "", lastName: "", email: "", cdlNumber: "", cdlState: "", medicalCertExpiry: "" }]);
       setDriverChecks(
         DRIVER_ADD_ATTESTATIONS.reduce(
           (acc, t) => ({ ...acc, [t]: false }),
@@ -169,6 +180,27 @@ export function AddDriverForm() {
                 <Input id={`email-${driver.id}`} type="email" value={driver.email}
                   onChange={(e) => updateDriver(driver.id, "email", e.target.value)}
                   placeholder="driver@example.com" disabled={isSubmitting} required />
+              </div>
+              {/* Optional pre-fill data — driver can correct on registration. */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-2 col-span-2">
+                  <Label htmlFor={`cdl-${driver.id}`} className="text-xs text-muted-foreground">CDL Number (optional)</Label>
+                  <Input id={`cdl-${driver.id}`} value={driver.cdlNumber}
+                    onChange={(e) => updateDriver(driver.id, "cdlNumber", e.target.value)}
+                    placeholder="e.g., D1234567" disabled={isSubmitting} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`cdlState-${driver.id}`} className="text-xs text-muted-foreground">State</Label>
+                  <Input id={`cdlState-${driver.id}`} value={driver.cdlState}
+                    onChange={(e) => updateDriver(driver.id, "cdlState", e.target.value.toUpperCase().slice(0, 2))}
+                    placeholder="MA" maxLength={2} disabled={isSubmitting} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`med-${driver.id}`} className="text-xs text-muted-foreground">Medical Certificate Expiry (optional)</Label>
+                <Input id={`med-${driver.id}`} type="date" value={driver.medicalCertExpiry}
+                  onChange={(e) => updateDriver(driver.id, "medicalCertExpiry", e.target.value)}
+                  disabled={isSubmitting} />
               </div>
             </div>
           ))}
