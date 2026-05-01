@@ -10,6 +10,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "grant-admin:qa": "GOOGLE_CLOUD_PROJECT=xtrafleet-qa npx tsx scripts/grant-admin.ts",
+    "grant-admin:prod": "GOOGLE_CLOUD_PROJECT=studio-5112915880-e9ca2 npx tsx scripts/grant-admin.ts",
     "predeploy": "./scripts/pre-deploy.sh",
     "deploy": "./scripts/deploy.sh",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
