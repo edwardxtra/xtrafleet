@@ -104,12 +104,12 @@ export function DriverRegisterForm({
             userAgreement: {
               accepted: true,
               acceptedAt: new Date().toISOString(),
-              version: "2025-10-17",
+              version: "2026-04-29",
             },
             esignAgreement: {
               accepted: true,
               acceptedAt: new Date().toISOString(),
-              version: "2025-01-29",
+              version: "2026-04-29",
             },
           },
         }),
