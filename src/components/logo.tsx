@@ -2,27 +2,35 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 const BRAND_BLUE = "#1E9BD7";
+const BRAND_DARK = "#2A2D31";
 
-// Curved-X logomark per DEV-160. Top half is the brand-blue inverted curved-V;
-// bottom half mirrors it and adapts to theme (dark in light mode, white in dark).
+// DEV-160 logomark: clean curved-V (top blue, bottom dark charcoal) forming a
+// stylized X with a horizontal gap. On dark surfaces (forceLight or .dark),
+// both halves render white as a knockout/reverse treatment.
 function LogomarkPaths({ forceLight }: { forceLight?: boolean }) {
-  const bottomFill = forceLight ? "fill-white" : "fill-gray-900 dark:fill-white";
+  const topClass = forceLight ? "fill-white" : "dark:fill-white";
+  const bottomClass = forceLight ? "fill-white" : "dark:fill-white";
+  const topFill = forceLight ? undefined : BRAND_BLUE;
+  const bottomFill = forceLight ? undefined : BRAND_DARK;
   return (
     <>
       <path
-        d="M 60 90 L 220 90 C 280 200, 340 290, 400 360 C 460 290, 520 200, 580 90 L 740 90 C 600 360, 480 460, 400 460 C 320 460, 200 360, 60 90 Z"
-        fill={BRAND_BLUE}
+        d="M 80 110 C 250 180, 550 180, 720 110 C 650 200, 480 280, 400 360 C 320 280, 150 200, 80 110 Z"
+        fill={topFill}
+        className={topClass}
       />
       <path
-        d="M 60 710 L 220 710 C 280 600, 340 510, 400 440 C 460 510, 520 600, 580 710 L 740 710 C 600 440, 480 340, 400 340 C 320 340, 200 440, 60 710 Z"
-        className={bottomFill}
+        d="M 80 690 C 250 620, 550 620, 720 690 C 650 600, 480 520, 400 440 C 320 520, 150 600, 80 690 Z"
+        fill={bottomFill}
+        className={bottomClass}
       />
     </>
   );
 }
 
 function LogoFull({ className, forceLight }: { className?: string; forceLight?: boolean }) {
-  const textFill = forceLight ? "fill-white" : "fill-gray-900 dark:fill-white";
+  const textClass = forceLight ? "fill-white" : "dark:fill-white";
+  const textFill = forceLight ? undefined : BRAND_DARK;
   return (
     <svg
       viewBox="0 0 2400 800"
@@ -34,12 +42,13 @@ function LogoFull({ className, forceLight }: { className?: string; forceLight?: 
       <LogomarkPaths forceLight={forceLight} />
       <text
         x="860"
-        y="560"
-        fontFamily="Arial, Helvetica, sans-serif"
-        fontSize="540"
+        y="540"
+        fontFamily="Inter, ui-sans-serif, system-ui, sans-serif"
+        fontSize="500"
         fontWeight="700"
-        className={textFill}
-        letterSpacing="-12"
+        fill={textFill}
+        className={textClass}
+        letterSpacing="-15"
       >
         XtraFleet
       </text>
