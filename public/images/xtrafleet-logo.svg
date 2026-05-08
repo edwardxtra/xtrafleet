@@ -1,21 +1,11 @@
-<svg width="1600" height="400" viewBox="0 0 1600 400" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- XtraFleet Full Logo with Tagline -->
-
-  <!-- X Logomark on the left -->
-  <g transform="translate(0, 20)">
-    <!-- Blue top chevron (pointing down) -->
-    <path d="M150 145 L30 25 L70 25 L150 105 L230 25 L270 25 L150 145 Z" fill="#1E9BD7"/>
-    <!-- Dark gray bottom chevron (pointing up) -->
-    <path d="M150 165 L30 285 L70 285 L150 205 L230 285 L270 285 L150 165 Z" fill="#333333"/>
-  </g>
-
-  <!-- "traFleet" text -->
-  <text x="280" y="230" font-family="Arial, Helvetica, sans-serif" font-size="180" font-weight="700" fill="#333333" letter-spacing="-5">
-    traFleet
-  </text>
-
-  <!-- Tagline "Powering Fleet Collaboration" -->
-  <text x="30" y="360" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="400" fill="#333333" letter-spacing="1">
-    Powering Fleet Collaboration
-  </text>
+<svg width="2400" height="1000" viewBox="0 0 2400 1000" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- XtraFleet logo with tagline (DEV-160) -->
+  <!-- Top blue curved chevron -->
+  <path d="M 60 90 L 220 90 C 280 200, 340 290, 400 360 C 460 290, 520 200, 580 90 L 740 90 C 600 360, 480 460, 400 460 C 320 460, 200 360, 60 90 Z" fill="#1E9BD7"/>
+  <!-- Bottom dark curved chevron -->
+  <path d="M 60 710 L 220 710 C 280 600, 340 510, 400 440 C 460 510, 520 600, 580 710 L 740 710 C 600 440, 480 340, 400 340 C 320 340, 200 440, 60 710 Z" fill="#2A2D31"/>
+  <!-- "XtraFleet" wordmark -->
+  <text x="860" y="560" font-family="Arial, Helvetica, sans-serif" font-size="540" font-weight="700" fill="#2A2D31" letter-spacing="-12">XtraFleet</text>
+  <!-- Tagline -->
+  <text x="60" y="920" font-family="Arial, Helvetica, sans-serif" font-size="120" font-weight="400" fill="#2A2D31" letter-spacing="2">Powering Fleet Collaboration</text>
 </svg>

@@ -1,33 +1,53 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-// Inline SVG components for theme-adaptive coloring
+const BRAND_BLUE = "#1E9BD7";
+
+// Curved-X logomark per DEV-160. Top half is the brand-blue inverted curved-V;
+// bottom half mirrors it and adapts to theme (dark in light mode, white in dark).
+function LogomarkPaths({ forceLight }: { forceLight?: boolean }) {
+  const bottomFill = forceLight ? "fill-white" : "fill-gray-900 dark:fill-white";
+  return (
+    <>
+      <path
+        d="M 60 90 L 220 90 C 280 200, 340 290, 400 360 C 460 290, 520 200, 580 90 L 740 90 C 600 360, 480 460, 400 460 C 320 460, 200 360, 60 90 Z"
+        fill={BRAND_BLUE}
+      />
+      <path
+        d="M 60 710 L 220 710 C 280 600, 340 510, 400 440 C 460 510, 520 600, 580 710 L 740 710 C 600 440, 480 340, 400 340 C 320 340, 200 440, 60 710 Z"
+        className={bottomFill}
+      />
+    </>
+  );
+}
+
 function LogoFull({ className, forceLight }: { className?: string; forceLight?: boolean }) {
   const textFill = forceLight ? "fill-white" : "fill-gray-900 dark:fill-white";
   return (
     <svg
-      viewBox="0 0 1200 250"
+      viewBox="0 0 2400 800"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-label="XtraFleet"
     >
-      <g transform="translate(0, 10)">
-        {/* Blue top chevron - brand color */}
-        <path d="M115 110 L20 15 L55 15 L115 75 L175 15 L210 15 L115 110 Z" fill="#1E9BD7"/>
-        {/* Bottom chevron - adapts to theme */}
-        <path d="M115 130 L20 225 L55 225 L115 165 L175 225 L210 225 L115 130 Z" className={textFill}/>
-      </g>
-      {/* "traFleet" text - adapts to theme */}
-      <text x="220" y="170" fontFamily="Arial, Helvetica, sans-serif" fontSize="140" fontWeight="700" className={textFill} letterSpacing="-3">
-        traFleet
+      <LogomarkPaths forceLight={forceLight} />
+      <text
+        x="860"
+        y="560"
+        fontFamily="Arial, Helvetica, sans-serif"
+        fontSize="540"
+        fontWeight="700"
+        className={textFill}
+        letterSpacing="-12"
+      >
+        XtraFleet
       </text>
     </svg>
   );
 }
 
 function LogoIcon({ className, forceLight }: { className?: string; forceLight?: boolean }) {
-  const textFill = forceLight ? "fill-white" : "fill-gray-900 dark:fill-white";
   return (
     <svg
       viewBox="0 0 800 800"
@@ -36,10 +56,7 @@ function LogoIcon({ className, forceLight }: { className?: string; forceLight?: 
       className={className}
       aria-label="XtraFleet"
     >
-      {/* Blue top chevron - brand color */}
-      <path d="M400 380 L100 80 L180 80 L400 300 L620 80 L700 80 L400 380 Z" fill="#1E9BD7"/>
-      {/* Bottom chevron - adapts to theme */}
-      <path d="M400 420 L100 720 L180 720 L400 500 L620 720 L700 720 L400 420 Z" className={textFill}/>
+      <LogomarkPaths forceLight={forceLight} />
     </svg>
   );
 }
