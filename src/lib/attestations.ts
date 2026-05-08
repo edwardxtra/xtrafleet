@@ -77,19 +77,19 @@ export const ATTESTATIONS: Record<AttestationType, AttestationDef> = {
     blocking: true,
   },
   signupUserAgreement: {
-    v: 1,
+    v: 2,
     text: 'By clicking Create Company Account, I acknowledge and accept the XtraFleet User Agreement.',
     surface: 'signup',
     blocking: true,
   },
   signupEsignConsent: {
-    v: 1,
+    v: 2,
     text: 'By clicking Create Company Account, I consent to use electronic records and signatures, as described in the E-Sign Consent.',
     surface: 'signup',
     blocking: true,
   },
   signupTermsOfService: {
-    v: 1,
+    v: 2,
     text: 'By clicking Create Company Account, I acknowledge and accept the Terms of Service.',
     surface: 'signup',
     blocking: true,
