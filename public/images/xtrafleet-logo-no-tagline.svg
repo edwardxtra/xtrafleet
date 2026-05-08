@@ -1,9 +1,6 @@
 <svg width="2400" height="800" viewBox="0 0 2400 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- XtraFleet logo (DEV-160) -->
-  <!-- Top blue curved chevron -->
-  <path d="M 60 90 L 220 90 C 280 200, 340 290, 400 360 C 460 290, 520 200, 580 90 L 740 90 C 600 360, 480 460, 400 460 C 320 460, 200 360, 60 90 Z" fill="#1E9BD7"/>
-  <!-- Bottom dark curved chevron -->
-  <path d="M 60 710 L 220 710 C 280 600, 340 510, 400 440 C 460 510, 520 600, 580 710 L 740 710 C 600 440, 480 340, 400 340 C 320 340, 200 440, 60 710 Z" fill="#2A2D31"/>
-  <!-- "XtraFleet" wordmark -->
-  <text x="860" y="560" font-family="Arial, Helvetica, sans-serif" font-size="540" font-weight="700" fill="#2A2D31" letter-spacing="-12">XtraFleet</text>
+  <!-- XtraFleet full lockup (DEV-160) -->
+  <path d="M 80 110 C 250 180, 550 180, 720 110 C 650 200, 480 280, 400 360 C 320 280, 150 200, 80 110 Z" fill="#1E9BD7"/>
+  <path d="M 80 690 C 250 620, 550 620, 720 690 C 650 600, 480 520, 400 440 C 320 520, 150 600, 80 690 Z" fill="#2A2D31"/>
+  <text x="860" y="540" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="500" font-weight="700" fill="#2A2D31" letter-spacing="-15">XtraFleet</text>
 </svg>
