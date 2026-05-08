@@ -26,20 +26,14 @@ export function Footer() {
             >
               Terms of Service
             </Link>
-            <Link 
-              href="/legal/privacy" 
+            <Link
+              href="/legal/privacy"
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
               Privacy Policy
             </Link>
-            <Link 
-              href="/legal/user-agreement" 
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              User Agreement
-            </Link>
-            <Link 
-              href="/legal/esign-consent" 
+            <Link
+              href="/legal/esign-consent"
               className="text-muted-foreground hover:text-foreground transition-colors"
             >
               E-Sign Agreement

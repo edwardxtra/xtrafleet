@@ -15,6 +15,8 @@ XtraFleet is a fleet management platform built with Next.js, Firebase, and Strip
 
 **IMPORTANT: Never push directly to `main`. All changes must be tested in QA first.**
 
+**Claude Code default:** when finishing a task, push the feature branch, open a PR targeting `qa`, mark it ready (not draft), and merge it into `qa` so it auto-deploys to the QA environment. Skip the merge step only when the user explicitly says so (e.g. "just push" / "open as draft" / "don't merge yet"). Never auto-merge into `main` — promotion from `qa` to `main` is always user-initiated.
+
 ### For Bug Fixes & Features
 
 ```
