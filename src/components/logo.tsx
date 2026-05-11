@@ -33,7 +33,7 @@ function LogoFull({ className, forceLight }: { className?: string; forceLight?: 
   const textFill = forceLight ? undefined : BRAND_DARK;
   return (
     <svg
-      viewBox="0 0 2400 800"
+      viewBox="0 0 3600 800"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
