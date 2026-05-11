@@ -1,6 +1,0 @@
-<svg width="3600" height="800" viewBox="0 0 3600 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- XtraFleet full lockup (DEV-160) -->
-  <path d="M 80 110 C 250 180, 550 180, 720 110 C 650 200, 480 280, 400 360 C 320 280, 150 200, 80 110 Z" fill="#1E9BD7"/>
-  <path d="M 80 690 C 250 620, 550 620, 720 690 C 650 600, 480 520, 400 440 C 320 520, 150 600, 80 690 Z" fill="#2A2D31"/>
-  <text x="860" y="540" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="500" font-weight="700" fill="#2A2D31" letter-spacing="-15">XtraFleet</text>
-</svg>

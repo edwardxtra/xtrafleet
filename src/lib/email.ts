@@ -18,7 +18,7 @@ function emailTemplate(content: string): string {
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
         <div style="background-color: white; border-radius: 8px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
           <div style="text-align: center; margin-bottom: 32px;">
-            <img src="${APP_URL}/images/xtrafleet-logo-no-tagline.svg" alt="XtraFleet" style="height: 40px; width: auto;" />
+            <img src="${APP_URL}/images/xtrafleet-logo.svg" alt="XtraFleet" style="height: 40px; width: auto;" />
           </div>
           ${content}
         </div>
