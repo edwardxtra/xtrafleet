@@ -1,34 +1,47 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-const LOGO_FULL_SRC = "/images/xtrafleet-logo.svg";
-const LOGO_ICON_SRC = "/images/xtrafleet-logomark.svg";
+const LOGO_FULL_LIGHT = "/images/xtrafleet-logo.svg";
+const LOGO_FULL_DARK = "/images/xtrafleet-logo-dark.svg";
+const LOGO_ICON_LIGHT = "/images/xtrafleet-logomark.svg";
+const LOGO_ICON_DARK = "/images/xtrafleet-logomark-dark.svg";
 
-// brightness(0) flattens any color to black; invert(1) flips it to white.
-// Result: an all-white knockout of the SVG regardless of source fills.
-// Applied on dark surfaces (forceLight or .dark parent).
-const whiteFilter = "[filter:brightness(0)_invert(1)]";
-const darkWhiteFilter = "dark:[filter:brightness(0)_invert(1)]";
-
+// Dark-surface treatment swaps the charcoal half of the X for white while
+// keeping the brand blue intact — standard reverse/knockout. We render the
+// alternate file via Tailwind dark: utilities. forceLight bypasses the
+// .dark-class check and always uses the dark-surface variant (used in light-
+// mode pages whose sidebar/nav surface is dark navy).
 function LogoFull({ className, forceLight }: { className?: string; forceLight?: boolean }) {
+  if (forceLight) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={LOGO_FULL_DARK} alt="XtraFleet" className={className} />
+    );
+  }
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={LOGO_FULL_SRC}
-      alt="XtraFleet"
-      className={cn(className, forceLight ? whiteFilter : darkWhiteFilter)}
-    />
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={LOGO_FULL_LIGHT} alt="XtraFleet" className={cn(className, "dark:hidden")} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={LOGO_FULL_DARK} alt="XtraFleet" className={cn(className, "hidden dark:block")} />
+    </>
   );
 }
 
 function LogoIcon({ className, forceLight }: { className?: string; forceLight?: boolean }) {
+  if (forceLight) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={LOGO_ICON_DARK} alt="XtraFleet" className={className} />
+    );
+  }
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={LOGO_ICON_SRC}
-      alt="XtraFleet"
-      className={cn(className, forceLight ? whiteFilter : darkWhiteFilter)}
-    />
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={LOGO_ICON_LIGHT} alt="XtraFleet" className={cn(className, "dark:hidden")} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={LOGO_ICON_DARK} alt="XtraFleet" className={cn(className, "hidden dark:block")} />
+    </>
   );
 }
 
