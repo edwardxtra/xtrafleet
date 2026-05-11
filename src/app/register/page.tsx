@@ -94,13 +94,14 @@ function RegisterContent() {
             completedAt: null,
           },
           // DEV-154 staged-attestation model. signupAuthorized is the explicit
-          // checkbox; the other three are click-acknowledged via the text
-          // below the Create Company Account button (User Agreement, E-Sign,
-          // Terms of Service). Additional attestations are captured later
-          // at moments of risk (profile / driver-add / match-confirm).
+          // checkbox; the other two are click-acknowledged via the text below
+          // the Create Company Account button (E-Sign, Terms of Service).
+          // User Agreement consent is captured separately inside the auth-
+          // ed app per DEV-156 follow-up, not at signup. Additional
+          // attestations are captured later at moments of risk (profile /
+          // driver-add / match-confirm).
           attestations: [
             buildAttestationEntry('signupAuthorized', newUser.uid),
-            buildAttestationEntry('signupUserAgreement', newUser.uid),
             buildAttestationEntry('signupEsignConsent', newUser.uid),
             buildAttestationEntry('signupTermsOfService', newUser.uid),
           ],
@@ -261,8 +262,7 @@ function RegisterContent() {
               </Button>
               <p className="text-xs text-muted-foreground text-center leading-relaxed">
                 By clicking Create Company Account, you acknowledge and accept the{' '}
-                <Link href="/legal/user-agreement" target="_blank" className="underline hover:text-foreground">User Agreement</Link>,{' '}
-                <Link href="/legal/esign-consent" target="_blank" className="underline hover:text-foreground">E-Sign Consent</Link>, and{' '}
+                <Link href="/legal/esign-consent" target="_blank" className="underline hover:text-foreground">E-Sign Consent</Link> and{' '}
                 <Link href="/legal/terms" target="_blank" className="underline hover:text-foreground">Terms of Service</Link>.
               </p>
             </div>
