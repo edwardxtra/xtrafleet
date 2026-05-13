@@ -54,14 +54,14 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Boot Firebase emulators (background)
-        run: |
-          npx firebase emulators:start --only=auth,firestore --project xtrafleet-e2e &
-          # Wait for both emulators to be ready
-          npx -y wait-on http://localhost:9099 http://localhost:8080 -t 60000
-
-      - name: Run Playwright tests
-        run: npm run test:e2e
+      - name: Run Playwright tests under managed emulators
+        # `firebase emulators:exec` is the canonical pattern: boot the
+        # emulators, wait for them to be ready, run the sub-command, then
+        # tear them down cleanly. Replaces the previous manual
+        # &-background + wait-on dance, which was flaky because the
+        # Firestore emulator's HTTP listener at :8080 doesn't reliably
+        # respond to root-path GETs (it's primarily gRPC).
+        run: npx firebase emulators:exec --only=auth,firestore --project xtrafleet-e2e "npm run test:e2e"
 
       - name: Upload Playwright report
         if: always()
