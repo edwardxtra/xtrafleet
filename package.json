@@ -18,7 +18,11 @@
     "deploy:all": "npm run build && firebase deploy",
     "dev:clean": "lsof -ti:9002 | xargs kill -9 2>/dev/null; pkill -f \"next dev\" 2>/dev/null; sleep 2; next dev --port 9002",
     "dev:kill": "lsof -ti:9002 | xargs kill -9 2>/dev/null || true",
-    "dev:fresh": "npm run dev:kill && sleep 2 && npm run dev"
+    "dev:fresh": "npm run dev:kill && sleep 2 && npm run dev",
+    "emulators": "firebase emulators:start --only=auth,firestore --project xtrafleet-e2e",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@genkit-ai/googleai": "^1.14.1",
@@ -78,10 +82,12 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.48.0",
     "@types/node": "^20",
     "@types/papaparse": "^5.3.14",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18",
+    "firebase-tools": "^13.23.0",
     "genkit-cli": "^1.14.1",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
