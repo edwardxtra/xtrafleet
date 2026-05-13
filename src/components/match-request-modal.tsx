@@ -273,7 +273,10 @@ export function MatchRequestModal({
               {load.origin} → {load.destination}
             </p>
             <p className="text-sm text-muted-foreground">
-              {load.cargo} • {load.weight.toLocaleString()} lbs
+              {load.cargo || load.loadType || 'Load'}
+              {load.weight != null && (
+                <> • {load.weight.toLocaleString()} lbs</>
+              )}
             </p>
           </div>
 
