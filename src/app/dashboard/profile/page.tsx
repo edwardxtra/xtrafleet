@@ -29,7 +29,9 @@ import { showSuccess, showError } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
 import { format, parseISO } from 'date-fns';
 import type { FMCSACarrier } from '@/lib/fmcsa';
-import { ATTESTATIONS, type AttestationEntry } from '@/lib/attestations';
+import { ATTESTATIONS, hasCurrent, type AttestationEntry, type AttestationType } from '@/lib/attestations';
+import { AttestationRecaptureSheet } from '@/components/attestation-recapture-sheet';
+import { AlertCircle } from 'lucide-react';
 
 interface COIInfo {
   fileUrl?: string;
@@ -115,6 +117,8 @@ export default function ProfilePage() {
 
   const [coiInsurerName, setCoiInsurerName] = useState('');
   const [coiPolicyNumber, setCoiPolicyNumber] = useState('');
+  const [profileAttestationsSheetOpen, setProfileAttestationsSheetOpen] = useState(false);
+  const [attestationRefreshTick, setAttestationRefreshTick] = useState(0);
   const [coiExpiryDate, setCoiExpiryDate] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -171,7 +175,7 @@ export default function ProfilePage() {
       }
     }
     if (user && db) loadProfile();
-  }, [user, db]);
+  }, [user, db, attestationRefreshTick]);
 
   // Read lock state from the edited profile so the "Change DOT" action
   // (which sets editedProfile.fmcsaVerified = false) immediately unlocks
@@ -491,6 +495,37 @@ export default function ProfilePage() {
         <h1 className="text-2xl font-bold">Company Profile</h1>
         <p className="text-muted-foreground">View and manage your company information, insurance, and compliance status.</p>
       </div>
+
+      {(() => {
+        const candidates: AttestationType[] = ['profileInsurance', 'profileAuthority'];
+        const missing = candidates.filter(t => !hasCurrent(profile?.attestations, t));
+        if (missing.length === 0) return null;
+        return (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <span>
+                Profile attestations missing: <strong>{missing.join(', ')}</strong>. These gate access to posting loads and confirming matches &mdash; capture them now.
+              </span>
+              <Button size="sm" onClick={() => setProfileAttestationsSheetOpen(true)}>
+                Capture profile attestations
+              </Button>
+            </AlertDescription>
+          </Alert>
+        );
+      })()}
+
+      <AttestationRecaptureSheet
+        candidateTypes={['profileInsurance', 'profileAuthority']}
+        missingTypes={(['profileInsurance', 'profileAuthority'] as AttestationType[]).filter(
+          t => !hasCurrent(profile?.attestations, t),
+        )}
+        title="Capture Profile Attestations"
+        description="These statements apply to the company / owner level. They gate marketplace access (load posting, match confirmation)."
+        open={profileAttestationsSheetOpen}
+        onOpenChange={setProfileAttestationsSheetOpen}
+        onCaptured={() => setAttestationRefreshTick(t => t + 1)}
+      />
 
       <Card>
         <CardHeader>
