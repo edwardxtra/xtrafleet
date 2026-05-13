@@ -20,6 +20,25 @@ export interface MatchScoreBreakdown {
   qualificationWarning?: string;
   // Individual expiry details for the Learn More panel
   expiryDetails?: ExpiryDetail[];
+  // PR 3: pickup-window feasibility (can the driver physically reach the
+  // load origin by the pickup deadline?). Computed when both endpoints
+  // geocode AND the load has a usable pickupDate. Otherwise undefined.
+  feasibility?: PickupFeasibility;
+}
+
+export interface PickupFeasibility {
+  /** False = physically can't make the pickup window. */
+  feasible: boolean;
+  /** True when feasible but cutting it close (>70% of available time). */
+  tightSchedule: boolean;
+  /** Estimated deadhead miles (driver location → load origin). */
+  estimatedMiles?: number;
+  /** Estimated travel hours including HOS buffer. */
+  estimatedTravelHours?: number;
+  /** Hours between "now" and the pickup deadline (end of pickupDate). */
+  hoursUntilPickup?: number;
+  /** Human-readable explanation when infeasible / tight. */
+  reason?: string;
 }
 
 export interface ExpiryDetail {
@@ -464,13 +483,99 @@ function calculateQualificationScore(
 }
 
 // ---------------------------------------------------------------------------
+// PR 3: pickup-window feasibility
+//
+// Rough estimate of whether a driver can physically reach the load origin
+// before the pickup deadline. NOT a full HOS model — that requires actual
+// duty status, recent off-duty hours, and 11-hour driving limit tracking
+// we don't have today. This is a sanity check that catches the obvious
+// "NYC driver for a Tampa pickup in 4 hours" failure mode.
+//
+//   avg highway speed     = 50 mph
+//   pickup deadline       = end of pickupDate (local-time approximation)
+//   HOS sleep buffer      = +10 hours when > 600 miles of deadhead
+//
+// If we lack any of: driver coords, load coords, parseable pickupDate —
+// we return undefined and skip the feasibility signal entirely.
+// ---------------------------------------------------------------------------
+
+const AVG_HIGHWAY_MPH = 50;
+const HOS_SLEEP_THRESHOLD_MI = 600;
+const HOS_SLEEP_BUFFER_HOURS = 10;
+const TIGHT_SCHEDULE_RATIO = 0.7;
+
+function computePickupFeasibility(
+  driverCoords: { lat: number; lng: number } | null,
+  loadCoords: { lat: number; lng: number } | null,
+  pickupDate: string | undefined,
+): PickupFeasibility | undefined {
+  if (!driverCoords || !loadCoords || !pickupDate) return undefined;
+
+  let deadlineMs: number;
+  try {
+    // Treat pickupDate as the local-day deadline. We give the driver until
+    // 23:59 local on the pickup date to arrive. Construct in local time
+    // explicitly so we don't fight TZ offsets.
+    const [yyyy, mm, dd] = pickupDate.split('-').map((s) => parseInt(s, 10));
+    if (!yyyy || !mm || !dd) return undefined;
+    const deadline = new Date(yyyy, mm - 1, dd, 23, 59, 59, 0);
+    deadlineMs = deadline.getTime();
+    if (!Number.isFinite(deadlineMs)) return undefined;
+  } catch {
+    return undefined;
+  }
+
+  const nowMs = Date.now();
+  const hoursUntilPickup = (deadlineMs - nowMs) / (1000 * 60 * 60);
+  const miles = calculateDistance(driverCoords.lat, driverCoords.lng, loadCoords.lat, loadCoords.lng);
+  const baseHours = miles / AVG_HIGHWAY_MPH;
+  const sleepBuffer = miles > HOS_SLEEP_THRESHOLD_MI ? HOS_SLEEP_BUFFER_HOURS : 0;
+  const estimatedTravelHours = baseHours + sleepBuffer;
+
+  if (hoursUntilPickup <= 0) {
+    return {
+      feasible: false,
+      tightSchedule: false,
+      estimatedMiles: Math.round(miles),
+      estimatedTravelHours: Math.round(estimatedTravelHours * 10) / 10,
+      hoursUntilPickup: Math.round(hoursUntilPickup * 10) / 10,
+      reason: 'Pickup date has already passed',
+    };
+  }
+
+  if (estimatedTravelHours > hoursUntilPickup) {
+    return {
+      feasible: false,
+      tightSchedule: false,
+      estimatedMiles: Math.round(miles),
+      estimatedTravelHours: Math.round(estimatedTravelHours * 10) / 10,
+      hoursUntilPickup: Math.round(hoursUntilPickup * 10) / 10,
+      reason: `~${Math.round(estimatedTravelHours)}h drive vs ${Math.round(hoursUntilPickup)}h until pickup`,
+    };
+  }
+
+  const tight = estimatedTravelHours > TIGHT_SCHEDULE_RATIO * hoursUntilPickup;
+  return {
+    feasible: true,
+    tightSchedule: tight,
+    estimatedMiles: Math.round(miles),
+    estimatedTravelHours: Math.round(estimatedTravelHours * 10) / 10,
+    hoursUntilPickup: Math.round(hoursUntilPickup * 10) / 10,
+    reason: tight
+      ? `Tight: ~${Math.round(estimatedTravelHours)}h drive vs ${Math.round(hoursUntilPickup)}h available`
+      : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Core breakdown calculator
 // ---------------------------------------------------------------------------
 
 function buildBreakdown(
   driver: Driver,
   load: Load,
-  locationScore: number
+  locationScore: number,
+  feasibility?: PickupFeasibility,
 ): MatchScoreBreakdown {
   // Vehicle match (0-WEIGHTS.vehicle).
   // PR 1: equipment is now a SOFT penalty, not a hard filter. Wrong-equipment
@@ -516,6 +621,7 @@ function buildBreakdown(
     complianceScore: 0, // folded into qualificationScore — kept at 0 for compat
     qualificationWarning: warning,
     expiryDetails,
+    feasibility,
   };
 }
 
@@ -526,13 +632,15 @@ function buildBreakdown(
 export function calculateMatchScore(driver: Driver, load: Load): MatchScoreBreakdown {
   const dCoords = getCoordinatesSync(driver.location || "");
   const lCoords = getCoordinatesSync(load.origin || "");
-  return buildBreakdown(driver, load, calculateLocationScoreWeighted(dCoords, lCoords));
+  const feasibility = computePickupFeasibility(dCoords, lCoords, load.pickupDate);
+  return buildBreakdown(driver, load, calculateLocationScoreWeighted(dCoords, lCoords), feasibility);
 }
 
 export async function calculateMatchScoreAsync(driver: Driver, load: Load): Promise<MatchScoreBreakdown> {
   const dCoords = await getCoordinatesAsync(driver.location || "");
   const lCoords = await getCoordinatesAsync(load.origin || "");
-  return buildBreakdown(driver, load, calculateLocationScoreWeighted(dCoords, lCoords));
+  const feasibility = computePickupFeasibility(dCoords, lCoords, load.pickupDate);
+  return buildBreakdown(driver, load, calculateLocationScoreWeighted(dCoords, lCoords), feasibility);
 }
 
 export function getTotalScore(breakdown: MatchScoreBreakdown): number {
@@ -570,8 +678,15 @@ export function findMatchingDrivers(
     return { driver, score, breakdown, rank: 0, isBestMatch: false };
   });
 
-  scored.sort((a, b) => b.score - a.score);
-  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0; });
+  // PR 3: infeasible-by-schedule drivers always sort below feasible ones,
+  // regardless of raw score. Within each group we sort by score descending.
+  scored.sort((a, b) => {
+    const aInfeasible = a.breakdown.feasibility?.feasible === false ? 1 : 0;
+    const bInfeasible = b.breakdown.feasibility?.feasible === false ? 1 : 0;
+    if (aInfeasible !== bInfeasible) return aInfeasible - bInfeasible;
+    return b.score - a.score;
+  });
+  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0 && m.breakdown.feasibility?.feasible !== false; });
 
   return opts.maxResults ? scored.slice(0, opts.maxResults) : scored;
 }
@@ -633,8 +748,15 @@ export async function findMatchingDriversAsync(
     })
   );
 
-  scored.sort((a, b) => b.score - a.score);
-  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0; });
+  // PR 3: infeasible-by-schedule drivers always sort below feasible ones,
+  // regardless of raw score. Within each group we sort by score descending.
+  scored.sort((a, b) => {
+    const aInfeasible = a.breakdown.feasibility?.feasible === false ? 1 : 0;
+    const bInfeasible = b.breakdown.feasibility?.feasible === false ? 1 : 0;
+    if (aInfeasible !== bInfeasible) return aInfeasible - bInfeasible;
+    return b.score - a.score;
+  });
+  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0 && m.breakdown.feasibility?.feasible !== false; });
 
   return opts.maxResults ? scored.slice(0, opts.maxResults) : scored;
 }
@@ -664,8 +786,15 @@ export function findMatchingLoads(
     return { load, score, breakdown, rank: 0, isBestMatch: false };
   });
 
-  scored.sort((a, b) => b.score - a.score);
-  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0; });
+  // PR 3: infeasible-by-schedule drivers always sort below feasible ones,
+  // regardless of raw score. Within each group we sort by score descending.
+  scored.sort((a, b) => {
+    const aInfeasible = a.breakdown.feasibility?.feasible === false ? 1 : 0;
+    const bInfeasible = b.breakdown.feasibility?.feasible === false ? 1 : 0;
+    if (aInfeasible !== bInfeasible) return aInfeasible - bInfeasible;
+    return b.score - a.score;
+  });
+  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0 && m.breakdown.feasibility?.feasible !== false; });
 
   return scored.slice(0, maxResults);
 }
