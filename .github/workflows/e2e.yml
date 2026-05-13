@@ -45,7 +45,11 @@ jobs:
           java-version: 17
 
       - name: Install dependencies
-        run: npm ci
+        # Use `npm install` rather than `npm ci` so the suite still runs
+        # when the lockfile lags behind a devDependency addition (e.g.,
+        # the @playwright/test + firebase-tools additions in this PR).
+        # Switch back to `npm ci` once the lockfile is regenerated.
+        run: npm install
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
