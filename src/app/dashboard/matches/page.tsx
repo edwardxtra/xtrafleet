@@ -31,6 +31,7 @@ import { collection, query, where, collectionGroup, doc, getDoc, onSnapshot } fr
 import {
   findMatchingDrivers,
   findMatchingLoads,
+  findIneligibleDrivers,
   getMatchQualityLabel,
   getMatchReasons,
   type MatchScore,
@@ -227,13 +228,30 @@ export default function MatchesPage() {
     setSelectionMode(null);
   };
 
-  const driverMatches =
+  // Pool of drivers eligible for the selected load (excluding own fleet
+  // + inactive). Same input feeds both findMatchingDrivers (ranking) and
+  // findIneligibleDrivers (diagnostic panel).
+  const driverPoolForLoad =
     selectedLoad && selectionMode === "load" && allDrivers.length > 0
+      ? allDrivers.filter((d) => d.ownerId !== user?.uid && d.isActive !== false)
+      : [];
+
+  const driverMatches =
+    selectedLoad && selectionMode === "load" && driverPoolForLoad.length > 0
       ? findMatchingDrivers(
           selectedLoad,
-          allDrivers.filter((d) => d.ownerId !== user?.uid && d.isActive !== false),
+          driverPoolForLoad,
           { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10 }
         )
+      : [];
+
+  // PR 1 transparency: drivers that were filtered out of the ranking
+  // because of hard-eligibility checks (availability / expired docs).
+  // Equipment is now a SOFT scoring penalty, not a hard filter, so wrong-
+  // equipment drivers appear in driverMatches with a low score, not here.
+  const ineligibleDriversForLoad =
+    selectedLoad && selectionMode === "load" && driverPoolForLoad.length > 0
+      ? findIneligibleDrivers(driverPoolForLoad, { onlyGreenCompliance: true, onlyAvailable: true })
       : [];
 
   const loadMatches =
@@ -363,7 +381,7 @@ export default function MatchesPage() {
             </CardTitle>
             <CardDescription className="truncate text-xs md:text-sm">
               {selectionMode === "load" && selectedLoad
-                ? `Top drivers for your load to ${selectedLoad.destination}`
+                ? `Best of ${driverMatches.length} eligible driver${driverMatches.length === 1 ? "" : "s"} for ${selectedLoad.destination}${ineligibleDriversForLoad.length > 0 ? ` (${ineligibleDriversForLoad.length} filtered out — see below)` : ""}`
                 : selectionMode === "driver" && selectedMyDriver
                   ? `Top loads for ${selectedMyDriver.name}`
                   : "Select your load or driver from My Assets"}
@@ -477,12 +495,54 @@ export default function MatchesPage() {
                           </Card>
                         );
                       })}
+
+                      {ineligibleDriversForLoad.length > 0 && (
+                        <div className="mt-6 border rounded-lg p-3 md:p-4 bg-muted/30">
+                          <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                            <Users className="h-4 w-4 text-muted-foreground" />
+                            Drivers filtered out
+                            <span className="text-xs font-normal text-muted-foreground">
+                              ({ineligibleDriversForLoad.length})
+                            </span>
+                          </h4>
+                          <p className="text-xs text-muted-foreground mb-3">
+                            These drivers in the pool were excluded by hard-eligibility checks (availability or expired documents). Equipment is no longer a hard filter — wrong-equipment drivers appear in the ranked list above with a low score.
+                          </p>
+                          <ul className="space-y-1.5">
+                            {ineligibleDriversForLoad.slice(0, 10).map(({ driver, reason }) => (
+                              <li key={driver.id || driver.name} className="text-xs flex items-start gap-2">
+                                <span className="font-medium">{driver.name}</span>
+                                <span className="text-muted-foreground">— {reason}</span>
+                              </li>
+                            ))}
+                            {ineligibleDriversForLoad.length > 10 && (
+                              <li className="text-xs text-muted-foreground italic">
+                                …and {ineligibleDriversForLoad.length - 10} more.
+                              </li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-64 text-center p-4 border-2 border-dashed rounded-lg">
                       <Users className="h-12 w-12 text-muted-foreground" />
                       <h3 className="mt-4 text-base font-semibold font-headline">No Matching Drivers</h3>
-                      <p className="mt-2 text-sm text-muted-foreground">No available drivers match this load.</p>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {ineligibleDriversForLoad.length > 0
+                          ? `${ineligibleDriversForLoad.length} driver${ineligibleDriversForLoad.length === 1 ? " was" : "s were"} filtered out — see reasons below.`
+                          : "No available drivers in the pool."}
+                      </p>
+                      {ineligibleDriversForLoad.length > 0 && (
+                        <ul className="mt-4 text-left text-xs space-y-1.5 max-w-md w-full">
+                          {ineligibleDriversForLoad.slice(0, 10).map(({ driver, reason }) => (
+                            <li key={driver.id || driver.name} className="flex items-start gap-2">
+                              <span className="font-medium">{driver.name}</span>
+                              <span className="text-muted-foreground">— {reason}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   )
                 ) : selectionMode === "driver" && selectedMyDriver ? (
