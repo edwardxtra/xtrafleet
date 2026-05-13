@@ -83,11 +83,18 @@ export default function MatchesPage() {
   const { user } = useUser();
   const firestore = useFirestore();
 
-  // Subscribe to MY pending loads
+  // Subscribe to MY pending loads.
+  // "Pending" is the legacy status string; the current /api/loads POST
+  // writes "live" by default and bumps to "match_pending" once a match
+  // request goes out. Both new statuses plus the legacy one should
+  // populate this panel so newly-posted loads show up immediately.
   useEffect(() => {
     if (!firestore || !user?.uid) return;
     const unsubscribe = onSnapshot(
-      query(collection(firestore, `owner_operators/${user.uid}/loads`), where("status", "==", "Pending")),
+      query(
+        collection(firestore, `owner_operators/${user.uid}/loads`),
+        where("status", "in", ["Pending", "live", "match_pending"]),
+      ),
       (snapshot) => {
         const loads = snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Load));
         setMyPendingLoads(loads);
@@ -99,16 +106,19 @@ export default function MatchesPage() {
     return () => unsubscribe();
   }, [firestore, user?.uid]);
 
-  // Subscribe to ALL pending loads
+  // Subscribe to ALL pending loads. Mirrors the my-pending status set
+  // ("Pending" legacy + "live" + "match_pending" current) so newly-posted
+  // loads from other owners are also matchable.
   useEffect(() => {
     if (!firestore || !user?.uid) return;
+    const AVAILABLE_STATUSES = new Set(['Pending', 'live', 'match_pending']);
     const unsubscribe = onSnapshot(
       collectionGroup(firestore, "loads"),
       (snapshot) => {
         const loads: LoadWithOwner[] = [];
         snapshot.docs.forEach((docSnap) => {
           const data = docSnap.data() as Load;
-          if (data.status !== "Pending") return;
+          if (!AVAILABLE_STATUSES.has(data.status as string)) return;
           const ownerId = docSnap.ref.path.split("/")[1];
           loads.push({ ...data, id: docSnap.id, ownerId });
         });
