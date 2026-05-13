@@ -1,46 +1,23 @@
 'use client';
 
 import Link from 'next/link';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
 import { CompanyProfileForm } from '@/components/company-profile-form';
 import { Logo } from '@/components/logo';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
-import { useUser, useFirestore } from '@/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
 import { Loader2, Building2 } from 'lucide-react';
 
 function CreateProfileContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const error = searchParams.get('error');
-  const { user } = useUser();
-  const db = useFirestore();
-
-  const handleSkip = async () => {
-    if (!user || !db) {
-      router.push('/dashboard');
-      return;
-    }
-    try {
-      await updateDoc(doc(db, 'owner_operators', user.uid), {
-        'onboardingStatus.profileSkipped': true,
-        'onboardingStatus.profileSkippedAt': new Date().toISOString(),
-      });
-    } catch (e) {
-      console.error('Failed to save skip status:', e);
-    }
-    router.push('/dashboard');
-  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -68,11 +45,6 @@ function CreateProfileContent() {
           )}
           <CompanyProfileForm />
         </CardContent>
-        <CardFooter className="flex-col items-center justify-center">
-          <Button variant="link" className="text-muted-foreground" onClick={handleSkip}>
-            Skip for now
-          </Button>
-        </CardFooter>
       </Card>
     </div>
   );

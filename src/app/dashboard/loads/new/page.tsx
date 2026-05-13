@@ -219,9 +219,14 @@ export default function PostLoadPage() {
     } finally { setIsSubmitting(false); }
   };
 
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const minDate = tomorrow.toISOString().split('T')[0];
+  // Earliest allowed pickup date is today (same-day pickups are valid).
+  // Build the YYYY-MM-DD string from local-time components so a late-evening
+  // user in a western timezone doesn't get bumped to tomorrow by UTC offset.
+  const _today = new Date();
+  const _yyyy = _today.getFullYear();
+  const _mm = String(_today.getMonth() + 1).padStart(2, '0');
+  const _dd = String(_today.getDate()).padStart(2, '0');
+  const minDate = `${_yyyy}-${_mm}-${_dd}`;
   const getLoadTypeLabel = (v: string) => LOAD_TYPES.find(t => t.value === v)?.label || v;
   const getTrailerTypeLabel = (v: string) => TRAILER_TYPES.find(t => t.value === v)?.label || v;
 
