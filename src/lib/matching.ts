@@ -58,15 +58,30 @@ const DEFAULT_OPTIONS: MatchingOptions = {
 };
 
 // ---------------------------------------------------------------------------
-// Scoring weights (DEV-123)
-// Total: 100 pts
+// Scoring weights — total: 100 pts
+// PR 1 (transparency sprint) reweight:
+//   - Equipment dropped from 20 → 10 because it's now a soft scoring penalty
+//     rather than a hard filter (wrong-equipment drivers still appear in
+//     results, just ranked lower).
+//   - Rating bumped from 5 → 10 because the previous 5 was noise — couldn't
+//     distinguish a 4.9 from a 3.2 driver in any meaningful way.
+//   - Location bumped from 35 → 40 to keep the total at 100 and give a
+//     small additional weight to proximity, the most operationally
+//     significant factor after compliance.
+//   - Qualification (40) unchanged — compliance is the largest single bucket.
 // ---------------------------------------------------------------------------
 const WEIGHTS = {
-  location: 35,
-  vehicle: 20,
+  location: 40,
+  vehicle: 10,
   qualification: 40,  // blended qual+compliance
-  rating: 5,
+  rating: 10,
 } as const;
+
+// Multiplier applied to the vehicle bucket when the driver's trailer doesn't
+// match the load's required trailerType. Keeps wrong-equipment drivers in
+// results (so the OO sees them) but pushes them well below correct-equipment
+// candidates.
+const WRONG_EQUIPMENT_MULTIPLIER = 0.2;
 
 const EXPIRY_WARNING_DAYS = 30;
 
@@ -82,9 +97,16 @@ const VEHICLE_CARGO_SYNONYMS: Record<string, string[]> = {
   tanker: ["tank", "liquid", "bulk liquid"],
   hopper: ["grain", "bulk", "dry bulk"],
   lowboy: ["low boy", "low-boy", "heavy haul", "heavy equipment"],
-  "step deck": ["step-deck", "stepdeck", "drop deck"],
+  "step deck": ["step-deck", "stepdeck", "drop deck", "drop-deck"],
   conestoga: ["curtain side", "curtainside"],
   hazmat: ["hazardous", "hazardous materials", "dangerous goods"],
+  // PR 1 — added trailer types that were silently failing equipment match
+  // because the only mapping was the in-code constant.
+  "auto carrier": ["auto-carrier", "car hauler", "car-hauler", "car carrier", "vehicle carrier"],
+  "power only": ["power-only", "poweronly", "tractor only", "bobtail"],
+  rgn: ["removable gooseneck", "removable-gooseneck"],
+  "double drop": ["double-drop", "doubledrop"],
+  livestock: ["cattle", "animal hauler"],
 };
 
 function getSynonyms(term: string): string[] {
@@ -439,10 +461,15 @@ function buildBreakdown(
   load: Load,
   locationScore: number
 ): MatchScoreBreakdown {
-  // Vehicle match (0-20)
+  // Vehicle match (0-WEIGHTS.vehicle).
+  // PR 1: equipment is now a SOFT penalty, not a hard filter. Wrong-equipment
+  // drivers still appear in results — they just get the WRONG_EQUIPMENT_MULTIPLIER
+  // share of this bucket so they rank well below correct-equipment candidates.
   let vehicleMatch = 0;
   if (load.trailerType) {
-    vehicleMatch = WEIGHTS.vehicle; // hard filter already verified compatibility
+    vehicleMatch = isEquipmentCompatible(driver, load)
+      ? WEIGHTS.vehicle
+      : Math.round(WEIGHTS.vehicle * WRONG_EQUIPMENT_MULTIPLIER);
   } else if (load.requiredQualifications && load.requiredQualifications.length > 0) {
     const driverTypes = getDriverTrailerTypes(driver);
     const matches = load.requiredQualifications.some((req) =>
@@ -518,17 +545,9 @@ export function findMatchingDrivers(
 ): MatchScore[] {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
-  const eligible = drivers.filter((driver) => {
-    if (opts.onlyAvailable && driver.availability !== "Available") return false;
-    if (opts.onlyGreenCompliance) {
-      // Still use the lightweight status check as a hard gate
-      const expiryDetails = buildExpiryDetails(driver);
-      const hasExpired = expiryDetails.some((d) => d.status === "expired");
-      if (hasExpired) return false;
-    }
-    if (!isEquipmentCompatible(driver, load)) return false;
-    return true;
-  });
+  // PR 1: equipment is no longer a hard filter — it falls through to scoring.
+  // The remaining hard filters are availability + expired compliance docs.
+  const eligible = drivers.filter((driver) => filterEligibility(driver, opts) === null);
 
   console.log(
     `${LOG_PREFIX} findMatchingDrivers: ${eligible.length}/${drivers.length} eligible for load ${load.id ?? load.origin}`
@@ -546,6 +565,45 @@ export function findMatchingDrivers(
   return opts.maxResults ? scored.slice(0, opts.maxResults) : scored;
 }
 
+// Returns the reason a driver fails hard-eligibility checks, or null if
+// they're eligible. Used both by findMatchingDrivers and the new
+// findIneligibleDrivers helper so the two stay in lockstep.
+function filterEligibility(driver: Driver, opts: MatchingOptions): string | null {
+  if (opts.onlyAvailable && driver.availability !== "Available") {
+    return `Not available (${driver.availability || "no status"})`;
+  }
+  if (opts.onlyGreenCompliance) {
+    const expiryDetails = buildExpiryDetails(driver);
+    const expired = expiryDetails.filter((d) => d.status === "expired");
+    if (expired.length > 0) {
+      return `Expired: ${expired.map((d) => d.label).join(", ")}`;
+    }
+  }
+  return null;
+}
+
+export interface IneligibleDriver {
+  driver: Driver;
+  reason: string;
+}
+
+// Mirror of findMatchingDrivers that returns the drivers who were *excluded*
+// by the hard-eligibility checks, with the reason for each exclusion. The
+// matches page renders this as a diagnostic panel so OOs can see why a
+// driver they expected to appear was filtered out.
+export function findIneligibleDrivers(
+  drivers: Driver[],
+  options: MatchingOptions = {}
+): IneligibleDriver[] {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const out: IneligibleDriver[] = [];
+  for (const driver of drivers) {
+    const reason = filterEligibility(driver, opts);
+    if (reason) out.push({ driver, reason });
+  }
+  return out;
+}
+
 export async function findMatchingDriversAsync(
   load: Load,
   drivers: Driver[],
@@ -553,14 +611,8 @@ export async function findMatchingDriversAsync(
 ): Promise<MatchScore[]> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
-  const eligible = drivers.filter((driver) => {
-    if (opts.onlyAvailable && driver.availability !== "Available") return false;
-    if (opts.onlyGreenCompliance) {
-      const expiryDetails = buildExpiryDetails(driver);
-      if (expiryDetails.some((d) => d.status === "expired")) return false;
-    }
-    return true;
-  });
+  // PR 1: same eligibility helper as findMatchingDrivers.
+  const eligible = drivers.filter((driver) => filterEligibility(driver, opts) === null);
 
   const scored: MatchScore[] = await Promise.all(
     eligible.map(async (driver) => {
@@ -576,6 +628,12 @@ export async function findMatchingDriversAsync(
   return opts.maxResults ? scored.slice(0, opts.maxResults) : scored;
 }
 
+// PR 1: equipment is a soft penalty here too; the only hard filter on a load
+// is that its status is in the available-for-matching set. The legacy
+// "Pending" string is kept alongside the current "live" / "match_pending"
+// so old data continues to surface.
+const AVAILABLE_LOAD_STATUSES = new Set(['Pending', 'live', 'match_pending']);
+
 export function findMatchingLoads(
   driver: Driver,
   loads: Load[],
@@ -583,15 +641,13 @@ export function findMatchingLoads(
 ): LoadMatchScore[] {
   const { maxResults = 10 } = options;
 
-  const compatible = loads.filter(
-    (load) => load.status === "Pending" && isEquipmentCompatible(driver, load)
-  );
+  const available = loads.filter((load) => AVAILABLE_LOAD_STATUSES.has(load.status as string));
 
   console.log(
-    `${LOG_PREFIX} findMatchingLoads: ${compatible.length}/${loads.length} compatible for driver ${driver.id ?? driver.name}`
+    `${LOG_PREFIX} findMatchingLoads: ${available.length}/${loads.length} available for driver ${driver.id ?? driver.name}`
   );
 
-  const scored = compatible.map((load) => {
+  const scored = available.map((load) => {
     const breakdown = calculateMatchScore(driver, load);
     const score = getTotalScore(breakdown);
     return { load, score, breakdown, rank: 0, isBestMatch: false };
