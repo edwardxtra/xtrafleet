@@ -85,7 +85,27 @@ export function CompanyProfileForm() {
           if (data.hqCity) form.setValue('hqCity', data.hqCity);
           if (data.hqState) form.setValue('hqState', data.hqState);
           if (data.hqZip) form.setValue('hqZip', data.hqZip);
-          if (!data.hqStreet && data.hqAddress) form.setValue('hqStreet', data.hqAddress);
+          // Legacy migration: older accounts only had data.hqAddress as a
+          // single comma-separated string. Try to split it into Street /
+          // City / State / Zip so the form's individual fields populate
+          // instead of dumping the entire address into the Street input.
+          // Expected shape: "Street, City, ST 12345" (FMCSA-style).
+          if (!data.hqStreet && !data.hqCity && !data.hqState && !data.hqZip && data.hqAddress) {
+            const legacy = String(data.hqAddress).trim();
+            // Match trailing "ST 12345" (or 12345-1234 ZIP+4)
+            const cszMatch = legacy.match(/^(.*),\s*([A-Za-z][A-Za-z\s.'-]+),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/);
+            if (cszMatch) {
+              const [, streetPart, cityPart, statePart, zipPart] = cszMatch;
+              form.setValue('hqStreet', streetPart.trim());
+              form.setValue('hqCity', cityPart.trim());
+              form.setValue('hqState', statePart.toUpperCase());
+              form.setValue('hqZip', zipPart);
+            } else {
+              // Could not parse confidently — leave Street populated so the
+              // user can see what was on file and re-enter the split.
+              form.setValue('hqStreet', legacy);
+            }
+          }
           if (data.operatingStates?.length) form.setValue('operatingStates', data.operatingStates);
           if (data.coi) setCoiData(data.coi);
           if (data.fmcsaVerified) {

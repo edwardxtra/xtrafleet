@@ -43,6 +43,99 @@ interface TLASignFormProps {
   onSignSuccess: (updatedTLA: TLA) => void;
 }
 
+// IMPORTANT: this component MUST stay at module scope.
+// Declaring it inside TLASignForm's function body would create a new
+// component reference on every parent render, which React then remounts —
+// which would destroy input focus on every keystroke.
+function LocationFields({
+  title,
+  location,
+  setLocation,
+  showContact = true,
+}: {
+  title: string;
+  location: LocationData;
+  setLocation: (loc: LocationData) => void;
+  showContact?: boolean;
+}) {
+  return (
+    <div className="space-y-3 p-4 bg-muted/30 rounded-lg">
+      <h4 className="font-medium flex items-center gap-2">
+        <MapPin className="h-4 w-4" />
+        {title}
+      </h4>
+
+      <div className="space-y-2">
+        <Label>Street Address *</Label>
+        <Input
+          placeholder="123 Main St, Suite 100"
+          value={location.address}
+          onChange={(e) => setLocation({ ...location, address: e.target.value })}
+        />
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <div className="space-y-2">
+          <Label>City *</Label>
+          <Input
+            placeholder="City"
+            value={location.city}
+            onChange={(e) => setLocation({ ...location, city: e.target.value })}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>State *</Label>
+          <Input
+            placeholder="TX"
+            maxLength={2}
+            value={location.state}
+            onChange={(e) => setLocation({ ...location, state: e.target.value.toUpperCase() })}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>ZIP *</Label>
+          <Input
+            placeholder="12345"
+            value={location.zip}
+            onChange={(e) => setLocation({ ...location, zip: e.target.value })}
+          />
+        </div>
+      </div>
+
+      {showContact && (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-2">
+            <Label>Contact Name</Label>
+            <Input
+              placeholder="John Doe"
+              value={location.contactName || ""}
+              onChange={(e) => setLocation({ ...location, contactName: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Contact Phone</Label>
+            <Input
+              placeholder="(555) 123-4567"
+              value={location.contactPhone || ""}
+              onChange={(e) => setLocation({ ...location, contactPhone: e.target.value })}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Label>Special Instructions</Label>
+        <Textarea
+          placeholder="Dock number, gate code, delivery hours, etc."
+          value={location.instructions || ""}
+          onChange={(e) => setLocation({ ...location, instructions: e.target.value })}
+          rows={2}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function TLASignForm({ tla, tlaId, signingRole, onSignSuccess }: TLASignFormProps) {
   const { user } = useUser();
   const firestore = useFirestore();
@@ -195,93 +288,6 @@ export function TLASignForm({ tla, tlaId, signingRole, onSignSuccess }: TLASignF
       setIsSigning(false);
     }
   };
-
-  const LocationFields = ({
-    title,
-    location,
-    setLocation,
-    showContact = true,
-  }: {
-    title: string;
-    location: LocationData;
-    setLocation: (loc: LocationData) => void;
-    showContact?: boolean;
-  }) => (
-    <div className="space-y-3 p-4 bg-muted/30 rounded-lg">
-      <h4 className="font-medium flex items-center gap-2">
-        <MapPin className="h-4 w-4" />
-        {title}
-      </h4>
-
-      <div className="space-y-2">
-        <Label>Street Address *</Label>
-        <Input
-          placeholder="123 Main St, Suite 100"
-          value={location.address}
-          onChange={(e) => setLocation({ ...location, address: e.target.value })}
-        />
-      </div>
-
-      <div className="grid grid-cols-3 gap-2">
-        <div className="space-y-2">
-          <Label>City *</Label>
-          <Input
-            placeholder="City"
-            value={location.city}
-            onChange={(e) => setLocation({ ...location, city: e.target.value })}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>State *</Label>
-          <Input
-            placeholder="TX"
-            maxLength={2}
-            value={location.state}
-            onChange={(e) => setLocation({ ...location, state: e.target.value.toUpperCase() })}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>ZIP *</Label>
-          <Input
-            placeholder="12345"
-            value={location.zip}
-            onChange={(e) => setLocation({ ...location, zip: e.target.value })}
-          />
-        </div>
-      </div>
-
-      {showContact && (
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-2">
-            <Label>Contact Name</Label>
-            <Input
-              placeholder="John Doe"
-              value={location.contactName || ""}
-              onChange={(e) => setLocation({ ...location, contactName: e.target.value })}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Contact Phone</Label>
-            <Input
-              placeholder="(555) 123-4567"
-              value={location.contactPhone || ""}
-              onChange={(e) => setLocation({ ...location, contactPhone: e.target.value })}
-            />
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        <Label>Special Instructions</Label>
-        <Textarea
-          placeholder="Dock number, gate code, delivery hours, etc."
-          value={location.instructions || ""}
-          onChange={(e) => setLocation({ ...location, instructions: e.target.value })}
-          rows={2}
-        />
-      </div>
-    </div>
-  );
 
   return (
     <Card>

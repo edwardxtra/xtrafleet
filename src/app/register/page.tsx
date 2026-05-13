@@ -114,19 +114,15 @@ function RegisterContent() {
         });
 
         const token = await newUser.getIdToken();
-        
+
         // POST session cookie and WAIT for it to complete before redirecting.
-        // This ensures the fb-id-token cookie is set before the server action
-        // in /create-profile tries to authenticate via authenticateServerAction().
-        const response = await fetch('/api/auth/session', {
+        // This sets the fb-id-token cookie that the server action behind the
+        // CompanyProfileForm relies on.
+        const sessionResponse = await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),
         });
-
-        if (!response.ok) {
-          throw new Error('Failed to create session');
-        }
 
         // Send welcome email fire-and-forget — do NOT await
         fetch('/api/send-welcome-email', {
@@ -135,13 +131,26 @@ function RegisterContent() {
           body: JSON.stringify({ email: newUser.email, companyName }),
         }).catch(err => console.error('Failed to send welcome email:', err));
 
+        if (!sessionResponse.ok) {
+          // The Firebase Auth user + Firestore docs were written successfully,
+          // we just couldn't establish a session cookie (rate limit, transient
+          // infra, etc.). Don't show a generic red error — the account exists.
+          // Bounce the user to the login page so they can sign in cleanly.
+          console.warn('[register] Session POST failed after successful account creation', sessionResponse.status);
+          showSuccess('Account created. Please sign in to continue.');
+          router.push(`/login?email=${encodeURIComponent(newUser.email || '')}&message=Account created. Please log in to continue.`);
+          return;
+        }
+
         showSuccess('Account created successfully!');
 
-        // Small settle delay to ensure the cookie is readable by middleware
-        // before the navigation triggers a server-side read.
-        await new Promise(resolve => setTimeout(resolve, 150));
-        router.push('/create-profile');
-        
+        // Hard navigation (window.location.href) instead of router.push so the
+        // next request carries the freshly-Set-Cookie'd fb-id-token in its
+        // request headers — soft client-side navigation can race the browser
+        // cookie write and result in the server action seeing no cookie.
+        window.location.href = '/create-profile';
+        return;
+
       } else {
         throw new Error("Database service is not available.");
       }
