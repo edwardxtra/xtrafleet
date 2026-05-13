@@ -16,9 +16,10 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sheet, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { AddDriverForm } from "@/components/add-driver-form";
 import { AddSelfAsDriverButton } from "@/components/add-self-as-driver-button";
+import { DriverProfileCompletion } from "@/components/driver-profile-completion";
 import { EditDriverModal } from "@/components/edit-driver-modal";
 import { DriverStatusBadge } from "@/components/driver-status-badge";
 import { DriverConfirmationCard } from "@/components/driver-confirmation-card";
@@ -202,6 +203,7 @@ export default function DriversPage() {
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [togglingDriver, setTogglingDriver] = useState<Driver | null>(null);
   const [isToggling, setIsToggling] = useState(false);
+  const [completeSelfProfileOpen, setCompleteSelfProfileOpen] = useState(false);
   // OO doc — fetched once so FMCSA section gets real DOT/MC numbers
   const [ooDoc, setOoDoc] = useState<Partial<OwnerOperator> | undefined>(undefined);
   const { user, isUserLoading } = useUser();
@@ -397,6 +399,20 @@ export default function DriversPage() {
           </div>
         </div>
 
+        {selectedDriver.isSelfDriver && selectedDriver.profileComplete !== true && selectedDriver.profileStatus !== 'pending_confirmation' && selectedDriver.profileStatus !== 'complete' && (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <span>
+                Your driver profile is incomplete. Finish it to clear the Driver Authorization &amp; Disclosure attestation and unlock driver-side compliance.
+              </span>
+              <Button size="sm" onClick={() => setCompleteSelfProfileOpen(true)}>
+                Complete Driver Profile
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         <Separator />
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -467,6 +483,29 @@ export default function DriversPage() {
           driver={editingDriver}
           onSuccess={() => setSelectedDriverId(selectedDriverId)}
         />
+
+        {selectedDriver.isSelfDriver && (
+          <Sheet open={completeSelfProfileOpen} onOpenChange={setCompleteSelfProfileOpen}>
+            <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle>Complete Your Driver Profile</SheetTitle>
+                <SheetDescription>
+                  Finish the driver-side fields and sign the Driver Authorization &amp; Disclosure. After submit, the compliance scorecard updates.
+                </SheetDescription>
+              </SheetHeader>
+              <div className="mt-4">
+                <DriverProfileCompletion
+                  driverId={selectedDriver.id}
+                  endpoint="/api/submit-self-driver-profile"
+                  onComplete={() => {
+                    setCompleteSelfProfileOpen(false);
+                    setSelectedDriverId(selectedDriverId);
+                  }}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+        )}
       </div>
     );
   }
