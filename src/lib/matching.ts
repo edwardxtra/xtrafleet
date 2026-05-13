@@ -260,19 +260,26 @@ function isGeocodingEnabled(location: string): boolean {
   return false;
 }
 
+// PR 2: routes through our own /api/geocode endpoint which is backed by
+// Radar + a Firestore cache layer. Replaces the previous direct call to
+// Nominatim, which was rate-limited, slow, and produced inconsistent results
+// for US trucking-relevant queries. The in-memory geocodeCache below is
+// still useful as an in-tab cache so repeated calls within a session don't
+// even hit our API.
 async function geocodeLocation(location: string): Promise<{ lat: number; lng: number } | null> {
   const key = location.toLowerCase().trim();
   if (geocodeCache.has(key)) return geocodeCache.get(key) ?? null;
-  if (!isGeocodingEnabled(location)) return null;
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location + ", USA")}&limit=1`,
-      { headers: { "User-Agent": "XtraFleet/1.0 (https://xtrafleet.com)" } }
-    );
-    if (!res.ok) { geocodeCache.set(key, null); return null; }
+    const res = await fetch(`/api/geocode?q=${encodeURIComponent(location)}`);
+    if (!res.ok) {
+      geocodeCache.set(key, null);
+      return null;
+    }
     const data = await res.json();
-    if (data?.length > 0) {
-      const coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    // /api/geocode wraps in { data: { lat, lng, source } } via handleApiSuccess.
+    const payload = (data && (data.data || data)) || {};
+    if (typeof payload.lat === 'number' && typeof payload.lng === 'number') {
+      const coords = { lat: payload.lat, lng: payload.lng };
       geocodeCache.set(key, coords);
       return coords;
     }
@@ -302,11 +309,15 @@ function getCoordinatesSync(location: string): { lat: number; lng: number } | nu
   return null;
 }
 
+// PR 2: removed the isGeocodingEnabled() gate. That gate was a workaround
+// for Nominatim rate limits — it restricted external geocoding to a small
+// allowlist of US states. With the Radar-backed /api/geocode endpoint
+// (cached in Firestore for 30 days), every location is fair game and any
+// city or address in the US is reachable for matching.
 async function getCoordinatesAsync(location: string): Promise<{ lat: number; lng: number } | null> {
   const fallback = getCoordinatesSync(location);
   if (fallback) return fallback;
-  if (isGeocodingEnabled(location)) return geocodeLocation(location);
-  return null;
+  return geocodeLocation(location);
 }
 
 function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
