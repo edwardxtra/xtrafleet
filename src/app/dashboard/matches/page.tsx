@@ -440,10 +440,22 @@ export default function MatchesPage() {
                         const companyName = match.driver.ownerId ? ownerNames[match.driver.ownerId] : null;
                         const hasWarning = !!match.breakdown.qualificationWarning;
                         return (
-                          <Card key={match.driver.id} className={`shadow-none overflow-hidden ${match.isBestMatch ? "ring-2 ring-primary" : ""}`}>
+                          <Card key={match.driver.id} className={`shadow-none overflow-hidden ${match.isBestMatch ? "ring-2 ring-primary" : ""} ${match.breakdown.feasibility?.feasible === false ? "opacity-70" : ""}`}>
                             {match.isBestMatch && (
                               <div className="bg-primary text-primary-foreground px-3 py-1.5 flex items-center gap-2 text-sm font-medium">
                                 <Trophy className="h-4 w-4" />Best Match
+                              </div>
+                            )}
+                            {match.breakdown.feasibility?.feasible === false && (
+                              <div className="bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-b border-red-200 dark:border-red-900 px-3 py-1.5 flex items-center gap-2 text-xs font-medium">
+                                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                                Cannot make pickup in time{match.breakdown.feasibility.reason ? ` — ${match.breakdown.feasibility.reason}` : ""}
+                              </div>
+                            )}
+                            {match.breakdown.feasibility?.feasible === true && match.breakdown.feasibility.tightSchedule && (
+                              <div className="bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-b border-amber-200 dark:border-amber-900 px-3 py-1.5 flex items-center gap-2 text-xs font-medium">
+                                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                                Tight pickup window{match.breakdown.feasibility.reason ? ` — ${match.breakdown.feasibility.reason}` : ""}
                               </div>
                             )}
                             <CardHeader className="pb-2">
