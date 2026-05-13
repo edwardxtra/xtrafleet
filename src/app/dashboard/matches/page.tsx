@@ -30,6 +30,7 @@ import { useUser, useFirestore } from "@/firebase";
 import { collection, query, where, collectionGroup, doc, getDoc, onSnapshot } from "firebase/firestore";
 import {
   findMatchingDrivers,
+  findMatchingDriversAsync,
   findMatchingLoads,
   findIneligibleDrivers,
   getMatchQualityLabel,
@@ -236,7 +237,13 @@ export default function MatchesPage() {
       ? allDrivers.filter((d) => d.ownerId !== user?.uid && d.isActive !== false)
       : [];
 
-  const driverMatches =
+  // PR 2: switched from sync findMatchingDrivers to async variant so we
+  // benefit from the Radar-backed /api/geocode endpoint. The async path
+  // resolves driver + load coordinates via Radar (with a 30-day Firestore
+  // cache) rather than the 80-city hard-coded dictionary. We render the
+  // sync result first as an instant best-effort, then upgrade it once the
+  // async resolution lands so the page never feels empty during fetch.
+  const driverMatchesSync =
     selectedLoad && selectionMode === "load" && driverPoolForLoad.length > 0
       ? findMatchingDrivers(
           selectedLoad,
@@ -244,6 +251,39 @@ export default function MatchesPage() {
           { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10 }
         )
       : [];
+
+  const [driverMatchesAsync, setDriverMatchesAsync] = useState<MatchScore[] | null>(null);
+  const [matchesResolving, setMatchesResolving] = useState(false);
+
+  useEffect(() => {
+    if (!selectedLoad || selectionMode !== "load" || driverPoolForLoad.length === 0) {
+      setDriverMatchesAsync(null);
+      return;
+    }
+    let cancelled = false;
+    setMatchesResolving(true);
+    findMatchingDriversAsync(
+      selectedLoad,
+      driverPoolForLoad,
+      { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10 }
+    )
+      .then((resolved) => {
+        if (cancelled) return;
+        setDriverMatchesAsync(resolved);
+      })
+      .catch((err) => {
+        console.warn(`${LOG_PREFIX} findMatchingDriversAsync error`, err);
+      })
+      .finally(() => {
+        if (!cancelled) setMatchesResolving(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLoad?.id, selectionMode, driverPoolForLoad.length]);
+
+  const driverMatches = driverMatchesAsync ?? driverMatchesSync;
 
   // PR 1 transparency: drivers that were filtered out of the ranking
   // because of hard-eligibility checks (availability / expired docs).
@@ -381,7 +421,7 @@ export default function MatchesPage() {
             </CardTitle>
             <CardDescription className="truncate text-xs md:text-sm">
               {selectionMode === "load" && selectedLoad
-                ? `Best of ${driverMatches.length} eligible driver${driverMatches.length === 1 ? "" : "s"} for ${selectedLoad.destination}${ineligibleDriversForLoad.length > 0 ? ` (${ineligibleDriversForLoad.length} filtered out — see below)` : ""}`
+                ? `Best of ${driverMatches.length} eligible driver${driverMatches.length === 1 ? "" : "s"} for ${selectedLoad.destination}${ineligibleDriversForLoad.length > 0 ? ` (${ineligibleDriversForLoad.length} filtered out — see below)` : ""}${matchesResolving ? " · refining…" : ""}`
                 : selectionMode === "driver" && selectedMyDriver
                   ? `Top loads for ${selectedMyDriver.name}`
                   : "Select your load or driver from My Assets"}
