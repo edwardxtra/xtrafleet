@@ -100,7 +100,8 @@ async function handlePost(req: NextRequest) {
         acceptedAt,
         acceptedBy: owner.uid,
         ip: ipAddress,
-        userAgent,
+        // Firestore rejects undefined values — only include userAgent when present.
+        ...(userAgent !== undefined ? { userAgent } : {}),
         ...(hasDriverTypes
           ? { context: { driverId, ...(deviceInfo ? { deviceInfo } : {}) } }
           : deviceInfo
