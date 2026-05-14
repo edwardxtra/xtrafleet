@@ -135,6 +135,8 @@ const DriversTable = ({
             return (
               <TableRow
                 key={driver.id}
+                data-testid="driver-row"
+                data-driver-self={driver.isSelfDriver ? 'true' : 'false'}
                 className={`cursor-pointer hover:bg-muted/50 transition-colors ${isInactive ? 'opacity-50' : ''}`}
                 onClick={() => onSelectDriver(driver.id)}
               >

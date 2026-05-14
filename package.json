@@ -19,7 +19,7 @@
     "dev:clean": "lsof -ti:9002 | xargs kill -9 2>/dev/null; pkill -f \"next dev\" 2>/dev/null; sleep 2; next dev --port 9002",
     "dev:kill": "lsof -ti:9002 | xargs kill -9 2>/dev/null || true",
     "dev:fresh": "npm run dev:kill && sleep 2 && npm run dev",
-    "emulators": "firebase emulators:start --only=auth,firestore --project xtrafleet-e2e",
+    "emulators": "firebase experiments:enable webframeworks && firebase emulators:start --only=auth,firestore --project xtrafleet-e2e",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed"

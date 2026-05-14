@@ -54,8 +54,11 @@ export default defineConfig({
           NEXT_PUBLIC_FIREBASE_APP_ID: '1:000000000000:web:emulator',
           NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: 'xtrafleet-e2e.appspot.com',
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '000000000000',
-          FIRESTORE_EMULATOR_HOST: 'localhost:8080',
-          FIREBASE_AUTH_EMULATOR_HOST: 'localhost:9099',
+          // Use 127.0.0.1 (not localhost) — the emulators bind to the IPv4
+          // loopback only; `localhost` can resolve to ::1 first and the
+          // Admin SDK then fails to reach them.
+          FIRESTORE_EMULATOR_HOST: '127.0.0.1:8080',
+          FIREBASE_AUTH_EMULATOR_HOST: '127.0.0.1:9099',
           GCLOUD_PROJECT: 'xtrafleet-e2e',
           // Disable rate-limit + external integrations in tests
           UPSTASH_REDIS_REST_URL: '',

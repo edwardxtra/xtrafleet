@@ -37,15 +37,25 @@ npx playwright test tests/e2e/01-owner-signup.spec.ts   # Single spec
 
 | Spec | Validates |
 |---|---|
-| `01-owner-signup.spec.ts` | New owner can sign up, lands on `/create-profile`, navigating to `/dashboard` doesn't bounce to `/login`. Login form rejects unknown accounts without crashing. |
-| `02-self-driver-onboarding.spec.ts` | OO can Add Self as Driver, the self-driver detail surfaces the "Complete Driver Profile" CTA, completing the form clears the banner and flips the Driver Authorization & Disclosure attestation to Verified. |
-| `03-post-load-matches.spec.ts` | New load form accepts a same-day pickup date, the posted load appears on `/dashboard/loads`, and shows up in Find Match's My Assets (post-#157 status filter). |
+| `01-owner-signup.spec.ts` | New owner can sign up, lands on `/create-profile`, navigating to `/dashboard` doesn't bounce to `/login` (the session-cookie/Auth desync regression). Login form rejects unknown accounts without crashing the error boundary. |
+| `02-self-driver-onboarding.spec.ts` | **Core:** OO can "Add Myself as Driver" and the record shows in the drivers list with the Owner-Driver badge. **`test.fixme`:** completing the full driver profile + Verified attestation — fixme'd because it drives runtime-dependent Radix `<Select>` markup; un-fixme once the suite runs green. |
+| `03-post-load-matches.spec.ts` | **Core:** a profile-incomplete owner is blocked from posting a load by the #155 attestation gate. **`test.fixme`:** full post-load → visible on `/dashboard/loads` + Find Match — fixme'd because it needs a profile-attestation emulator seed step. |
 
-## What's NOT covered (yet)
+## Known follow-ups (the `test.fixme` blocks)
 
-- Two-fleet match request → accept → TLA sign flow (T4 + T5 in the original plan). Adds multi-context / multi-Firebase-user complexity; planned as a follow-up once the single-account harness is stable.
+These need a live run + small additions before they can be un-fixme'd:
+- A `tests/e2e/seed.ts` helper that writes `profileInsurance` + `profileAuthority` attestations onto an owner doc so the load-post gate lets the form render.
+- Verified Radix `<Select>` option selectors for `cdlState` / `cdlClass` in the driver profile form.
+
+## What's NOT covered at all (yet)
+
+- Two-fleet match request → accept → TLA sign flow (T4 + T5). Multi-context / multi-Firebase-user complexity; a follow-up once the single-account harness is stable.
 - Email send paths (Resend is mocked-out via empty `RESEND_API_KEY`).
 - Stripe billing / Radar geocoding (intentionally bypassed to keep the suite hermetic).
+
+## Important: the `webframeworks` experiment
+
+`firebase.json` has a `hosting` block with `frameworksBackend`. `firebase emulators:*` parses the whole config and refuses to run unless the `webframeworks` experiment is enabled — even with `--only=auth,firestore`. The `npm run emulators` script enables it automatically (`firebase experiments:enable webframeworks &&`), and the CI workflow has an explicit step for it. It's an idempotent per-machine config write.
 
 ## Adding a new spec
 

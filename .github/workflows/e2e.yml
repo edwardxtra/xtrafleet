@@ -1,17 +1,10 @@
 name: E2E
 
-# Manual-trigger only for now. The full pull_request / push triggers
-# will land in a follow-up once the workflow is verified to pass end-
-# to-end against a real CI runner. Today it's blocked on emulator boot
-# + Playwright system-deps install which I can't validate without log
-# access. Re-enable by uncommenting the triggers below.
-#
-# on:
-#   pull_request:
-#     branches: [qa, main]
-#   push:
-#     branches: [qa]
 on:
+  pull_request:
+    branches: [qa, main]
+  push:
+    branches: [qa]
   workflow_dispatch:
 
 jobs:
@@ -28,8 +21,8 @@ jobs:
       NEXT_PUBLIC_FIREBASE_APP_ID: '1:000000000000:web:emulator'
       NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: xtrafleet-e2e.appspot.com
       NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '000000000000'
-      FIRESTORE_EMULATOR_HOST: localhost:8080
-      FIREBASE_AUTH_EMULATOR_HOST: localhost:9099
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
+      FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
       GCLOUD_PROJECT: xtrafleet-e2e
       # Disable external integrations in CI
       UPSTASH_REDIS_REST_URL: ''
@@ -54,21 +47,23 @@ jobs:
 
       - name: Install dependencies
         # Use `npm install` rather than `npm ci` so the suite still runs
-        # when the lockfile lags behind a devDependency addition (e.g.,
-        # the @playwright/test + firebase-tools additions in this PR).
-        # Switch back to `npm ci` once the lockfile is regenerated.
+        # when the lockfile lags behind a devDependency addition. The lock
+        # IS regenerated as of #164; kept as `npm install` for resilience.
         run: npm install
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
+      - name: Enable Firebase webframeworks experiment
+        # firebase.json has a `hosting` block with `frameworksBackend`.
+        # Even `emulators:start --only=auth,firestore` parses the whole
+        # config and refuses to run unless this experiment is enabled.
+        # It's a per-machine config write — idempotent, safe to re-run.
+        run: npx firebase experiments:enable webframeworks
+
       - name: Run Playwright tests under managed emulators
-        # `firebase emulators:exec` is the canonical pattern: boot the
-        # emulators, wait for them to be ready, run the sub-command, then
-        # tear them down cleanly. Replaces the previous manual
-        # &-background + wait-on dance, which was flaky because the
-        # Firestore emulator's HTTP listener at :8080 doesn't reliably
-        # respond to root-path GETs (it's primarily gRPC).
+        # `firebase emulators:exec` boots the emulators, waits for them to
+        # be ready, runs the sub-command, then tears them down cleanly.
         run: npx firebase emulators:exec --only=auth,firestore --project xtrafleet-e2e "npm run test:e2e"
 
       - name: Upload Playwright report
