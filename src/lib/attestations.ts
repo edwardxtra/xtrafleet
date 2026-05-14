@@ -223,16 +223,19 @@ export function buildAttestationEntry(
   } = {},
 ): AttestationEntry {
   const def = ATTESTATIONS[type];
-  return {
+  // Only include optional fields when defined — Firestore rejects `undefined`
+  // values, and server callers frequently omit ip / userAgent / context.
+  const entry: AttestationEntry = {
     type,
     version: def.v,
     text: def.text,
     acceptedAt: new Date().toISOString(),
     acceptedBy,
-    ip: opts.ip,
-    userAgent: opts.userAgent,
-    context: opts.context,
   };
+  if (opts.ip !== undefined) entry.ip = opts.ip;
+  if (opts.userAgent !== undefined) entry.userAgent = opts.userAgent;
+  if (opts.context !== undefined) entry.context = opts.context;
+  return entry;
 }
 
 /**
