@@ -150,20 +150,20 @@ async function handlePost(req: NextRequest) {
       throw new Error('Failed to provision account. Please try again.');
     }
 
-    // 5. Mint a custom token for the client to sign in with. signInWith-
-    // CustomToken on the client cleanly replaces any stale auth state.
-    const customToken = await auth.createCustomToken(uid);
-
-    // 6. Welcome email — best-effort, never blocks the response.
+    // 5. Welcome email — best-effort, never blocks the response.
     sendOwnerRegistrationEmail(email, companyName).catch((err) =>
       console.error(`${LOG_PREFIX} welcome email failed for ${email}`, err),
     );
 
+    // The client signs in with the email + password it already has (the
+    // same credentials we just created the account with). We intentionally
+    // do NOT mint a custom token here — createCustomToken needs a real
+    // service-account identity to sign, which the emulator-mode Admin SDK
+    // lacks, and email/password sign-in is simpler + just as clean.
     return handleApiSuccess({
       success: true,
       uid,
       email,
-      customToken,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

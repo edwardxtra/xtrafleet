@@ -32,7 +32,8 @@ test.describe('T1 — Owner signup', () => {
     await page.goto('/login');
     await page.getByLabel(/email/i).fill(uniqueEmail('nobody'));
     await page.getByLabel(/password/i).fill(STRONG_PASSWORD);
-    await page.getByRole('button', { name: /sign in|log in|continue/i }).click();
+    // The /login submit button's idle text is literally "Login" (one word).
+    await page.getByRole('button', { name: /^log ?in$|^sign ?in$/i }).click();
 
     // Behaviour-based assertions (we don't hard-code the exact error string):
     //  - we must NOT end up authenticated on the dashboard

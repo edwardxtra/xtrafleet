@@ -18,7 +18,7 @@ import { Logo } from "@/components/logo";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useUser, useAuth } from "@/firebase";
 import { Suspense, useState, FormEvent } from "react";
-import { signInWithCustomToken } from "firebase/auth";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { Loader2, LogOut, LayoutDashboard, Building2, Truck, Check, X } from "lucide-react";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import { passwordSchema } from "@/lib/password-validation";
@@ -88,8 +88,7 @@ function RegisterContent() {
       }
 
       // Create the account server-side and atomically — Auth user +
-      // owner_operators doc + users doc all in one request. Returns a
-      // custom token for the client to sign in with.
+      // owner_operators doc + users doc all in one request.
       const registerRes = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -108,18 +107,14 @@ function RegisterContent() {
         return;
       }
 
-      const customToken: string | undefined = registerData?.data?.customToken ?? registerData?.customToken;
-      if (!customToken) {
-        // Account exists but we can't sign the user in client-side — send
-        // them to login rather than showing a scary error.
-        showSuccess('Account created. Please sign in to continue.');
-        router.push(`/login?email=${encodeURIComponent(email)}&message=Account created. Please log in to continue.`);
-        return;
-      }
-
-      // Sign in client-side with the custom token. This cleanly establishes
-      // the client Firebase Auth state for the new user (no stale carryover).
-      const userCredential = await signInWithCustomToken(auth, customToken);
+      // Sign in client-side with the email + password the user just typed.
+      // The server just created the account with exactly these credentials,
+      // so this is guaranteed to succeed. We deliberately avoid a custom
+      // token here — createCustomToken requires a real service-account
+      // identity to sign, which the emulator-mode Admin SDK doesn't have,
+      // and email/password sign-in is simpler and just as clean for
+      // (re)establishing fresh client Auth state.
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const idToken = await userCredential.user.getIdToken();
 
       // Exchange the ID token for the fb-id-token session cookie.
@@ -148,8 +143,9 @@ function RegisterContent() {
       console.error('Sign-up error:', e);
       let errorMessage = 'An error occurred during sign up.';
       const firebaseError = e as { code?: string };
-      if (firebaseError.code === 'auth/invalid-custom-token' || firebaseError.code === 'auth/custom-token-mismatch') {
-        // The server-side account was created but client sign-in failed.
+      if (firebaseError.code === 'auth/wrong-password' || firebaseError.code === 'auth/user-not-found' || firebaseError.code === 'auth/invalid-credential') {
+        // The server-side account was created but the client sign-in
+        // failed. The account exists — the user can still log in normally.
         // The user can still log in normally.
         showSuccess('Account created. Please sign in to continue.');
         router.push(`/login?message=Account created. Please log in to continue.`);
