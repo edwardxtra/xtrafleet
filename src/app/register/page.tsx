@@ -16,14 +16,13 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Logo } from "@/components/logo";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useUser, useAuth, useFirestore } from "@/firebase";
+import { useUser, useAuth } from "@/firebase";
 import { Suspense, useState, FormEvent } from "react";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { signInWithCustomToken } from "firebase/auth";
 import { Loader2, LogOut, LayoutDashboard, Building2, Truck, Check, X } from "lucide-react";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import { passwordSchema } from "@/lib/password-validation";
-import { ATTESTATIONS, buildAttestationEntry } from "@/lib/attestations";
+import { ATTESTATIONS } from "@/lib/attestations";
 
 function RegisterContent() {
   const searchParams = useSearchParams();
@@ -34,7 +33,6 @@ function RegisterContent() {
   const router = useRouter();
   const { user, isUserLoading } = useUser();
   const auth = useAuth();
-  const db = useFirestore();
 
   const handleSignOut = async () => {
     setSigningOut(true);
@@ -77,94 +75,85 @@ function RegisterContent() {
     }
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const newUser = userCredential.user;
-      
-      if (db && newUser) {
-        await setDoc(doc(db, "owner_operators", newUser.uid), {
-          id: newUser.uid,
-          companyName: companyName,
-          legalName: companyName,
-          contactEmail: newUser.email,
-          subscriptionStatus: 'inactive',
-          createdAt: new Date().toISOString(),
-          onboardingStatus: {
-            profileComplete: false,
-            fmcsaDesignated: false,
-            completedAt: null,
-          },
-          // DEV-154 staged-attestation model. signupAuthorized is the explicit
-          // checkbox; the other two are click-acknowledged via the text below
-          // the Create Company Account button (E-Sign, Terms of Service).
-          // User Agreement consent is captured separately inside the auth-
-          // ed app per DEV-156 follow-up, not at signup. Additional
-          // attestations are captured later at moments of risk (profile /
-          // driver-add / match-confirm).
-          attestations: [
-            buildAttestationEntry('signupAuthorized', newUser.uid),
-            buildAttestationEntry('signupEsignConsent', newUser.uid),
-            buildAttestationEntry('signupTermsOfService', newUser.uid),
-          ],
-        });
-        
-        await setDoc(doc(db, "users", newUser.uid), {
-          role: 'owner_operator',
-          email: newUser.email,
-          createdAt: new Date().toISOString(),
-        });
-
-        const token = await newUser.getIdToken();
-
-        // POST session cookie and WAIT for it to complete before redirecting.
-        // This sets the fb-id-token cookie that the server action behind the
-        // CompanyProfileForm relies on.
-        const sessionResponse = await fetch('/api/auth/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        });
-
-        // Send welcome email fire-and-forget — do NOT await
-        fetch('/api/send-welcome-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: newUser.email, companyName }),
-        }).catch(err => console.error('Failed to send welcome email:', err));
-
-        if (!sessionResponse.ok) {
-          // The Firebase Auth user + Firestore docs were written successfully,
-          // we just couldn't establish a session cookie (rate limit, transient
-          // infra, etc.). Don't show a generic red error — the account exists.
-          // Bounce the user to the login page so they can sign in cleanly.
-          console.warn('[register] Session POST failed after successful account creation', sessionResponse.status);
-          showSuccess('Account created. Please sign in to continue.');
-          router.push(`/login?email=${encodeURIComponent(newUser.email || '')}&message=Account created. Please log in to continue.`);
-          return;
-        }
-
-        showSuccess('Account created successfully!');
-
-        // Hard navigation (window.location.href) instead of router.push so the
-        // next request carries the freshly-Set-Cookie'd fb-id-token in its
-        // request headers — soft client-side navigation can race the browser
-        // cookie write and result in the server action seeing no cookie.
-        window.location.href = '/create-profile';
-        return;
-
-      } else {
-        throw new Error("Database service is not available.");
+      // Clear any stale session before creating a new account. Without this,
+      // a leftover fb-id-token cookie + client Auth state from a *previous*
+      // account survives the new signup, and the server (cookie) and client
+      // (Firebase Auth) end up pointing at different uids — the "two users
+      // at once" bug. Best-effort: failures here don't block the new signup.
+      try {
+        await auth.signOut();
+        await fetch('/api/auth/session', { method: 'DELETE' });
+      } catch (clearErr) {
+        console.warn('[register] failed to clear prior session (continuing)', clearErr);
       }
 
+      // Create the account server-side and atomically — Auth user +
+      // owner_operators doc + users doc all in one request. Returns a
+      // custom token for the client to sign in with.
+      const registerRes = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, companyName }),
+      });
+      const registerData = await registerRes.json().catch(() => ({}));
+
+      if (!registerRes.ok) {
+        const message =
+          registerData?.error ||
+          registerData?.message ||
+          'An error occurred during sign up.';
+        setError(message);
+        showError(message);
+        setLoading(false);
+        return;
+      }
+
+      const customToken: string | undefined = registerData?.data?.customToken ?? registerData?.customToken;
+      if (!customToken) {
+        // Account exists but we can't sign the user in client-side — send
+        // them to login rather than showing a scary error.
+        showSuccess('Account created. Please sign in to continue.');
+        router.push(`/login?email=${encodeURIComponent(email)}&message=Account created. Please log in to continue.`);
+        return;
+      }
+
+      // Sign in client-side with the custom token. This cleanly establishes
+      // the client Firebase Auth state for the new user (no stale carryover).
+      const userCredential = await signInWithCustomToken(auth, customToken);
+      const idToken = await userCredential.user.getIdToken();
+
+      // Exchange the ID token for the fb-id-token session cookie.
+      const sessionResponse = await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: idToken }),
+      });
+
+      if (!sessionResponse.ok) {
+        // Account + docs exist; only the cookie didn't land (rate limit /
+        // transient infra). Don't show a red error — route to login.
+        console.warn('[register] Session POST failed after successful account creation', sessionResponse.status);
+        showSuccess('Account created. Please sign in to continue.');
+        router.push(`/login?email=${encodeURIComponent(email)}&message=Account created. Please log in to continue.`);
+        return;
+      }
+
+      showSuccess('Account created successfully!');
+
+      // Hard navigation so the next request carries the freshly-Set-Cookie'd
+      // fb-id-token — soft client-side navigation can race the cookie write.
+      window.location.href = '/create-profile';
+      return;
     } catch (e: unknown) {
       console.error('Sign-up error:', e);
       let errorMessage = 'An error occurred during sign up.';
       const firebaseError = e as { code?: string };
-      if (firebaseError.code === 'auth/email-already-in-use') {
-        errorMessage = 'This email is already in use. Try logging in instead.';
-      } else if (firebaseError.code === 'auth/weak-password') {
-        errorMessage = 'Password does not meet security requirements.';
-      } else if (firebaseError.code === 'auth/invalid-email') {
-        errorMessage = 'Please enter a valid email address.';
+      if (firebaseError.code === 'auth/invalid-custom-token' || firebaseError.code === 'auth/custom-token-mismatch') {
+        // The server-side account was created but client sign-in failed.
+        // The user can still log in normally.
+        showSuccess('Account created. Please sign in to continue.');
+        router.push(`/login?message=Account created. Please log in to continue.`);
+        return;
       }
       setError(errorMessage);
       showError(errorMessage);
