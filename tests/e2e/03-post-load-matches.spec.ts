@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signUpOwner, reachDashboard } from './helpers';
+import { attachPageDiagnostics, signUpOwner, reachDashboard } from './helpers';
 
 /**
  * T3 — Load posting gate + visibility
@@ -21,6 +21,8 @@ import { signUpOwner, reachDashboard } from './helpers';
  */
 
 test.describe('T3 — Load posting', () => {
+  test.beforeEach(({ page }) => attachPageDiagnostics(page));
+
   test('a profile-incomplete owner is blocked from posting a load by the attestation gate', async ({ page }) => {
     await signUpOwner(page);
     await reachDashboard(page);

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signUpOwner, reachDashboard } from './helpers';
+import { attachPageDiagnostics, signUpOwner, reachDashboard } from './helpers';
 
 /**
  * T2 — Self-driver onboarding
@@ -23,6 +23,8 @@ import { signUpOwner, reachDashboard } from './helpers';
  */
 
 test.describe('T2 — Self-driver onboarding', () => {
+  test.beforeEach(({ page }) => attachPageDiagnostics(page));
+
   test('an OO can add themselves as a driver and the record shows in the drivers list', async ({ page }) => {
     await signUpOwner(page);
     await reachDashboard(page);

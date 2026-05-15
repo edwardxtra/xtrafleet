@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signUpOwner, STRONG_PASSWORD, uniqueEmail } from './helpers';
+import { attachPageDiagnostics, signUpOwner, STRONG_PASSWORD, uniqueEmail } from './helpers';
 
 /**
  * T1 — Owner signup
@@ -14,6 +14,8 @@ import { signUpOwner, STRONG_PASSWORD, uniqueEmail } from './helpers';
  */
 
 test.describe('T1 — Owner signup', () => {
+  test.beforeEach(({ page }) => attachPageDiagnostics(page));
+
   test('a brand-new owner can sign up and reach /create-profile + /dashboard without being bounced', async ({ page }) => {
     await signUpOwner(page);
 

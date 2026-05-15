@@ -11,6 +11,46 @@ import { Page, expect } from '@playwright/test';
  * genuinely ambiguous (e.g., a driver table row that needs to be clicked).
  */
 
+/**
+ * Stream browser diagnostics into the test's stdout. Without this, failures
+ * only surface in the HTML report artifact — annoying to retrieve from CI.
+ * With it, the plain job log shows browser console errors, uncaught page
+ * errors, failed requests, and any 4xx/5xx API responses (with the response
+ * body) — usually enough to diagnose a flaky test without downloading the
+ * report. Call once per Page (e.g. from a test.beforeEach).
+ */
+export function attachPageDiagnostics(page: Page) {
+  page.on('console', msg => {
+    const t = msg.type();
+    if (t === 'error' || t === 'warning') {
+      console.log(`[browser:${t}] ${msg.text()}`);
+    }
+  });
+  page.on('pageerror', err => {
+    console.log(`[browser:pageerror] ${err.message}`);
+  });
+  page.on('requestfailed', req => {
+    console.log(
+      `[browser:requestfailed] ${req.method()} ${req.url()} — ${req.failure()?.errorText}`,
+    );
+  });
+  page.on('response', async resp => {
+    if (resp.status() < 400) return;
+    const url = resp.url();
+    // Skip Next.js dev noise (HMR / chunk fetches).
+    if (url.includes('/_next/') || url.includes('hot-update')) return;
+    console.log(`[browser:response] ${resp.status()} ${resp.request().method()} ${url}`);
+    if (url.includes('/api/')) {
+      try {
+        const body = await resp.text();
+        if (body) console.log(`[browser:body] ${body.slice(0, 500)}`);
+      } catch {
+        // ignore — body may already be consumed
+      }
+    }
+  });
+}
+
 export function uniqueEmail(prefix = 'oo'): string {
   return `${prefix}+${Date.now()}-${Math.floor(Math.random() * 1e4)}@xtrafleet-e2e.test`;
 }
@@ -38,7 +78,7 @@ export async function signUpOwner(page: Page, opts?: { email?: string; companyNa
   await page.getByRole('checkbox', { name: /authorized to act/i }).click();
   await page.getByRole('button', { name: /create company account/i }).click();
 
-  // Post-signup flow: POST /api/register → signInWithCustomToken →
+  // Post-signup flow: POST /api/register → signInWithEmailAndPassword →
   // POST /api/auth/session → hard navigate to /create-profile.
   await page.waitForURL('**/create-profile', { timeout: 30_000 });
 
