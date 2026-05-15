@@ -89,11 +89,13 @@ export function CompanyProfileForm() {
           // single comma-separated string. Try to split it into Street /
           // City / State / Zip so the form's individual fields populate
           // instead of dumping the entire address into the Street input.
-          // Expected shape: "Street, City, ST 12345" (FMCSA-style).
+          // Accepts both FMCSA-style "Street, City, ST 12345" and the
+          // form's own ", "-joined "Street, City, ST, 12345" (the latter
+          // was produced by the onSubmit join and the parser used to miss
+          // it, round-tripping the address into the Street field).
           if (!data.hqStreet && !data.hqCity && !data.hqState && !data.hqZip && data.hqAddress) {
             const legacy = String(data.hqAddress).trim();
-            // Match trailing "ST 12345" (or 12345-1234 ZIP+4)
-            const cszMatch = legacy.match(/^(.*),\s*([A-Za-z][A-Za-z\s.'-]+),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/);
+            const cszMatch = legacy.match(/^(.*),\s*([A-Za-z][A-Za-z\s.'-]+),\s*([A-Za-z]{2})[\s,]+(\d{5}(?:-\d{4})?)\s*$/);
             if (cszMatch) {
               const [, streetPart, cityPart, statePart, zipPart] = cszMatch;
               form.setValue('hqStreet', streetPart.trim());
@@ -211,7 +213,13 @@ export function CompanyProfileForm() {
       formData.append('hqCity', values.hqCity || '');
       formData.append('hqState', values.hqState || '');
       formData.append('hqZip', values.hqZip || '');
-      const hqAddress = [values.hqStreet, values.hqCity, values.hqState, values.hqZip].filter(Boolean).join(', ');
+      // Canonical FMCSA-style join: "Street, City, ST ZIP" (space, not
+      // comma, before the ZIP). Keeps the combined hqAddress field
+      // round-trippable by the legacy parser above.
+      const cityStateZip = [values.hqCity, [values.hqState, values.hqZip].filter(Boolean).join(' ')]
+        .filter(Boolean)
+        .join(', ');
+      const hqAddress = [values.hqStreet, cityStateZip].filter(Boolean).join(', ');
       formData.append('hqAddress', hqAddress);
       formData.append('operatingStates', JSON.stringify(values.operatingStates || []));
       formData.append('coiData', JSON.stringify(coiData));
