@@ -20,7 +20,9 @@ test.describe('T1 — Owner signup', () => {
     await signUpOwner(page);
 
     await expect(page).toHaveURL(/\/create-profile/);
-    await expect(page.getByRole('heading', { name: /create your company profile/i })).toBeVisible();
+    // The "Create Your Company Profile" text is a shadcn <CardTitle>, which
+    // renders as a <div> rather than an <h*> — so getByText, not getByRole.
+    await expect(page.getByText(/create your company profile/i)).toBeVisible();
 
     // Critical regression check: no generic signup error toast / banner.
     await expect(page.getByText(/an error occurred during sign up/i)).toHaveCount(0);
