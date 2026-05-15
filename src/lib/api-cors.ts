@@ -25,10 +25,25 @@ const ALLOWED_ORIGINS = [
 ];
 
 /**
- * Check if origin is allowed
+ * Check if origin is allowed for THIS request.
+ *
+ * Two paths:
+ *   1. Same-origin (the Origin header's host matches the request's own
+ *      host). Modern browsers send `Origin` on same-origin POST/DELETE
+ *      requests, so we must allow it explicitly — the request comes
+ *      from our own page and is never a cross-site attack.
+ *   2. Cross-origin: must be in the explicit ALLOWED_ORIGINS list.
  */
-function isAllowedOrigin(origin: string | null): boolean {
-  if (!origin) return true; // Same-origin requests have no origin header
+function isOriginAllowed(origin: string | null, request: NextRequest): boolean {
+  if (!origin) return true; // No Origin header → same-origin GET/HEAD
+  const host = request.headers.get('host');
+  if (host) {
+    try {
+      if (new URL(origin).host === host) return true;
+    } catch {
+      // Malformed Origin header — fall through to allowlist check.
+    }
+  }
   return ALLOWED_ORIGINS.includes(origin);
 }
 
@@ -37,15 +52,15 @@ function isAllowedOrigin(origin: string | null): boolean {
  */
 export function addCorsHeaders(response: NextResponse, request: NextRequest): NextResponse {
   const origin = request.headers.get('origin');
-  
-  if (origin && isAllowedOrigin(origin)) {
+
+  if (origin && isOriginAllowed(origin, request)) {
     response.headers.set('Access-Control-Allow-Origin', origin);
   }
-  
+
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   response.headers.set('Access-Control-Max-Age', '86400'); // 24 hours
-  
+
   return response;
 }
 
@@ -55,19 +70,19 @@ export function addCorsHeaders(response: NextResponse, request: NextRequest): Ne
  */
 export function checkOrigin(request: NextRequest): NextResponse | null {
   const origin = request.headers.get('origin');
-  
+
   // No origin header = same-origin request (allowed)
   if (!origin) return null;
-  
-  // Check if origin is in allowed list
-  if (!isAllowedOrigin(origin)) {
+
+  // Check if origin is in allowed list (same-origin or explicit allowlist)
+  if (!isOriginAllowed(origin, request)) {
     console.warn(`[CORS] Blocked request from unauthorized origin: ${origin}`);
     return NextResponse.json(
       { error: 'Unauthorized origin' },
       { status: 403 }
     );
   }
-  
+
   return null;
 }
 

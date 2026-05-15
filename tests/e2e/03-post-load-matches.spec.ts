@@ -1,70 +1,51 @@
 import { test, expect } from '@playwright/test';
-import { signUpOwner, completeCompanyProfile } from './helpers';
+import { attachPageDiagnostics, signUpOwner, reachDashboard } from './helpers';
 
 /**
- * T3 — Post a load and verify it appears in the right places
+ * T3 — Load posting gate + visibility
  *
- * Validates:
- *   - /dashboard/loads/new form accepts a minimum-viable load
- *   - Date picker allows TODAY (the bug from PR #156)
- *   - After post, the new load shows on /dashboard/loads
- *   - The new load also appears on /dashboard/matches "My Assets" (the
- *     status filter regression we fixed in #157)
+ * A brand-new owner has NO profileInsurance / profileAuthority attestations
+ * on file (those are only captured via the recapture sheet from #155, never
+ * at signup). PR #155 added a load-post gate that renders a "Complete Your
+ * Profile First" blocking card at /dashboard/loads/new when those
+ * attestations are missing.
+ *
+ * So for a fresh account the reliably-testable behaviour is: the gate
+ * blocks them. That's a real, valuable regression check on #155.
+ *
+ * The full "post a load → see it on /dashboard/loads → see it in Find
+ * Match My Assets" happy path needs the profile attestations seeded first
+ * (so the gate lets the form render). That requires an emulator seed step
+ * — left as a follow-up (see test.fixme below) once the suite is running
+ * green and we add a seed helper.
  */
 
-test.describe('T3 — Post load → see on lists', () => {
-  test('a newly-posted load is visible on /dashboard/loads AND in matches My Assets', async ({ page }) => {
+test.describe('T3 — Load posting', () => {
+  test.beforeEach(({ page }) => attachPageDiagnostics(page));
+
+  test('a profile-incomplete owner is blocked from posting a load by the attestation gate', async ({ page }) => {
     await signUpOwner(page);
-    await completeCompanyProfile(page);
+    await reachDashboard(page);
 
     await page.goto('/dashboard/loads/new');
 
-    // If the profile-attestation gate is in the way (it shouldn't be in
-    // this short flow because we haven't surfaced the profile attestation
-    // banner), tolerate the redirect.
-    if (page.url().includes('/dashboard/profile')) {
-      // Skip the rest — this scenario is covered by a separate "gate" test.
-      test.skip(true, 'profile-attestation gate triggered; load post is blocked correctly');
-      return;
-    }
+    // PR #155 gate: "Complete Your Profile First" blocking card. The load
+    // form (Origin / Destination inputs) must NOT render.
+    await expect(page.getByText(/complete your profile first/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('link', { name: /go to profile/i })).toBeVisible();
+    await expect(page.getByLabel(/^origin/i)).toHaveCount(0);
+  });
 
-    // Today should be selectable (the date-picker fix from #156).
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    const todayIso = `${yyyy}-${mm}-${dd}`;
-
-    await page.getByLabel(/origin/i).fill('Tampa, FL');
-    await page.getByLabel(/destination/i).fill('Atlanta, GA');
-    await page.getByLabel(/load type/i).first().click();
-    await page.getByRole('option').first().click();
-    await page.getByLabel(/compensation|rate/i).fill('500');
-    await page.getByLabel(/pickup date/i).fill(todayIso);
-
-    // CDL class required — pick A. The form uses a multi-select / chip group.
-    const cdlAGuard = await page.getByRole('checkbox', { name: /class a/i }).count();
-    if (cdlAGuard > 0) {
-      await page.getByRole('checkbox', { name: /class a/i }).check();
-    }
-
-    // Form may have a Review → Post New Load two-step flow; try the most
-    // likely sequence: click whichever submit-like button is present, then
-    // (if there's a review step) click the final "Post Load" button.
-    const reviewBtn = page.getByRole('button', { name: /review|next/i });
-    if (await reviewBtn.count()) await reviewBtn.first().click();
-    await page.getByRole('button', { name: /post (new )?load|publish/i }).last().click();
-
-    // After post, we land back on /dashboard/loads.
-    await page.waitForURL('**/dashboard/loads', { timeout: 15_000 });
-
-    // Tampa → Atlanta row shows up.
-    await expect(page.getByText(/tampa/i).first()).toBeVisible();
-    await expect(page.getByText(/atlanta/i).first()).toBeVisible();
-
-    // Same load should be visible in matches My Assets.
-    await page.goto('/dashboard/matches');
-    await expect(page.getByText(/my assets/i)).toBeVisible();
-    await expect(page.getByText(/tampa.*atlanta|atlanta.*tampa/i).first()).toBeVisible({ timeout: 10_000 });
+  // Needs an emulator seed step that writes profileInsurance +
+  // profileAuthority attestations onto the owner doc so the gate lets the
+  // form render. Add a tests/e2e/seed.ts helper, then un-fixme this.
+  test.fixme('a posted load appears on /dashboard/loads AND in Find Match My Assets', async ({ page }) => {
+    await signUpOwner(page);
+    await reachDashboard(page);
+    // TODO: seed profileInsurance + profileAuthority attestations.
+    // TODO: fill /dashboard/loads/new (Origin, Destination, Load Type,
+    //       Compensation, today's pickup date, CDL class), submit.
+    // TODO: assert the load shows on /dashboard/loads.
+    // TODO: assert the load shows on /dashboard/matches under My Assets.
   });
 });
