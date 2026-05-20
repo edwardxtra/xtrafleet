@@ -1,0 +1,47 @@
+name: Build
+
+# Pre-flight: verify the app actually compiles before it can merge into qa.
+# Without this, a broken build only surfaces in the QA App Hosting deploy
+# AFTER merge. This runs the same `next build` the deploy runs, so a broken
+# import / route / server-client violation is caught on the PR instead.
+#
+# Note: next.config.js sets typescript.ignoreBuildErrors and
+# eslint.ignoreDuringBuilds, so this gate verifies compilation, not types
+# or lint — matching exactly what the QA deploy does.
+
+on:
+  pull_request:
+    branches: [qa, main]
+  push:
+    branches: [qa]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Next.js build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Placeholder public Firebase config so any build-time static
+      # generation has values to read. No real credentials needed — the
+      # Admin SDK initializes lazily at request time, not at build time.
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: xtrafleet-ci
+      NEXT_PUBLIC_FIREBASE_API_KEY: fake-api-key-for-ci
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: localhost
+      NEXT_PUBLIC_FIREBASE_APP_ID: '1:000000000000:web:ci'
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: xtrafleet-ci.appspot.com
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '000000000000'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
