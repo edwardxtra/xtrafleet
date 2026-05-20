@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Driver, Load } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +27,7 @@ import {
   Briefcase,
   Award,
   X,
+  Loader2,
 } from "lucide-react";
 import { useUser, useFirestore } from "@/firebase";
 import { collection, query, where, collectionGroup, doc, getDoc, onSnapshot } from "firebase/firestore";
@@ -50,6 +53,7 @@ import {
 } from "@/components/ui/sheet";
 import { ComplianceScorecard, ScoringFormulaExplainer } from "@/components/compliance-scorecard";
 import { getComplianceStatus, type ComplianceStatus } from "@/lib/compliance";
+import { hasCurrent, type AttestationEntry, type AttestationType } from "@/lib/attestations";
 
 type DriverWithOwner = Driver & { ownerId: string };
 type LoadWithOwner = Load & { ownerId: string };
@@ -84,6 +88,35 @@ export default function MatchesPage() {
 
   const { user } = useUser();
   const firestore = useFirestore();
+
+  // Gate: the match marketplace (and the match-request modals reachable only
+  // from it) require the owner's profile-level compliance attestations to be
+  // current — the DEV-154 "soft compliance layer" trigger for viewing the
+  // marketplace and requesting matches. Mirrors the load-post gate.
+  // States: 'checking' until the owner doc fetch resolves, then 'blocked' if
+  // profileInsurance or profileAuthority is missing, otherwise 'ok'.
+  const [gateState, setGateState] = useState<'checking' | 'blocked' | 'ok'>('checking');
+  const [missingProfileAttestations, setMissingProfileAttestations] = useState<AttestationType[]>([]);
+
+  useEffect(() => {
+    async function checkProfileAttestations() {
+      if (!user || !firestore) return;
+      try {
+        const snap = await getDoc(doc(firestore, 'owner_operators', user.uid));
+        const data = snap.exists() ? (snap.data() as { attestations?: AttestationEntry[] }) : {};
+        const required: AttestationType[] = ['profileInsurance', 'profileAuthority'];
+        const missing = required.filter(t => !hasCurrent(data.attestations, t));
+        setMissingProfileAttestations(missing);
+        setGateState(missing.length > 0 ? 'blocked' : 'ok');
+      } catch (err) {
+        console.warn(`${LOG_PREFIX} failed to verify profile attestations`, err);
+        // Fail-open: don't lock the user out on a fetch error. Server-side
+        // gates (Firestore rules / API checks) remain authoritative.
+        setGateState('ok');
+      }
+    }
+    checkProfileAttestations();
+  }, [user, firestore]);
 
   // Subscribe to MY pending loads.
   // "Pending" is the legacy status string; the current /api/loads POST
@@ -307,6 +340,39 @@ export default function MatchesPage() {
       default: return "";
     }
   };
+
+  if (gateState === 'checking') {
+    return (
+      <div className="flex items-center justify-center min-h-[40vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (gateState === 'blocked') {
+    return (
+      <div className="max-w-2xl">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl font-headline">Complete Your Profile First</CardTitle>
+            <CardDescription>Finding matches requires your company-level compliance attestations to be on file.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Missing profile attestation{missingProfileAttestations.length === 1 ? '' : 's'}: <strong>{missingProfileAttestations.join(', ')}</strong>. Capture them on your profile page, then come back to find matches.
+              </AlertDescription>
+            </Alert>
+            <div className="flex gap-2">
+              <Link href="/dashboard/profile"><Button>Go to Profile</Button></Link>
+              <Link href="/dashboard"><Button variant="outline">Cancel</Button></Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <>
