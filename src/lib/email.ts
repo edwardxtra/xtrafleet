@@ -118,6 +118,38 @@ export async function sendOwnerProfileCompleteEmail(email: string, companyName: 
   return sendEmail(email, subject, html);
 }
 
+// ==================== ACTIVATION EMAIL (white-glove pre-activation) ====================
+
+export async function sendActivationEmail(
+  email: string,
+  recipientName: string,
+  activationUrl: string,
+  matchSummary?: string
+) {
+  const subject = 'Your XtraFleet account is ready — set your password';
+  const html = emailTemplate(`
+    <h2 style="color: #1a1a1a; font-size: 20px; margin-bottom: 16px;">Welcome to XtraFleet, ${recipientName}!</h2>
+
+    <p>Your XtraFleet account has been set up for you${matchSummary ? ' &mdash; and you already have a load match waiting' : ''}.</p>
+
+    ${matchSummary ? `<div style="background-color: #f0f9ff; border-left: 4px solid #1E9BD7; padding: 12px 16px; margin: 20px 0; border-radius: 4px;">
+      <p style="margin: 0; color: #1a1a1a;"><strong>Your match:</strong> ${matchSummary}</p>
+    </div>` : ''}
+
+    <p>To access your account${matchSummary ? ' and review your match' : ''}, set a password:</p>
+
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="${activationUrl}" style="${buttonStyle()}">
+        Set Your Password
+      </a>
+    </div>
+
+    <p style="color: #6b7280; font-size: 14px;">This link is unique to you and expires in 14 days. If you didn't expect this email, you can safely ignore it.</p>
+  `);
+
+  return sendEmail(email, subject, html);
+}
+
 // ==================== DRIVER EMAILS ====================
 
 export async function sendDriverInvitationConfirmationEmail(

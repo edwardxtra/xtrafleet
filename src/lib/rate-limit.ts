@@ -54,6 +54,9 @@ export const rateLimiters = {
 
   // Match formation (compliance-gated accept): 30 per hour per user
   matchFormation: makeLimiter(30, '1 h', 'ratelimit:matchFormation'),
+
+  // Account activation: 10 per hour per IP (defense against token guessing)
+  activation: makeLimiter(10, '1 h', 'ratelimit:activation'),
 };
 
 // Helper function to get client identifier (IP or user ID)
