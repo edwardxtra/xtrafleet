@@ -17,6 +17,7 @@ import { rateLimiters, getIdentifier, formatTimeRemaining } from '@/lib/rate-lim
 import { runComplianceGate } from '@/lib/compliance-gate';
 import { generateTLA } from '@/lib/tla';
 import type { Match, OwnerOperator, Driver } from '@/lib/data';
+import { hasPermission, getDefaultRoleForLegacyAdmin, type AdminRole } from '@/lib/admin-roles';
 
 function json(body: Record<string, unknown>, status: number) {
   return NextResponse.json(body, { status });
@@ -44,15 +45,21 @@ async function handlePost(request: NextRequest) {
 
   try {
     // 3. Validate input.
-    let matchId: unknown;
+    let rawBody: { matchId?: unknown; actingOnBehalfOf?: unknown };
     try {
-      matchId = (await request.json())?.matchId;
+      rawBody = await request.json();
     } catch {
       return json({ error: 'Invalid request body.' }, 400);
     }
+    const matchId = rawBody.matchId;
     if (!matchId || typeof matchId !== 'string') {
       return json({ error: 'A matchId is required.' }, 400);
     }
+    // Optional: an admin forming the match on behalf of a party (DEV-158).
+    const actingOnBehalfOf =
+      typeof rawBody.actingOnBehalfOf === 'string' && rawBody.actingOnBehalfOf
+        ? rawBody.actingOnBehalfOf
+        : undefined;
 
     const { db } = await getFirebaseAdmin();
 
@@ -63,8 +70,29 @@ async function handlePost(request: NextRequest) {
     }
     const match = { id: matchId, ...(matchSnap.data() as Omit<Match, 'id'>) } as Match;
 
-    // 5. Authorize — the caller must be a party to the match.
-    if (user.uid !== match.loadOwnerId && user.uid !== match.driverOwnerId) {
+    // 5. Authorize. Normally the caller must be a party to the match. With
+    //    actingOnBehalfOf (white-glove onboarding, DEV-158) an authorized
+    //    admin forms the match on behalf of a party — the compliance gate
+    //    below still fires identically; there is no admin shortcut.
+    if (actingOnBehalfOf) {
+      const adminSnap = await db.collection('owner_operators').doc(user.uid).get();
+      const adminData = adminSnap.exists ? adminSnap.data() : null;
+      const role: AdminRole | undefined = adminData?.isAdmin
+        ? ((adminData.adminRole as AdminRole) || getDefaultRoleForLegacyAdmin())
+        : undefined;
+      if (!role || !hasPermission(role, 'users:create')) {
+        return json(
+          { error: 'Only an authorized admin can act on behalf of another user.' },
+          403
+        );
+      }
+      if (actingOnBehalfOf !== match.loadOwnerId && actingOnBehalfOf !== match.driverOwnerId) {
+        return json(
+          { error: 'The on-behalf-of user is not a participant in this match.' },
+          403
+        );
+      }
+    } else if (user.uid !== match.loadOwnerId && user.uid !== match.driverOwnerId) {
       return json({ error: 'You are not a participant in this match.' }, 403);
     }
 
@@ -122,6 +150,8 @@ async function handlePost(request: NextRequest) {
 
     const auditBase = {
       userId: user.uid,
+      formedBy: user.uid,
+      ...(actingOnBehalfOf ? { onBehalfOf: actingOnBehalfOf } : {}),
       matchId,
       loadId: match.loadId,
       loadOwnerId: match.loadOwnerId,
@@ -165,7 +195,9 @@ async function handlePost(request: NextRequest) {
       status: 'tla_pending',
       tlaId: tlaRef.id,
       complianceWarning,
+      formedBy: user.uid,
     };
+    if (actingOnBehalfOf) matchUpdate.onBehalfOf = actingOnBehalfOf;
     if (isCounter) {
       matchUpdate.counterAcceptedAt = now;
       matchUpdate.finalTerms = match.counterTerms;
