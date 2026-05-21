@@ -69,6 +69,17 @@ Every PR must include a description with:
 feature/xyz → qa (test here) → main (production)
 ```
 
+### CI Gates & Auto-Merge
+
+Every PR targeting `qa` (or `main`) runs two **required** checks before it can merge:
+
+- **`Next.js build`** — `.github/workflows/build.yml` runs `npm ci` + `npm run build`. Catches broken imports, routes, and lockfile drift before they reach the QA deploy.
+- **`Playwright + Firebase Emulators`** — `.github/workflows/e2e.yml` runs the E2E suite (`tests/e2e/`) against the Firebase emulators.
+
+The `qa` branch has a protection ruleset requiring both checks — a PR cannot merge into `qa` until both are green. `main` is intentionally left unprotected: promotion to `main` is always a manual, user-initiated decision.
+
+**Auto-merge:** once "Allow auto-merge" is enabled in repo Settings → General → Pull Requests, enable auto-merge on each PR opened against `qa` so it self-merges when both checks pass. Until that repo setting is on, merge the PR manually after the checks go green. Never enable auto-merge for PRs targeting `main`.
+
 ## Firestore Rules Deployment
 
 When updating `firestore.rules`:
