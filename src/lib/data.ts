@@ -188,6 +188,7 @@ export type OwnerOperator = {
   id: string;
   companyName?: string;
   legalName?: string;
+  contactName?: string;
   contactEmail: string;
   phone?: string;
   address?: string;
