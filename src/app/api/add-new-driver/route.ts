@@ -5,30 +5,28 @@ import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
 import { rateLimiters, getIdentifier, formatTimeRemaining } from '@/lib/rate-limit';
 import { Resend } from 'resend';
+import { buildAttestationEntry, type AttestationType } from '@/lib/attestations';
 
-const resend = process.env.RESEND_API_KEY 
+const resend = process.env.RESEND_API_KEY
   ? new Resend(process.env.RESEND_API_KEY)
   : null;
 
+const DRIVER_ADD_ATTESTATIONS: AttestationType[] = [
+  'driverDqf',
+  'driverFmcsaChecks',
+  'driverAuthority',
+];
+
+// DEV-154 phase 3: accept either the new `attestDriverAdd` flag or the
+// legacy `hasConfirmedDQF` boolean for back-compat with the older
+// single-driver UI surfaces. At least one must be present and truthy.
 const inviteSchema = z.object({
   email: z.string().email('Invalid email address'),
   driverType: z.enum(['existing', 'newHire'], {
     errorMap: () => ({ message: 'Driver type must be either "existing" or "newHire"' })
   }),
-  hasConfirmedDQF: z.boolean({
-    required_error: 'DQF confirmation is required',
-    invalid_type_error: 'DQF confirmation must be a boolean'
-  }),
-}).refine((data) => {
-  // If driver type is "existing", hasConfirmedDQF must be true
-  if (data.driverType === 'existing' && data.hasConfirmedDQF !== true) {
-    return false;
-  }
-  // For new hires, hasConfirmedDQF can be any boolean (we expect true)
-  return true;
-}, {
-  message: 'Must confirm DQF on file for existing drivers',
-  path: ['hasConfirmedDQF'],
+  attestDriverAdd: z.boolean().optional(),
+  hasConfirmedDQF: z.boolean().optional(),
 });
 
 /**
@@ -91,10 +89,16 @@ async function handlePost(req: NextRequest) {
       throw new Error(errorMessage);
     }
 
-    const { email, driverType, hasConfirmedDQF } = validation.data;
+    const { email, driverType, attestDriverAdd, hasConfirmedDQF } = validation.data;
+    if (!attestDriverAdd && !hasConfirmedDQF) {
+      throw new Error('Driver add attestations are required.');
+    }
+    if (driverType === 'existing' && !attestDriverAdd && !hasConfirmedDQF) {
+      throw new Error('Must confirm DQF on file for existing drivers');
+    }
     const ownerOperatorId = ownerUser.uid;
 
-    console.log('[Invite Driver] Validated data:', { email, driverType, hasConfirmedDQF });
+    console.log('[Invite Driver] Validated data:', { email, driverType, attestDriverAdd });
 
     // Check if invitation already exists
     const existingInvite = await db.collection('driver_invitations')
@@ -120,24 +124,48 @@ async function handlePost(req: NextRequest) {
 
     console.log('[Invite Driver] Creating invitation token');
 
-    // Build invitation data - only include hasConfirmedDQF for existing drivers
+    // DEV-154 phase 3: build the 3 attestation entries against this
+    // invitation. Driver doesn't have a uid yet, so we bind via
+    // driverInvitationToken + driverInvitationEmail.
+    const userAgent = req.headers.get('user-agent') ?? undefined;
+    const ip =
+      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      req.headers.get('x-real-ip') ||
+      undefined;
+    const attestationEntries = DRIVER_ADD_ATTESTATIONS.map(type =>
+      buildAttestationEntry(type, ownerOperatorId, {
+        ip,
+        userAgent,
+        context: {
+          driverInvitationToken: invitationToken,
+          driverInvitationEmail: email,
+        },
+      }),
+    );
+
     const invitationData: any = {
       email: email,
       ownerId: ownerOperatorId,
       ownerCompanyName: companyName,
       driverType: driverType,
+      attestations: attestationEntries,
       createdAt: FieldValue.serverTimestamp(),
       expiresAt: Timestamp.fromDate(expiresAt),
       status: 'pending',
     };
 
-    // Only add hasConfirmedDQF for existing drivers (Firestore doesn't allow undefined)
-    if (driverType === 'existing') {
-      invitationData.hasConfirmedDQF = hasConfirmedDQF;
-    }
-
     // Save invitation to Firestore with driver type
     await db.collection('driver_invitations').doc(invitationToken).set(invitationData);
+
+    // Append same entries to the owner's unified attestations array.
+    // Non-blocking — invitation is already saved.
+    try {
+      await db.doc(`owner_operators/${ownerOperatorId}`).update({
+        attestations: FieldValue.arrayUnion(...attestationEntries),
+      });
+    } catch (err) {
+      console.error('[Invite Driver] Failed to record owner attestations:', err);
+    }
 
     console.log('[Invite Driver] Invitation saved to Firestore');
 

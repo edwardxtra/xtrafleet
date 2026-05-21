@@ -24,7 +24,6 @@ import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
 
 interface OnboardingStatus {
   profileComplete?: boolean;
-  complianceAttested?: boolean;
   fmcsaDesignated?: boolean | string;
   completedAt?: string | null;
 }

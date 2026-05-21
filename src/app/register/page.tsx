@@ -16,13 +16,13 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Logo } from "@/components/logo";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useUser, useAuth, useFirestore } from "@/firebase";
+import { useUser, useAuth } from "@/firebase";
 import { Suspense, useState, FormEvent } from "react";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { Loader2, LogOut, LayoutDashboard, Building2, Truck, Check, X } from "lucide-react";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import { passwordSchema } from "@/lib/password-validation";
+import { ATTESTATIONS } from "@/lib/attestations";
 
 function RegisterContent() {
   const searchParams = useSearchParams();
@@ -33,7 +33,6 @@ function RegisterContent() {
   const router = useRouter();
   const { user, isUserLoading } = useUser();
   const auth = useAuth();
-  const db = useFirestore();
 
   const handleSignOut = async () => {
     setSigningOut(true);
@@ -76,86 +75,81 @@ function RegisterContent() {
     }
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const newUser = userCredential.user;
-      
-      if (db && newUser) {
-        await setDoc(doc(db, "owner_operators", newUser.uid), {
-          id: newUser.uid,
-          companyName: companyName,
-          legalName: companyName,
-          contactEmail: newUser.email,
-          subscriptionStatus: 'inactive',
-          createdAt: new Date().toISOString(),
-          onboardingStatus: {
-            profileComplete: false,
-            complianceAttested: false,
-            fmcsaDesignated: false,
-            completedAt: null,
-          },
-          consents: {
-            userAgreement: {
-              accepted: true,
-              acceptedAt: new Date().toISOString(),
-              version: "2025-10-17",
-            },
-            esignAgreement: {
-              accepted: true,
-              acceptedAt: new Date().toISOString(),
-              version: "2025-01-29",
-            },
-          },
-        });
-        
-        await setDoc(doc(db, "users", newUser.uid), {
-          role: 'owner_operator',
-          email: newUser.email,
-          createdAt: new Date().toISOString(),
-        });
-
-        const token = await newUser.getIdToken();
-        
-        // POST session cookie and WAIT for it to complete before redirecting.
-        // This ensures the fb-id-token cookie is set before the server action
-        // in /create-profile tries to authenticate via authenticateServerAction().
-        const response = await fetch('/api/auth/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to create session');
-        }
-
-        // Send welcome email fire-and-forget — do NOT await
-        fetch('/api/send-welcome-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: newUser.email, companyName }),
-        }).catch(err => console.error('Failed to send welcome email:', err));
-
-        showSuccess('Account created successfully!');
-
-        // Small settle delay to ensure the cookie is readable by middleware
-        // before the navigation triggers a server-side read.
-        await new Promise(resolve => setTimeout(resolve, 150));
-        router.push('/create-profile');
-        
-      } else {
-        throw new Error("Database service is not available.");
+      // Clear any stale session before creating a new account. Without this,
+      // a leftover fb-id-token cookie + client Auth state from a *previous*
+      // account survives the new signup, and the server (cookie) and client
+      // (Firebase Auth) end up pointing at different uids — the "two users
+      // at once" bug. Best-effort: failures here don't block the new signup.
+      try {
+        await auth.signOut();
+        await fetch('/api/auth/session', { method: 'DELETE' });
+      } catch (clearErr) {
+        console.warn('[register] failed to clear prior session (continuing)', clearErr);
       }
 
+      // Create the account server-side and atomically — Auth user +
+      // owner_operators doc + users doc all in one request.
+      const registerRes = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, companyName }),
+      });
+      const registerData = await registerRes.json().catch(() => ({}));
+
+      if (!registerRes.ok) {
+        const message =
+          registerData?.error ||
+          registerData?.message ||
+          'An error occurred during sign up.';
+        setError(message);
+        showError(message);
+        setLoading(false);
+        return;
+      }
+
+      // Sign in client-side with the email + password the user just typed.
+      // The server just created the account with exactly these credentials,
+      // so this is guaranteed to succeed. We deliberately avoid a custom
+      // token here — createCustomToken requires a real service-account
+      // identity to sign, which the emulator-mode Admin SDK doesn't have,
+      // and email/password sign-in is simpler and just as clean for
+      // (re)establishing fresh client Auth state.
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const idToken = await userCredential.user.getIdToken();
+
+      // Exchange the ID token for the fb-id-token session cookie.
+      const sessionResponse = await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: idToken }),
+      });
+
+      if (!sessionResponse.ok) {
+        // Account + docs exist; only the cookie didn't land (rate limit /
+        // transient infra). Don't show a red error — route to login.
+        console.warn('[register] Session POST failed after successful account creation', sessionResponse.status);
+        showSuccess('Account created. Please sign in to continue.');
+        router.push(`/login?email=${encodeURIComponent(email)}&message=Account created. Please log in to continue.`);
+        return;
+      }
+
+      showSuccess('Account created successfully!');
+
+      // Hard navigation so the next request carries the freshly-Set-Cookie'd
+      // fb-id-token — soft client-side navigation can race the cookie write.
+      window.location.href = '/create-profile';
+      return;
     } catch (e: unknown) {
       console.error('Sign-up error:', e);
       let errorMessage = 'An error occurred during sign up.';
       const firebaseError = e as { code?: string };
-      if (firebaseError.code === 'auth/email-already-in-use') {
-        errorMessage = 'This email is already in use. Try logging in instead.';
-      } else if (firebaseError.code === 'auth/weak-password') {
-        errorMessage = 'Password does not meet security requirements.';
-      } else if (firebaseError.code === 'auth/invalid-email') {
-        errorMessage = 'Please enter a valid email address.';
+      if (firebaseError.code === 'auth/wrong-password' || firebaseError.code === 'auth/user-not-found' || firebaseError.code === 'auth/invalid-credential') {
+        // The server-side account was created but the client sign-in
+        // failed. The account exists — the user can still log in normally.
+        // The user can still log in normally.
+        showSuccess('Account created. Please sign in to continue.');
+        router.push(`/login?message=Account created. Please log in to continue.`);
+        return;
       }
       setError(errorMessage);
       showError(errorMessage);
@@ -249,25 +243,22 @@ function RegisterContent() {
                 )}
               </div>
               <div className="space-y-4 pt-4 border-t">
-                <p className="text-sm font-medium">Legal Agreements</p>
+                <p className="text-sm font-medium">Authorization</p>
                 <div className="flex items-start gap-3">
-                  <Checkbox id="userAgreement" name="userAgreement" required disabled={loading} className="mt-1" />
-                  <Label htmlFor="userAgreement" className="text-sm leading-relaxed cursor-pointer">
-                    I understand that XtraFleet is a technology platform only and that I remain solely responsible for regulatory compliance, insurance adequacy, and trip safety.{' '}
-                    <Link href="/legal/user-agreement" target="_blank" className="underline text-primary hover:text-primary/80">View User Agreement</Link>
-                  </Label>
-                </div>
-                <div className="flex items-start gap-3">
-                  <Checkbox id="esignConsent" name="esignConsent" required disabled={loading} className="mt-1" />
-                  <Label htmlFor="esignConsent" className="text-sm leading-relaxed cursor-pointer">
-                    You acknowledge that Electronic Records may include payment settlements, compliance attestations, and tax-related documentation. You represent and warrant that You are authorized to bind the entity on whose behalf You are acting and to consent to Electronic Records on its behalf.{' '}
-                    <Link href="/legal/esign-consent" target="_blank" className="underline text-primary hover:text-primary/80">View E-Sign Agreement</Link>
+                  <Checkbox id="signupAuthorized" name="signupAuthorized" required disabled={loading} className="mt-1" />
+                  <Label htmlFor="signupAuthorized" className="text-sm leading-relaxed cursor-pointer">
+                    {ATTESTATIONS.signupAuthorized.text}
                   </Label>
                 </div>
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating Account...</>) : 'Create Company Account'}
               </Button>
+              <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                By clicking Create Company Account, you acknowledge and accept the{' '}
+                <Link href="/legal/esign-consent" target="_blank" className="underline hover:text-foreground">E-Sign Consent</Link> and{' '}
+                <Link href="/legal/terms" target="_blank" className="underline hover:text-foreground">Terms of Service</Link>.
+              </p>
             </div>
           </form>
           <div className="mt-4 text-center text-sm">

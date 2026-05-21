@@ -1,5 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <rect width="192" height="192" rx="30" fill="white"/>
-  <path d="M96 92 L36 32 L50 32 L96 78 L142 32 L156 32 L96 92 Z" fill="#1E9BD7"/>
-  <path d="M96 100 L36 160 L50 160 L96 114 L142 160 L156 160 L96 100 Z" fill="#333333"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- XtraFleet app icon: designer X centered on white rounded square.
+       The X is sized to ~80% of the canvas so it stays inside the safe
+       zone when used as a maskable PWA icon on Android. -->
+  <rect width="512" height="512" rx="80" fill="#ffffff"/>
+  <svg x="51" y="85" width="410" height="342" viewBox="0 0 1039.4893 866.85332" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <clipPath clipPathUnits="userSpaceOnUse" id="iconClipTop">
+        <path d="M 0,650.14 H 779.617 V 0 H 0 Z" transform="translate(-252.85651,-355.50791)"/>
+      </clipPath>
+      <clipPath clipPathUnits="userSpaceOnUse" id="iconClipBottom">
+        <path d="M 0,650.14 H 779.617 V 0 H 0 Z" transform="translate(-252.85651,-294.63191)"/>
+      </clipPath>
+    </defs>
+    <g transform="translate(-32200)">
+      <path
+        d="M 0,0 -250.357,292.547 H -15.234 L 131.517,109.316 288.897,292.547 H 524.261 L 409.012,166.822 C 308.168,53.275 151.862,0 0,0"
+        style="fill:#108dc4;fill-opacity:1;fill-rule:nonzero;stroke:none"
+        transform="matrix(1.3333333,0,0,-1.3333333,32537.142,392.8428)"
+        clip-path="url(#iconClipTop)" />
+      <path
+        d="m 0,0 -250.357,-292.547 h 235.123 l 146.751,183.231 157.38,-183.231 H 524.261 L 409.012,-166.822 C 308.168,-53.275 151.862,0 0,0"
+        style="fill:#2c2c2c;fill-opacity:1;fill-rule:nonzero;stroke:none"
+        transform="matrix(1.3333333,0,0,-1.3333333,32537.142,474.0108)"
+        clip-path="url(#iconClipBottom)" />
+    </g>
+  </svg>
 </svg>

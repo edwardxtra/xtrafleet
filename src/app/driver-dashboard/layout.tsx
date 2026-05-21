@@ -224,6 +224,19 @@ export default function DriverDashboardLayout({
         <main className="flex-1 overflow-auto p-4 md:p-6">
           {children}
         </main>
+        <footer className="border-t bg-background px-4 py-3">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-2">
+            <p className="text-xs text-muted-foreground">
+              &copy; {new Date().getFullYear()} XtraFleet. All rights reserved.
+            </p>
+            <nav className="flex flex-wrap justify-center gap-3 text-xs">
+              <Link href="/legal/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms of Service</Link>
+              <Link href="/legal/privacy" className="text-muted-foreground hover:text-foreground transition-colors">Privacy Policy</Link>
+              <Link href="/legal/user-agreement" className="text-muted-foreground hover:text-foreground transition-colors">User Agreement</Link>
+              <Link href="/legal/esign-consent" className="text-muted-foreground hover:text-foreground transition-colors">E-Sign Agreement</Link>
+            </nav>
+          </div>
+        </footer>
       </SidebarInset>
 
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>

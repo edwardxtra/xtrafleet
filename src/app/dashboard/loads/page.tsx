@@ -54,7 +54,24 @@ export default function LoadsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Load | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  useEffect(() => { fetchLoads(); }, []);
+  // Refetch on mount AND whenever the tab regains focus / becomes visible
+  // again — without this, a load posted from /dashboard/loads/new doesn't
+  // show up after navigating back, because the page is still rendering the
+  // initial fetch's empty state.
+  useEffect(() => {
+    fetchLoads();
+    const onFocus = () => fetchLoads();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') fetchLoads();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchLoads = async () => {
     try {

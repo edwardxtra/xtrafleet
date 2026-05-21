@@ -1,10 +1,11 @@
-import { Firestore, doc, updateDoc, getDoc, Timestamp } from "firebase/firestore";
+import { Firestore, doc, updateDoc, getDoc, arrayUnion } from "firebase/firestore";
 import type { TLA, InsuranceOption } from "@/lib/data";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import { notify } from "@/lib/notifications";
 import { calculateTripDuration, formatTripDuration } from "@/lib/tla-utils";
 import { captureSignatureAudit } from "@/lib/audit-utils";
 import { createConversation } from "@/lib/messaging-utils";
+import { buildAttestationEntry } from "@/lib/attestations";
 
 export interface SignTLAParams {
   firestore: Firestore;
@@ -160,7 +161,25 @@ export async function signTLA(params: SignTLAParams): Promise<TLA | null> {
     }
     
     await updateDoc(doc(firestore, `tlas/${tlaId}`), updateData);
-    
+
+    // DEV-154 phase 4: also append the e-sign consent to the signer's
+    // unified attestations array, with context.tlaId. The existing
+    // tla.{lessor,lessee}Signature.consentToEsign field is left in place
+    // so existing audit views and PDF rendering continue to work.
+    try {
+      await updateDoc(doc(firestore, `owner_operators/${userId}`), {
+        attestations: arrayUnion(
+          buildAttestationEntry('tlaEsignConsent', userId, {
+            ip: auditData.ipAddress,
+            userAgent: auditData.userAgent,
+            context: { tlaId, matchId: tla.matchId },
+          }),
+        ),
+      });
+    } catch (err) {
+      console.error('Failed to record TLA e-sign attestation:', err);
+    }
+
     // Update match status and create conversation if both signed
     if (updateData.status === 'signed' && tla.matchId) {
       try {

@@ -1,7 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useUser, useFirestore } from '@/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { hasCurrent, type AttestationEntry, type AttestationType } from '@/lib/attestations';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -56,11 +59,39 @@ type Step = 'form' | 'review';
 
 export default function PostLoadPage() {
   const router = useRouter();
+  const { user } = useUser();
+  const db = useFirestore();
   const [step, setStep] = useState<Step>('form');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
   const [routePreview, setRoutePreview] = useState<RoutePreview | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
+
+  // Gate: profile-level attestations must be current before posting a load.
+  // States: 'checking' until the owner doc fetch resolves, then 'blocked' if
+  // profileInsurance or profileAuthority is missing, otherwise 'ok'.
+  const [gateState, setGateState] = useState<'checking' | 'blocked' | 'ok'>('checking');
+  const [missingProfileAttestations, setMissingProfileAttestations] = useState<AttestationType[]>([]);
+
+  useEffect(() => {
+    async function checkProfileAttestations() {
+      if (!user || !db) return;
+      try {
+        const snap = await getDoc(doc(db, 'owner_operators', user.uid));
+        const data = snap.exists() ? (snap.data() as { attestations?: AttestationEntry[] }) : {};
+        const required: AttestationType[] = ['profileInsurance', 'profileAuthority'];
+        const missing = required.filter(t => !hasCurrent(data.attestations, t));
+        setMissingProfileAttestations(missing);
+        setGateState(missing.length > 0 ? 'blocked' : 'ok');
+      } catch (err) {
+        console.warn('[PostLoadPage] failed to verify profile attestations', err);
+        // Fail-open: don't lock the user out on a fetch error. The downstream
+        // server-side gates (Firestore rules / API checks) remain authoritative.
+        setGateState('ok');
+      }
+    }
+    checkProfileAttestations();
+  }, [user, db]);
 
   const [formData, setFormData] = useState({
     origin: '',
@@ -188,9 +219,14 @@ export default function PostLoadPage() {
     } finally { setIsSubmitting(false); }
   };
 
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const minDate = tomorrow.toISOString().split('T')[0];
+  // Earliest allowed pickup date is today (same-day pickups are valid).
+  // Build the YYYY-MM-DD string from local-time components so a late-evening
+  // user in a western timezone doesn't get bumped to tomorrow by UTC offset.
+  const _today = new Date();
+  const _yyyy = _today.getFullYear();
+  const _mm = String(_today.getMonth() + 1).padStart(2, '0');
+  const _dd = String(_today.getDate()).padStart(2, '0');
+  const minDate = `${_yyyy}-${_mm}-${_dd}`;
   const getLoadTypeLabel = (v: string) => LOAD_TYPES.find(t => t.value === v)?.label || v;
   const getTrailerTypeLabel = (v: string) => TRAILER_TYPES.find(t => t.value === v)?.label || v;
 
@@ -261,6 +297,42 @@ export default function PostLoadPage() {
               <Button variant="outline" onClick={() => handleSubmit('draft')} disabled={isSubmitting}>
                 <Save className="h-4 w-4 mr-2" />Save as Draft
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (gateState === 'checking') {
+    return (
+      <div className="container max-w-4xl py-8 flex items-center justify-center min-h-[40vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (gateState === 'blocked') {
+    return (
+      <div className="container max-w-4xl py-8">
+        <div className="mb-6">
+          <Link href="/dashboard/loads"><Button variant="outline" size="sm"><ArrowLeft className="h-4 w-4 mr-2" />Back to Loads</Button></Link>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl font-headline">Complete Your Profile First</CardTitle>
+            <CardDescription>Posting a load requires your company-level compliance attestations to be on file.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Missing profile attestation{missingProfileAttestations.length === 1 ? '' : 's'}: <strong>{missingProfileAttestations.join(', ')}</strong>. Capture them on your profile page, then come back to post a load.
+              </AlertDescription>
+            </Alert>
+            <div className="flex gap-2">
+              <Link href="/dashboard/profile"><Button>Go to Profile</Button></Link>
+              <Link href="/dashboard/loads"><Button variant="outline">Cancel</Button></Link>
             </div>
           </CardContent>
         </Card>

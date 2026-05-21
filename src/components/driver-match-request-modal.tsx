@@ -260,7 +260,10 @@ export function DriverMatchRequestModal({
               {load.origin} → {load.destination}
             </p>
             <p className="text-sm text-muted-foreground">
-              {load.cargo} • {load.weight.toLocaleString()} lbs
+              {load.cargo || load.loadType || 'Load'}
+              {load.weight != null && (
+                <> • {load.weight.toLocaleString()} lbs</>
+              )}
             </p>
             {loadOwnerName && (
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
