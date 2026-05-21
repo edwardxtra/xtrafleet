@@ -101,6 +101,30 @@ export type MatchStatus =
   | 'in_progress'
   | 'completed';
 
+// --- Compliance gate (DEV-162) ---
+// Result of the synchronous bilateral compliance check run at match formation.
+export type ComplianceGateStatus = 'Green' | 'Yellow' | 'Red' | 'Unverified';
+
+export type PartyComplianceSnapshot = {
+  ownerOperatorId: string;
+  legalName?: string;
+  dotNumber?: string;
+  verified: boolean;
+  allowedToOperate?: boolean;
+  authorityStatus?: string;
+  saferDiscrepancy?: boolean;
+  status: ComplianceGateStatus;
+};
+
+export type ComplianceSnapshot = {
+  checkedAt: string;
+  overallStatus: ComplianceGateStatus;
+  warnings?: string[];
+  lessor: PartyComplianceSnapshot; // driver owner — carrier supplying the driver
+  lessee: PartyComplianceSnapshot; // load owner — hiring carrier
+  driver: { id: string; status: ComplianceGateStatus };
+};
+
 export type Match = {
   id: string;
   loadId: string;
@@ -145,6 +169,7 @@ export type Match = {
     rating?: number;
   };
   tlaId?: string;
+  complianceWarning?: boolean;
 };
 
 export type OwnerOperator = {
@@ -266,6 +291,8 @@ export type TLA = {
   };
   lessorSignature?: TLASignature;
   lesseeSignature?: TLASignature;
+  // Bilateral compliance snapshot captured at match formation (DEV-162).
+  complianceSnapshot?: ComplianceSnapshot;
   status: 'draft' | 'pending_lessor' | 'pending_lessee' | 'signed' | 'in_progress' | 'completed' | 'voided';
   tripTracking?: {
     startedAt?: string;

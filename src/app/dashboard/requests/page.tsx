@@ -25,6 +25,7 @@ import { useRouter } from "next/navigation";
 import { generateTLA } from "@/lib/tla";
 import { notify } from "@/lib/notifications";
 import { createConversation } from "@/lib/messaging-utils";
+import { acceptMatch } from "@/lib/match-actions";
 
 const statusConfig = {
   pending: { label: "Pending", variant: "outline" as const, icon: Clock, color: "text-orange-600" },
@@ -274,30 +275,20 @@ export default function RequestsPage() {
   const handleRespond = (match: Match) => { if (isExpired(match)) return; setSelectedMatch(match); setResponseModalOpen(true); };
   const handleViewCounter = (match: Match) => { setSelectedMatch(match); setCounterModalOpen(true); };
 
+  // Accept counter offer \u2014 formation + compliance gate run server-side.
   const handleAcceptCounter = async () => {
     if (!firestore || !user || !selectedMatch) return;
     setIsAccepting(true);
     try {
-      const lessorDoc = await getDoc(doc(firestore, `owner_operators/${selectedMatch.driverOwnerId}`));
-      const lessorInfo = lessorDoc.exists() ? { id: lessorDoc.id, ...lessorDoc.data() } : null;
-      const lesseeDoc = await getDoc(doc(firestore, `owner_operators/${selectedMatch.loadOwnerId}`));
-      const lesseeInfo = lesseeDoc.exists() ? { id: lesseeDoc.id, ...lesseeDoc.data() } : null;
-      const driverDoc = await getDoc(doc(firestore, `owner_operators/${selectedMatch.driverOwnerId}/drivers/${selectedMatch.driverId}`));
-      const driverInfo = driverDoc.exists() ? { id: driverDoc.id, ...driverDoc.data() } : null;
-      if (!lessorInfo || !lesseeInfo || !driverInfo) throw new Error('Required information not found');
-      const loadDoc = await getDoc(doc(firestore, `owner_operators/${selectedMatch.loadOwnerId}/loads/${selectedMatch.loadId}`));
-      if (!loadDoc.exists()) throw new Error('Load not found');
-      if (loadDoc.data().status !== 'Pending') throw new Error(`This load has already been matched.`);
-      const tlaData = generateTLA({ match: { ...selectedMatch, originalTerms: selectedMatch.counterTerms || selectedMatch.originalTerms }, lessorInfo: lessorInfo as any, lesseeInfo: lesseeInfo as any, driverInfo: driverInfo as any });
-      const tlaRef = await addDoc(collection(firestore, "tlas"), tlaData);
-      try { await createConversation(firestore, selectedMatch.driverOwnerId, selectedMatch.loadOwnerId, selectedMatch.loadId, tlaRef.id); } catch (e) { console.warn('Failed to create conversation:', e); }
-      await updateDoc(doc(firestore, `matches/${selectedMatch.id}`), { status: 'tla_pending', counterAcceptedAt: new Date().toISOString(), tlaId: tlaRef.id, finalTerms: selectedMatch.counterTerms });
-      await updateDoc(doc(firestore, `owner_operators/${selectedMatch.loadOwnerId}/loads/${selectedMatch.loadId}`), { status: 'Matched', matchedAt: new Date().toISOString(), tlaId: tlaRef.id });
-      const ownerEmail = (lessorInfo as any).contactEmail || '';
-      if (ownerEmail) { notify.matchAccepted({ loadOwnerEmail: ownerEmail, loadOwnerName: (lessorInfo as any).legalName || '', driverName: selectedMatch.driverSnapshot.name, loadOrigin: selectedMatch.loadSnapshot.origin, loadDestination: selectedMatch.loadSnapshot.destination, rate: selectedMatch.counterTerms?.rate || selectedMatch.originalTerms.rate, tlaId: tlaRef.id }).catch(err => console.error('Failed to send notification:', err)); }
-      await addDoc(collection(firestore, "notifications"), { userId: selectedMatch.driverOwnerId, type: "counter_accepted", title: "Counter Offer Accepted!", message: `Your counter offer for ${selectedMatch.loadSnapshot.origin} \u2192 ${selectedMatch.loadSnapshot.destination} was accepted!`, link: "/dashboard/messages", linkText: "Go to Messages", createdAt: new Date().toISOString(), read: false });
-      showSuccess("Counter offer accepted! TLA created."); showInfo("You can now message the driver owner."); setCounterModalOpen(false);
-      setTimeout(() => { router.push(`/dashboard/tla/${tlaRef.id}`); }, 800);
+      const { tlaId, complianceWarning, complianceMessage } = await acceptMatch(
+        firestore,
+        selectedMatch.id
+      );
+      showSuccess("Counter offer accepted! TLA created.");
+      if (complianceWarning && complianceMessage) showInfo(complianceMessage);
+      showInfo("You can now message the driver owner.");
+      setCounterModalOpen(false);
+      setTimeout(() => { router.push(`/dashboard/tla/${tlaId}`); }, 800);
     } catch (error: any) { console.error("Error accepting counter:", error); showError(error.message || "Failed to accept counter offer."); } finally { setIsAccepting(false); }
   };
 

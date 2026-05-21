@@ -51,6 +51,9 @@ export const rateLimiters = {
 
   // Driver registration: 3 per hour per IP (prevent abuse)
   registration: makeLimiter(3, '1 h', 'ratelimit:registration'),
+
+  // Match formation (compliance-gated accept): 30 per hour per user
+  matchFormation: makeLimiter(30, '1 h', 'ratelimit:matchFormation'),
 };
 
 // Helper function to get client identifier (IP or user ID)

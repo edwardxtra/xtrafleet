@@ -66,11 +66,12 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow list: if isSignedIn();
         allow create: if isSignedIn() && isOwner(ownerOperatorId);
+        // Match formation runs server-side (/api/matches/accept) via the Admin
+        // SDK, which bypasses rules. Clients may no longer flip a load to
+        // 'Matched' directly — that would skip the compliance gate (DEV-162).
         allow update: if isSignedIn() && (
           isOwner(ownerOperatorId) || // Owner can always update
-          isAdmin() || // Admins can update
-          // Allow updating to Matched status (for match acceptance by driver owner)
-          request.resource.data.status == 'Matched'
+          isAdmin() // Admins can update
         );
         allow delete: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
       }
@@ -102,7 +103,9 @@ service cloud.firestore {
     // TLAs collection
     match /tlas/{tlaId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      // TLAs are created only server-side (/api/matches/accept) so the
+      // synchronous compliance gate cannot be bypassed (DEV-162).
+      allow create: if false;
       allow update: if isSignedIn();
       allow delete: if isSignedIn() && isSuperAdmin();
     }
