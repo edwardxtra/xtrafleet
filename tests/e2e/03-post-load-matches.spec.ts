@@ -11,7 +11,9 @@ import { attachPageDiagnostics, signUpOwner, reachDashboard } from './helpers';
  * attestations are missing.
  *
  * So for a fresh account the reliably-testable behaviour is: the gate
- * blocks them. That's a real, valuable regression check on #155.
+ * blocks them — at /dashboard/loads/new AND at /dashboard/matches (the
+ * match marketplace gate added in #170). That's a real, valuable
+ * regression check on the DEV-154 Layer-2 soft-compliance gate.
  *
  * The full "post a load → see it on /dashboard/loads → see it in Find
  * Match My Assets" happy path needs the profile attestations seeded first
@@ -34,6 +36,21 @@ test.describe('T3 — Load posting', () => {
     await expect(page.getByText(/complete your profile first/i)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('link', { name: /go to profile/i })).toBeVisible();
     await expect(page.getByLabel(/^origin/i)).toHaveCount(0);
+  });
+
+  test('a profile-incomplete owner is blocked from the match marketplace by the attestation gate', async ({ page }) => {
+    await signUpOwner(page);
+    await reachDashboard(page);
+
+    await page.goto('/dashboard/matches');
+
+    // #170 gate: the marketplace shows the same "Complete Your Profile First"
+    // blocking card as the load-post gate. The marketplace panels — and
+    // therefore the match-request buttons — must NOT render. The "My Assets"
+    // panel's description is a unique marker for that surface.
+    await expect(page.getByText(/complete your profile first/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('link', { name: /go to profile/i })).toBeVisible();
+    await expect(page.getByText(/select your load or driver to find matches/i)).toHaveCount(0);
   });
 
   // Needs an emulator seed step that writes profileInsurance +

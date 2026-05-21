@@ -37,9 +37,9 @@ npx playwright test tests/e2e/01-owner-signup.spec.ts   # Single spec
 
 | Spec | Validates |
 |---|---|
-| `01-owner-signup.spec.ts` | New owner can sign up, lands on `/create-profile`, navigating to `/dashboard` doesn't bounce to `/login` (the session-cookie/Auth desync regression). Login form rejects unknown accounts without crashing the error boundary. |
+| `01-owner-signup.spec.ts` | New owner can sign up, lands on `/create-profile`, navigating to `/dashboard` doesn't bounce to `/login` (the session-cookie/Auth desync regression). Login form rejects unknown accounts without crashing the error boundary. An owner can sign out and log back in (login success path). An unauthenticated visitor is redirected from `/dashboard` to `/login`. |
 | `02-self-driver-onboarding.spec.ts` | **Core:** OO can "Add Myself as Driver" and the record shows in the drivers list with the Owner-Driver badge. **`test.fixme`:** completing the full driver profile + Verified attestation — fixme'd because it drives runtime-dependent Radix `<Select>` markup; un-fixme once the suite runs green. |
-| `03-post-load-matches.spec.ts` | **Core:** a profile-incomplete owner is blocked from posting a load by the #155 attestation gate. **`test.fixme`:** full post-load → visible on `/dashboard/loads` + Find Match — fixme'd because it needs a profile-attestation emulator seed step. |
+| `03-post-load-matches.spec.ts` | **Core:** a profile-incomplete owner is blocked from posting a load AND from the match marketplace (`/dashboard/matches`) by the DEV-154 Layer-2 attestation gate. **`test.fixme`:** full post-load → visible on `/dashboard/loads` + Find Match — fixme'd because it needs a profile-attestation emulator seed step. |
 
 ## Known follow-ups (the `test.fixme` blocks)
 
