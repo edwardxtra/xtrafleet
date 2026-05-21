@@ -48,6 +48,14 @@ export const rateLimiters = {
     analytics: true,
     prefix: 'ratelimit:registration',
   }),
+
+  // Match formation (compliance-gated accept): 30 per hour per user
+  matchFormation: new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(30, '1 h'),
+    analytics: true,
+    prefix: 'ratelimit:matchFormation',
+  }),
 };
 
 // Helper function to get client identifier (IP or user ID)
