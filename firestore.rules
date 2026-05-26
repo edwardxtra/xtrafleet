@@ -47,7 +47,13 @@ service cloud.firestore {
     }
 
     match /owner_operators/{ownerOperatorId} {
-      allow get: if isSignedIn();
+      // Pre-activated accounts (white-glove onboarding, DEV-158) are readable
+      // only by their owner or an admin — never by other users.
+      allow get: if isSignedIn() && (
+        resource.data.get('accountStatus', 'active') != 'pre-activated' ||
+        isOwner(ownerOperatorId) ||
+        isAdmin()
+      );
       allow list: if isSignedIn();
       allow create: if isSignedIn() && isOwner(ownerOperatorId);
       // SECURITY FIX: Only owner can update their own profile
@@ -55,7 +61,13 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
 
       match /drivers/{driverId} {
-        allow read: if isSignedIn();
+        // Pre-activated drivers (DEV-158) are readable only by their owner
+        // or an admin.
+        allow get: if isSignedIn() && (
+          resource.data.get('accountStatus', 'active') != 'pre-activated' ||
+          isOwner(ownerOperatorId) ||
+          isAdmin()
+        );
         allow list: if isSignedIn();
         allow create: if isSignedIn() && isOwner(ownerOperatorId);
         allow update: if isSignedIn() && (isOwner(ownerOperatorId) || request.auth.uid == driverId || isAdmin());
@@ -146,6 +158,13 @@ service cloud.firestore {
       allow read: if isSignedIn() && isAdmin();
       allow create: if isSignedIn() && isAdmin();
       allow update, delete: if false;
+    }
+
+    // Activation tokens for white-glove pre-activation onboarding (DEV-158).
+    // One-time credentials — written and read only server-side via the Admin
+    // SDK (which bypasses rules). Never accessible to clients.
+    match /activation_tokens/{tokenId} {
+      allow read, write: if false;
     }
   }
 }

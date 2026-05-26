@@ -8,6 +8,14 @@ export type Review = {
   comment: string;
 };
 
+// Where an account sits in the white-glove pre-activation lifecycle (DEV-158).
+// Absent on legacy accounts — code reading this should treat a missing value
+// as 'active'.
+export type AccountStatus =
+  | 'pre-activated' // admin-created on the user's behalf; no auth credentials yet
+  | 'active'        // fully activated, has Firebase Auth credentials
+  | 'suspended';    // disabled
+
 export type Driver = {
   id: string;
   name: string;
@@ -61,6 +69,10 @@ export type Driver = {
   // Contact
   phoneNumber?: string;
   phone?: string;
+  // Account lifecycle — white-glove pre-activation onboarding (DEV-158).
+  accountStatus?: AccountStatus;
+  createdByAdmin?: string; // admin UID, when created on the user's behalf
+  activatedAt?: string;    // ISO timestamp the user completed activation
 };
 
 export type Load = {
@@ -176,6 +188,7 @@ export type OwnerOperator = {
   id: string;
   companyName?: string;
   legalName?: string;
+  contactName?: string;
   contactEmail: string;
   phone?: string;
   address?: string;
@@ -199,6 +212,10 @@ export type OwnerOperator = {
     coiDocumentUrl?: string;
     coiDocumentUploadedAt?: string;
   };
+  // Account lifecycle — white-glove pre-activation onboarding (DEV-158).
+  accountStatus?: AccountStatus;
+  createdByAdmin?: string; // admin UID, when created on the user's behalf
+  activatedAt?: string;    // ISO timestamp the user completed activation
 };
 
 export type TLASignature = {
