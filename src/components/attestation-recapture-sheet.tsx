@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -44,12 +45,14 @@ export function AttestationRecaptureSheet({
   onOpenChange,
   onCaptured,
 }: AttestationRecaptureSheetProps) {
-  const [checked, setChecked] = useState<Set<AttestationType>>(new Set(missingTypes));
+  // Start unchecked — the user actively opts in to each attestation. Pre-checking
+  // would weaken the legal force of the consent.
+  const [checked, setChecked] = useState<Set<AttestationType>>(new Set());
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setChecked(new Set(missingTypes));
+      setChecked(new Set());
     }
   }, [open, missingTypes]);
 
@@ -143,12 +146,22 @@ export function AttestationRecaptureSheet({
                 />
                 <div className="space-y-1">
                   <Label htmlFor={`attest-${type}`} className="cursor-pointer text-sm font-medium">
-                    {type}
+                    {def.label}
                     {!isMissing && (
                       <span className="ml-2 text-xs text-muted-foreground">(already on file)</span>
                     )}
                   </Label>
                   <p className="text-xs text-muted-foreground leading-relaxed">{def.text}</p>
+                  {def.legalLink && (
+                    <Link
+                      href={def.legalLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary underline hover:no-underline"
+                    >
+                      Read the full text
+                    </Link>
+                  )}
                 </div>
               </div>
             );

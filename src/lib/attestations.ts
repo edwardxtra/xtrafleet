@@ -51,8 +51,16 @@ export type AttestationType =
 export interface AttestationDef {
   /** Current version. Bumped only on material wording changes. */
   v: number;
+  /** Short, human-readable title for the UI (e.g. "Insurance Coverage"). */
+  label: string;
   /** Exact text shown to the user. Snapshotted into each AttestationEntry on accept. */
   text: string;
+  /**
+   * Optional link to the public legal page that backs this attestation
+   * (e.g. /legal/terms). Only signup / e-sign attestations have one — the
+   * rest are factual assertions about the carrier's own operations.
+   */
+  legalLink?: string;
   /** Where this attestation is captured. Used by audit views. */
   surface:
     | 'signup'
@@ -72,102 +80,123 @@ export interface AttestationDef {
 export const ATTESTATIONS: Record<AttestationType, AttestationDef> = {
   signupAuthorized: {
     v: 1,
+    label: 'Authorized to Act',
     text: 'I confirm I am authorized to act on behalf of this company.',
     surface: 'signup',
     blocking: true,
   },
   signupUserAgreement: {
     v: 2,
+    label: 'User Agreement',
     text: 'By clicking Create Company Account, I acknowledge and accept the XtraFleet User Agreement.',
+    legalLink: '/legal/user-agreement',
     surface: 'signup',
     blocking: true,
   },
   signupEsignConsent: {
     v: 2,
+    label: 'E-Sign Consent',
     text: 'By clicking Create Company Account, I consent to use electronic records and signatures, as described in the E-Sign Consent.',
+    legalLink: '/legal/esign-consent',
     surface: 'signup',
     blocking: true,
   },
   signupTermsOfService: {
     v: 2,
+    label: 'Terms of Service',
     text: 'By clicking Create Company Account, I acknowledge and accept the Terms of Service.',
+    legalLink: '/legal/terms',
     surface: 'signup',
     blocking: true,
   },
   profileInsurance: {
     v: 1,
+    label: 'Insurance Coverage',
     text: 'We maintain required insurance coverage.',
     surface: 'profile',
     blocking: true,
   },
   profileAuthority: {
     v: 1,
+    label: 'DOT Authority',
     text: 'We operate under valid DOT authority.',
     surface: 'profile',
     blocking: true,
   },
   driverDqf: {
     v: 1,
+    label: 'Driver Qualification File',
     text: 'This driver is qualified under our Driver Qualification File (DQF).',
     surface: 'driver_add',
     blocking: true,
   },
   driverFmcsaChecks: {
     v: 1,
+    label: 'FMCSA Checks',
     text: 'We have conducted required checks under FMCSA regulations.',
     surface: 'driver_add',
     blocking: true,
   },
   driverAuthority: {
     v: 1,
+    label: 'Driver Authority',
     text: 'Driver is eligible to operate under our authority.',
     surface: 'driver_add',
     blocking: true,
   },
   matchBorrowerClearinghouse: {
     v: 1,
+    label: 'Clearinghouse Query',
     text: 'We have conducted or will conduct the required Clearinghouse full query if applicable.',
     surface: 'match_confirm_borrower',
     blocking: true,
   },
   matchBorrowerResponsibility: {
     v: 1,
+    label: 'Operational Responsibility',
     text: 'We accept responsibility for operating compliance during this trip.',
     surface: 'match_confirm_borrower',
     blocking: true,
   },
   matchBorrowerInsurance: {
     v: 1,
+    label: 'Insurance Applies to Trip',
     text: 'We confirm insurance coverage applies to this operation.',
     surface: 'match_confirm_borrower',
     blocking: true,
   },
   matchLenderQualified: {
     v: 1,
+    label: 'Driver Qualified',
     text: 'Driver remains qualified and in good standing.',
     surface: 'match_confirm_lender',
     blocking: true,
   },
   matchLenderAuthority: {
     v: 1,
+    label: 'Driver Authority',
     text: 'Driver is authorized to operate under the agreed authority structure.',
     surface: 'match_confirm_lender',
     blocking: true,
   },
   tlaEsignConsent: {
     v: 1,
+    label: 'Electronic Signature',
     text: 'I consent to use electronic signatures and understand my electronic signature is legally binding.',
+    legalLink: '/legal/esign-consent',
     surface: 'tla',
     blocking: true,
   },
   postTripCompleted: {
     v: 1,
+    label: 'Trip Completed',
     text: 'Trip was completed under agreed terms.',
     surface: 'post_trip',
     blocking: false,
   },
   postTripNoIncidents: {
     v: 1,
+    label: 'No Incidents',
     text: 'No compliance incidents occurred.',
     surface: 'post_trip',
     blocking: false,

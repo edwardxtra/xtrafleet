@@ -967,7 +967,7 @@ export default function ProfilePage() {
                         <CheckCircle2 className={`h-4 w-4 mt-0.5 shrink-0 ${stale ? 'text-amber-500' : 'text-green-600'}`} />
                         <div className="flex-1">
                           <p className="text-sm font-medium">
-                            {entry.type}
+                            {def?.label || entry.type}
                             <span className="ml-2 text-xs text-muted-foreground font-normal">
                               v{entry.version}{stale && ` (current: v${def.v})`}
                             </span>
