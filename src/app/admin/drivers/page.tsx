@@ -67,13 +67,43 @@ type DriverWithOwner = Driver & {
 type EditableDriverFields = {
   name: string;
   email: string;
+  phoneNumber: string;
   location: string;
   vehicleType: string;
   availability: string;
+  // Trailer types stored as comma-separated string in the form; parsed to
+  // string[] on save.
+  trailerTypes: string;
+  // CDL
   cdlLicense: string;
+  cdlState: string;
+  cdlClass: string;
   cdlExpiry: string;
+  cdlLicenseUrl: string;
+  cdlDocumentUrl: string;
+  endorsements: string;
+  // Medical
   medicalCardExpiry: string;
+  medicalCardUrl: string;
+  // Insurance
   insuranceExpiry: string;
+  insuranceUrl: string;
+  insurerName: string;
+  insurancePolicyNumber: string;
+  // MVR
+  motorVehicleRecordNumber: string;
+  mvrUrl: string;
+  // Background & screenings
+  backgroundCheckDate: string;
+  backgroundCheckUrl: string;
+  preEmploymentScreeningDate: string;
+  preEmploymentScreeningUrl: string;
+  drugAndAlcoholScreeningDate: string;
+  drugAndAlcoholScreeningUrl: string;
+  // Compliance / profile
+  clearinghouseStatus: string;
+  dqfStatus: string;
+  profileStatus: string;
   isActive: boolean;
 };
 
@@ -97,13 +127,35 @@ export default function AdminDriversPage() {
   const [editForm, setEditForm] = useState<EditableDriverFields>({
     name: '',
     email: '',
+    phoneNumber: '',
     location: '',
     vehicleType: '',
     availability: '',
+    trailerTypes: '',
     cdlLicense: '',
+    cdlState: '',
+    cdlClass: '',
     cdlExpiry: '',
+    cdlLicenseUrl: '',
+    cdlDocumentUrl: '',
+    endorsements: '',
     medicalCardExpiry: '',
+    medicalCardUrl: '',
     insuranceExpiry: '',
+    insuranceUrl: '',
+    insurerName: '',
+    insurancePolicyNumber: '',
+    motorVehicleRecordNumber: '',
+    mvrUrl: '',
+    backgroundCheckDate: '',
+    backgroundCheckUrl: '',
+    preEmploymentScreeningDate: '',
+    preEmploymentScreeningUrl: '',
+    drugAndAlcoholScreeningDate: '',
+    drugAndAlcoholScreeningUrl: '',
+    clearinghouseStatus: '',
+    dqfStatus: '',
+    profileStatus: '',
     isActive: true,
   });
 
@@ -172,16 +224,44 @@ export default function AdminDriversPage() {
   }, [searchQuery, complianceFilter, drivers]);
 
   const handleOpenEdit = (driver: DriverWithOwner) => {
+    const endorsementsValue = Array.isArray(driver.endorsements)
+      ? driver.endorsements.join(', ')
+      : driver.endorsements || '';
+    const trailerTypesValue = Array.isArray(driver.trailerTypes)
+      ? driver.trailerTypes.join(', ')
+      : '';
     setEditForm({
       name: driver.name || '',
       email: driver.email || '',
+      phoneNumber: driver.phoneNumber || driver.phone || '',
       location: driver.location || '',
       vehicleType: driver.vehicleType || '',
       availability: driver.availability || 'Off-duty',
+      trailerTypes: trailerTypesValue,
       cdlLicense: driver.cdlLicense || '',
+      cdlState: driver.cdlState || '',
+      cdlClass: driver.cdlClass || '',
       cdlExpiry: driver.cdlExpiry || '',
+      cdlLicenseUrl: driver.cdlLicenseUrl || '',
+      cdlDocumentUrl: driver.cdlDocumentUrl || '',
+      endorsements: endorsementsValue,
       medicalCardExpiry: driver.medicalCardExpiry || '',
+      medicalCardUrl: driver.medicalCardUrl || '',
       insuranceExpiry: driver.insuranceExpiry || '',
+      insuranceUrl: driver.insuranceUrl || '',
+      insurerName: driver.insurerName || '',
+      insurancePolicyNumber: driver.insurancePolicyNumber || '',
+      motorVehicleRecordNumber: driver.motorVehicleRecordNumber || '',
+      mvrUrl: driver.mvrUrl || '',
+      backgroundCheckDate: driver.backgroundCheckDate || '',
+      backgroundCheckUrl: driver.backgroundCheckUrl || '',
+      preEmploymentScreeningDate: driver.preEmploymentScreeningDate || '',
+      preEmploymentScreeningUrl: driver.preEmploymentScreeningUrl || '',
+      drugAndAlcoholScreeningDate: driver.drugAndAlcoholScreeningDate || '',
+      drugAndAlcoholScreeningUrl: driver.drugAndAlcoholScreeningUrl || '',
+      clearinghouseStatus: driver.clearinghouseStatus || '',
+      dqfStatus: driver.dqfStatus || '',
+      profileStatus: driver.profileStatus || '',
       isActive: driver.isActive !== false,
     });
     setEditingDriver(driver);
@@ -193,12 +273,24 @@ export default function AdminDriversPage() {
     setIsProcessing(true);
     try {
       const driverRef = doc(firestore, `owner_operators/${editingDriver.ownerId}/drivers`, editingDriver.id);
-      await updateDoc(driverRef, {
-        ...editForm,
+      const { trailerTypes, ...rest } = editForm;
+      const payload: Record<string, any> = {
+        ...rest,
         updatedAt: new Date().toISOString(),
         updatedBy: adminUser.uid,
         updatedByAdmin: true,
-      });
+      };
+      // trailerTypes is held as a comma-separated string in the form; split
+      // back into the string[] the driver doc expects.
+      if (trailerTypes.trim()) {
+        payload.trailerTypes = trailerTypes
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else {
+        payload.trailerTypes = [];
+      }
+      await updateDoc(driverRef, payload);
 
       await logAuditAction(firestore, {
         action: 'driver_updated',
@@ -609,7 +701,128 @@ export default function AdminDriversPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Status</Label>
+                <Label htmlFor="edit-phone-number">Phone</Label>
+                <Input id="edit-phone-number" type="tel" value={editForm.phoneNumber} onChange={(e) => setEditForm(f => ({ ...f, phoneNumber: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-trailer-types">Trailer Types <span className="text-xs text-muted-foreground">(comma-separated)</span></Label>
+                <Input id="edit-trailer-types" value={editForm.trailerTypes} onChange={(e) => setEditForm(f => ({ ...f, trailerTypes: e.target.value }))} placeholder="e.g. dry-van, reefer, flatbed" />
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">CDL Details</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-cdl-state">CDL State</Label>
+                    <Input id="edit-cdl-state" value={editForm.cdlState} onChange={(e) => setEditForm(f => ({ ...f, cdlState: e.target.value }))} placeholder="e.g. FL" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-cdl-class">CDL Class</Label>
+                    <Input id="edit-cdl-class" value={editForm.cdlClass} onChange={(e) => setEditForm(f => ({ ...f, cdlClass: e.target.value }))} placeholder="A, B, or C" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-endorsements">Endorsements</Label>
+                  <Input id="edit-endorsements" value={editForm.endorsements} onChange={(e) => setEditForm(f => ({ ...f, endorsements: e.target.value }))} placeholder="e.g. H, N, T" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-cdl-license-url">CDL License URL</Label>
+                    <Input id="edit-cdl-license-url" type="url" value={editForm.cdlLicenseUrl} onChange={(e) => setEditForm(f => ({ ...f, cdlLicenseUrl: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-cdl-document-url">CDL Document URL</Label>
+                    <Input id="edit-cdl-document-url" type="url" value={editForm.cdlDocumentUrl} onChange={(e) => setEditForm(f => ({ ...f, cdlDocumentUrl: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Medical &amp; Insurance</p>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-medical-url">Medical Card URL</Label>
+                  <Input id="edit-medical-url" type="url" value={editForm.medicalCardUrl} onChange={(e) => setEditForm(f => ({ ...f, medicalCardUrl: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-insurer">Insurer Name</Label>
+                    <Input id="edit-insurer" value={editForm.insurerName} onChange={(e) => setEditForm(f => ({ ...f, insurerName: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-policy">Policy Number</Label>
+                    <Input id="edit-policy" value={editForm.insurancePolicyNumber} onChange={(e) => setEditForm(f => ({ ...f, insurancePolicyNumber: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-insurance-url">Insurance URL</Label>
+                  <Input id="edit-insurance-url" type="url" value={editForm.insuranceUrl} onChange={(e) => setEditForm(f => ({ ...f, insuranceUrl: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">MVR &amp; Screenings</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-mvr-number">MVR Number</Label>
+                    <Input id="edit-mvr-number" value={editForm.motorVehicleRecordNumber} onChange={(e) => setEditForm(f => ({ ...f, motorVehicleRecordNumber: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-mvr-url">MVR URL</Label>
+                    <Input id="edit-mvr-url" type="url" value={editForm.mvrUrl} onChange={(e) => setEditForm(f => ({ ...f, mvrUrl: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-bg-date">Background Check Date</Label>
+                    <Input id="edit-bg-date" type="date" value={editForm.backgroundCheckDate} onChange={(e) => setEditForm(f => ({ ...f, backgroundCheckDate: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-bg-url">Background Check URL</Label>
+                    <Input id="edit-bg-url" type="url" value={editForm.backgroundCheckUrl} onChange={(e) => setEditForm(f => ({ ...f, backgroundCheckUrl: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-pes-date">Pre-Employment Date</Label>
+                    <Input id="edit-pes-date" type="date" value={editForm.preEmploymentScreeningDate} onChange={(e) => setEditForm(f => ({ ...f, preEmploymentScreeningDate: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-pes-url">Pre-Employment URL</Label>
+                    <Input id="edit-pes-url" type="url" value={editForm.preEmploymentScreeningUrl} onChange={(e) => setEditForm(f => ({ ...f, preEmploymentScreeningUrl: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-da-date">Drug &amp; Alcohol Date</Label>
+                    <Input id="edit-da-date" type="date" value={editForm.drugAndAlcoholScreeningDate} onChange={(e) => setEditForm(f => ({ ...f, drugAndAlcoholScreeningDate: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-da-url">Drug &amp; Alcohol URL</Label>
+                    <Input id="edit-da-url" type="url" value={editForm.drugAndAlcoholScreeningUrl} onChange={(e) => setEditForm(f => ({ ...f, drugAndAlcoholScreeningUrl: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Compliance Status</p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-clearinghouse">Clearinghouse</Label>
+                    <Input id="edit-clearinghouse" value={editForm.clearinghouseStatus} onChange={(e) => setEditForm(f => ({ ...f, clearinghouseStatus: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-dqf">DQF Status</Label>
+                    <Input id="edit-dqf" value={editForm.dqfStatus} onChange={(e) => setEditForm(f => ({ ...f, dqfStatus: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-profile-status">Profile Status</Label>
+                    <Input id="edit-profile-status" value={editForm.profileStatus} onChange={(e) => setEditForm(f => ({ ...f, profileStatus: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Active</Label>
                 <Select value={editForm.isActive ? 'active' : 'inactive'} onValueChange={(val) => setEditForm(f => ({ ...f, isActive: val === 'active' }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
