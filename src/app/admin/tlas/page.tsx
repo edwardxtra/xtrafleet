@@ -44,12 +44,55 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { Search, FileText, RefreshCw, ArrowRight, CheckCircle, XCircle, Ban, Download, Loader2, Trash2 } from 'lucide-react';
+import { Search, FileText, RefreshCw, ArrowRight, CheckCircle, XCircle, Ban, Download, Loader2, Trash2, Edit2 } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAdminRole } from '../layout';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { TLA } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
 import { showSuccess, showError } from '@/lib/toast-utils';
+
+type EditableTLAFields = {
+  paymentAmount: string;
+  paymentDueDate: string;
+  insuranceOption: '' | 'existing_policy' | 'trip_coverage';
+  insuranceConfirmedAt: string;
+  tripStartedAt: string;
+  tripEndedAt: string;
+  lessorLegalName: string;
+  lessorAddress: string;
+  lessorDotNumber: string;
+  lessorMcNumber: string;
+  lessorContactEmail: string;
+  lessorPhone: string;
+  lesseeLegalName: string;
+  lesseeAddress: string;
+  lesseeDotNumber: string;
+  lesseeMcNumber: string;
+  lesseeContactEmail: string;
+  lesseePhone: string;
+};
+
+const EMPTY_TLA_FORM: EditableTLAFields = {
+  paymentAmount: '',
+  paymentDueDate: '',
+  insuranceOption: '',
+  insuranceConfirmedAt: '',
+  tripStartedAt: '',
+  tripEndedAt: '',
+  lessorLegalName: '',
+  lessorAddress: '',
+  lessorDotNumber: '',
+  lessorMcNumber: '',
+  lessorContactEmail: '',
+  lessorPhone: '',
+  lesseeLegalName: '',
+  lesseeAddress: '',
+  lesseeDotNumber: '',
+  lesseeMcNumber: '',
+  lesseeContactEmail: '',
+  lesseePhone: '',
+};
 
 export default function AdminTLAsPage() {
   const firestore = useFirestore();
@@ -66,8 +109,11 @@ export default function AdminTLAsPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedTLAIds, setSelectedTLAIds] = useState<Set<string>>(new Set());
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [editingTLA, setEditingTLA] = useState<TLA | null>(null);
+  const [editForm, setEditForm] = useState<EditableTLAFields>(EMPTY_TLA_FORM);
 
   const canDelete = hasPermission('tlas:delete');
+  const canEditTLA = hasPermission('tlas:void');
 
   const fetchTLAs = async () => {
     if (!firestore) return;
@@ -241,6 +287,86 @@ export default function AdminTLAsPage() {
     }
   };
 
+  const handleOpenEditTLA = (tla: TLA) => {
+    setEditForm({
+      paymentAmount: tla.payment?.amount != null ? String(tla.payment.amount) : '',
+      paymentDueDate: tla.payment?.dueDate || '',
+      insuranceOption: (tla.insurance?.option as '' | 'existing_policy' | 'trip_coverage') || '',
+      insuranceConfirmedAt: tla.insurance?.confirmedAt || '',
+      tripStartedAt: tla.tripTracking?.startedAt || '',
+      tripEndedAt: tla.tripTracking?.endedAt || '',
+      lessorLegalName: tla.lessor?.legalName || '',
+      lessorAddress: tla.lessor?.address || '',
+      lessorDotNumber: tla.lessor?.dotNumber || '',
+      lessorMcNumber: tla.lessor?.mcNumber || '',
+      lessorContactEmail: tla.lessor?.contactEmail || '',
+      lessorPhone: tla.lessor?.phone || '',
+      lesseeLegalName: tla.lessee?.legalName || '',
+      lesseeAddress: tla.lessee?.address || '',
+      lesseeDotNumber: tla.lessee?.dotNumber || '',
+      lesseeMcNumber: tla.lessee?.mcNumber || '',
+      lesseeContactEmail: tla.lessee?.contactEmail || '',
+      lesseePhone: tla.lessee?.phone || '',
+    });
+    setEditingTLA(tla);
+    setSelectedTLA(null);
+  };
+
+  const handleEditTLA = async () => {
+    if (!firestore || !editingTLA || !adminUser) return;
+    setIsProcessing(true);
+    try {
+      const payload: Record<string, any> = {
+        updatedAt: new Date().toISOString(),
+        updatedBy: adminUser.uid,
+        updatedByAdmin: true,
+      };
+      const setIfPresent = (key: string, val: string) => {
+        if (val !== '' && val !== undefined && val !== null) payload[key] = val;
+      };
+
+      const amountNum = Number(editForm.paymentAmount);
+      if (editForm.paymentAmount !== '' && !Number.isNaN(amountNum)) payload['payment.amount'] = amountNum;
+      setIfPresent('payment.dueDate', editForm.paymentDueDate);
+      if (editForm.insuranceOption) payload['insurance.option'] = editForm.insuranceOption;
+      setIfPresent('insurance.confirmedAt', editForm.insuranceConfirmedAt);
+      setIfPresent('tripTracking.startedAt', editForm.tripStartedAt);
+      setIfPresent('tripTracking.endedAt', editForm.tripEndedAt);
+      setIfPresent('lessor.legalName', editForm.lessorLegalName);
+      setIfPresent('lessor.address', editForm.lessorAddress);
+      setIfPresent('lessor.dotNumber', editForm.lessorDotNumber);
+      setIfPresent('lessor.mcNumber', editForm.lessorMcNumber);
+      setIfPresent('lessor.contactEmail', editForm.lessorContactEmail);
+      setIfPresent('lessor.phone', editForm.lessorPhone);
+      setIfPresent('lessee.legalName', editForm.lesseeLegalName);
+      setIfPresent('lessee.address', editForm.lesseeAddress);
+      setIfPresent('lessee.dotNumber', editForm.lesseeDotNumber);
+      setIfPresent('lessee.mcNumber', editForm.lesseeMcNumber);
+      setIfPresent('lessee.contactEmail', editForm.lesseeContactEmail);
+      setIfPresent('lessee.phone', editForm.lesseePhone);
+
+      await updateDoc(doc(firestore, 'tlas', editingTLA.id), payload);
+
+      await logAuditAction(firestore, {
+        action: 'tla_updated',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'tla',
+        targetId: editingTLA.id,
+        targetName: `${editingTLA.trip?.origin || '?'} → ${editingTLA.trip?.destination || '?'}`,
+        reason: 'Updated via admin console',
+      });
+
+      showSuccess('TLA updated successfully');
+      setEditingTLA(null);
+      fetchTLAs();
+    } catch (error: any) {
+      showError(error.message || 'Failed to update TLA');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const canVoidTLA = (tla: TLA) => {
     return !['voided', 'completed'].includes(tla.status);
   };
@@ -381,11 +507,18 @@ export default function AdminTLAsPage() {
                   <Badge variant={getStatusBadgeVariant(selectedTLA.status)}>{selectedTLA.status.replace('_', ' ')}</Badge>
                   <span className="text-sm text-muted-foreground">Version {selectedTLA.version}</span>
                 </div>
-                {canVoidTLA(selectedTLA) && (
-                  <Button variant="destructive" size="sm" onClick={() => setVoidingTLA(selectedTLA)}>
-                    <Ban className="h-4 w-4 mr-2" />Void TLA
-                  </Button>
-                )}
+                <div className="flex gap-2">
+                  {canEditTLA && (
+                    <Button variant="outline" size="sm" onClick={() => handleOpenEditTLA(selectedTLA)}>
+                      <Edit2 className="h-4 w-4 mr-2" />Edit
+                    </Button>
+                  )}
+                  {canVoidTLA(selectedTLA) && (
+                    <Button variant="destructive" size="sm" onClick={() => setVoidingTLA(selectedTLA)}>
+                      <Ban className="h-4 w-4 mr-2" />Void TLA
+                    </Button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-6">
@@ -443,6 +576,143 @@ export default function AdminTLAsPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit TLA Dialog */}
+      <Dialog open={!!editingTLA} onOpenChange={(open) => !open && setEditingTLA(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="font-headline">Edit TLA</DialogTitle>
+            <DialogDescription>
+              {editingTLA?.trip?.origin} → {editingTLA?.trip?.destination}
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[65vh] pr-4">
+            <div className="space-y-4">
+              <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-200">
+                The bilateral compliance snapshot on this TLA is patent-relevant and cannot be edited.
+                Empty fields are left untouched (existing values preserved).
+              </div>
+
+              <p className="text-sm font-medium text-muted-foreground">Payment</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-tla-amount">Amount ($)</Label>
+                  <Input id="edit-tla-amount" type="number" value={editForm.paymentAmount} onChange={(e) => setEditForm(f => ({ ...f, paymentAmount: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-tla-due">Due Date</Label>
+                  <Input id="edit-tla-due" type="date" value={editForm.paymentDueDate} onChange={(e) => setEditForm(f => ({ ...f, paymentDueDate: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Insurance</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-tla-ins-option">Insurance Option</Label>
+                    <Select value={editForm.insuranceOption || 'unchanged'} onValueChange={(v) => setEditForm(f => ({ ...f, insuranceOption: v === 'unchanged' ? '' : (v as '' | 'existing_policy' | 'trip_coverage') }))}>
+                      <SelectTrigger id="edit-tla-ins-option"><SelectValue placeholder="Leave unchanged" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unchanged">Leave unchanged</SelectItem>
+                        <SelectItem value="existing_policy">Existing policy</SelectItem>
+                        <SelectItem value="trip_coverage">Trip coverage</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-tla-ins-confirmed">Confirmed At</Label>
+                    <Input id="edit-tla-ins-confirmed" type="datetime-local" value={editForm.insuranceConfirmedAt} onChange={(e) => setEditForm(f => ({ ...f, insuranceConfirmedAt: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Trip Tracking <span className="font-normal">(support corrections only)</span></p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-tla-started">Started At</Label>
+                    <Input id="edit-tla-started" type="datetime-local" value={editForm.tripStartedAt} onChange={(e) => setEditForm(f => ({ ...f, tripStartedAt: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-tla-ended">Ended At</Label>
+                    <Input id="edit-tla-ended" type="datetime-local" value={editForm.tripEndedAt} onChange={(e) => setEditForm(f => ({ ...f, tripEndedAt: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Lessor (Driver Provider)</p>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-lessor-legal">Legal Name</Label>
+                  <Input id="edit-lessor-legal" value={editForm.lessorLegalName} onChange={(e) => setEditForm(f => ({ ...f, lessorLegalName: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-lessor-address">Address</Label>
+                  <Input id="edit-lessor-address" value={editForm.lessorAddress} onChange={(e) => setEditForm(f => ({ ...f, lessorAddress: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-lessor-dot">DOT Number</Label>
+                    <Input id="edit-lessor-dot" value={editForm.lessorDotNumber} onChange={(e) => setEditForm(f => ({ ...f, lessorDotNumber: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-lessor-mc">MC Number</Label>
+                    <Input id="edit-lessor-mc" value={editForm.lessorMcNumber} onChange={(e) => setEditForm(f => ({ ...f, lessorMcNumber: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-lessor-email">Email</Label>
+                    <Input id="edit-lessor-email" type="email" value={editForm.lessorContactEmail} onChange={(e) => setEditForm(f => ({ ...f, lessorContactEmail: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-lessor-phone">Phone</Label>
+                    <Input id="edit-lessor-phone" value={editForm.lessorPhone} onChange={(e) => setEditForm(f => ({ ...f, lessorPhone: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Lessee (Hiring Carrier)</p>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-lessee-legal">Legal Name</Label>
+                  <Input id="edit-lessee-legal" value={editForm.lesseeLegalName} onChange={(e) => setEditForm(f => ({ ...f, lesseeLegalName: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-lessee-address">Address</Label>
+                  <Input id="edit-lessee-address" value={editForm.lesseeAddress} onChange={(e) => setEditForm(f => ({ ...f, lesseeAddress: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-lessee-dot">DOT Number</Label>
+                    <Input id="edit-lessee-dot" value={editForm.lesseeDotNumber} onChange={(e) => setEditForm(f => ({ ...f, lesseeDotNumber: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-lessee-mc">MC Number</Label>
+                    <Input id="edit-lessee-mc" value={editForm.lesseeMcNumber} onChange={(e) => setEditForm(f => ({ ...f, lesseeMcNumber: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-lessee-email">Email</Label>
+                    <Input id="edit-lessee-email" type="email" value={editForm.lesseeContactEmail} onChange={(e) => setEditForm(f => ({ ...f, lesseeContactEmail: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-lessee-phone">Phone</Label>
+                    <Input id="edit-lessee-phone" value={editForm.lesseePhone} onChange={(e) => setEditForm(f => ({ ...f, lesseePhone: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingTLA(null)}>Cancel</Button>
+            <Button onClick={handleEditTLA} disabled={isProcessing}>
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : 'Save Changes'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
