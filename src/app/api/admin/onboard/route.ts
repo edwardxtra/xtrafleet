@@ -12,6 +12,7 @@ import { getFirebaseAdmin, FieldValue } from '@/lib/firebase-admin-singleton';
 import { withCors } from '@/lib/api-cors';
 import { hasPermission, getDefaultRoleForLegacyAdmin, type AdminRole } from '@/lib/admin-roles';
 import { lookupByDOT } from '@/lib/fmcsa';
+import { sendActivationEmail } from '@/lib/email';
 import {
   generateActivationToken,
   hashActivationToken,
@@ -163,7 +164,15 @@ async function handlePost(request: NextRequest) {
         expiresAt,
       });
 
-    // 8. Audit.
+    const activationUrl = `${APP_URL}/activate?token=${rawToken}`;
+
+    // 8. Email the activation link to the customer (best-effort — the admin
+    //    still gets the link in the response as a backup).
+    sendActivationEmail(input.contactEmail, input.contactName, activationUrl).catch(err =>
+      console.error('[admin/onboard] activation email failed', err)
+    );
+
+    // 9. Audit.
     await db.collection('admin_audit').add({
       action: 'pre_registered_account',
       adminId: adminUid,
@@ -178,7 +187,7 @@ async function handlePost(request: NextRequest) {
       {
         success: true,
         ownerOperatorId,
-        activationUrl: `${APP_URL}/activate?token=${rawToken}`,
+        activationUrl,
         expiresAt,
         carrier: {
           legalName: carrier.legalName,
