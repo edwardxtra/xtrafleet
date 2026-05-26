@@ -26,9 +26,13 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,8 +44,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
-import { collectionGroup, getDocs, doc, getDoc, deleteDoc } from 'firebase/firestore';
-import { Search, Package, RefreshCw, ArrowRight, Building2, Download, Trash2, Loader2 } from 'lucide-react';
+import { collectionGroup, getDocs, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { Search, Package, RefreshCw, ArrowRight, Building2, Download, Trash2, Loader2, Edit2 } from 'lucide-react';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { useAdminRole } from '../layout';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -51,6 +55,19 @@ import { logAuditAction } from '@/lib/audit';
 type LoadWithOwner = Load & {
   ownerId?: string;
   ownerCompanyName?: string;
+};
+
+type EditableLoadFields = {
+  origin: string;
+  destination: string;
+  cargo: string;
+  weight: string; // number → string in the form; parsed on save
+  status: '' | 'Pending' | 'Matched' | 'In-transit' | 'Delivered';
+  trailerType: string;
+  description: string;
+  price: string; // number → string in the form; parsed on save
+  pickupDate: string;
+  requiredQualifications: string; // comma-separated; parsed to string[] on save
 };
 
 export default function AdminLoadsPage() {
@@ -67,8 +84,22 @@ export default function AdminLoadsPage() {
   const [selectedLoadIds, setSelectedLoadIds] = useState<Set<string>>(new Set());
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [editingLoad, setEditingLoad] = useState<LoadWithOwner | null>(null);
+  const [editForm, setEditForm] = useState<EditableLoadFields>({
+    origin: '',
+    destination: '',
+    cargo: '',
+    weight: '',
+    status: '',
+    trailerType: '',
+    description: '',
+    price: '',
+    pickupDate: '',
+    requiredQualifications: '',
+  });
 
   const canDelete = hasPermission('loads:delete');
+  const canEdit = hasPermission('loads:edit');
 
   const fetchLoads = async () => {
     if (!firestore) return;
@@ -172,6 +203,74 @@ export default function AdminLoadsPage() {
       fetchLoads();
     } catch (error: any) {
       showError(error.message || 'Failed to delete loads');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleOpenEditLoad = (load: LoadWithOwner) => {
+    const reqs = Array.isArray(load.requiredQualifications)
+      ? load.requiredQualifications.join(', ')
+      : '';
+    setEditForm({
+      origin: load.origin || '',
+      destination: load.destination || '',
+      cargo: load.cargo || '',
+      weight: load.weight != null ? String(load.weight) : '',
+      status: (load.status as EditableLoadFields['status']) || '',
+      trailerType: (load.trailerType as string) || '',
+      description: load.description || '',
+      price: load.price != null ? String(load.price) : '',
+      pickupDate: load.pickupDate || '',
+      requiredQualifications: reqs,
+    });
+    setEditingLoad(load);
+    setSelectedLoad(null);
+  };
+
+  const handleEditLoad = async () => {
+    if (!firestore || !editingLoad || !adminUser || !editingLoad.ownerId) return;
+    setIsProcessing(true);
+    try {
+      const loadRef = doc(firestore, `owner_operators/${editingLoad.ownerId}/loads`, editingLoad.id);
+      const payload: Record<string, any> = {
+        origin: editForm.origin,
+        destination: editForm.destination,
+        cargo: editForm.cargo,
+        description: editForm.description,
+        trailerType: editForm.trailerType || null,
+        pickupDate: editForm.pickupDate || null,
+        updatedAt: new Date().toISOString(),
+        updatedBy: adminUser.uid,
+        updatedByAdmin: true,
+      };
+      const weightNum = Number(editForm.weight);
+      if (editForm.weight !== '' && !Number.isNaN(weightNum)) payload.weight = weightNum;
+      const priceNum = Number(editForm.price);
+      if (editForm.price !== '' && !Number.isNaN(priceNum)) payload.price = priceNum;
+      if (editForm.status) payload.status = editForm.status;
+      payload.requiredQualifications = editForm.requiredQualifications.trim()
+        ? editForm.requiredQualifications.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+
+      await updateDoc(loadRef, payload);
+
+      await logAuditAction(firestore, {
+        action: 'load_updated',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'load',
+        targetId: editingLoad.id,
+        targetName: `${editForm.origin} → ${editForm.destination}`,
+        reason: 'Updated via admin console',
+        details: { ownerId: editingLoad.ownerId },
+      });
+
+      showSuccess('Load updated successfully');
+      setEditingLoad(null);
+      fetchLoads();
+    } catch (error: any) {
+      showError(error.message || 'Failed to update load');
     } finally {
       setIsProcessing(false);
     }
@@ -396,6 +495,90 @@ export default function AdminLoadsPage() {
               )}
             </div>
           )}
+          {canEdit && selectedLoad && (
+            <DialogFooter>
+              <Button variant="outline" onClick={() => handleOpenEditLoad(selectedLoad)}>
+                <Edit2 className="h-4 w-4 mr-2" />Edit Load
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Load Dialog */}
+      <Dialog open={!!editingLoad} onOpenChange={(open) => !open && setEditingLoad(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="font-headline">Edit Load</DialogTitle>
+            <DialogDescription>
+              {editingLoad?.origin} → {editingLoad?.destination}
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh] pr-4">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-origin">Origin</Label>
+                  <Input id="edit-origin" value={editForm.origin} onChange={(e) => setEditForm(f => ({ ...f, origin: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-destination">Destination</Label>
+                  <Input id="edit-destination" value={editForm.destination} onChange={(e) => setEditForm(f => ({ ...f, destination: e.target.value }))} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-cargo">Cargo</Label>
+                <Input id="edit-cargo" value={editForm.cargo} onChange={(e) => setEditForm(f => ({ ...f, cargo: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-weight">Weight (lbs)</Label>
+                  <Input id="edit-weight" type="number" value={editForm.weight} onChange={(e) => setEditForm(f => ({ ...f, weight: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-price">Price ($)</Label>
+                  <Input id="edit-price" type="number" value={editForm.price} onChange={(e) => setEditForm(f => ({ ...f, price: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-status">Status</Label>
+                  <Select value={editForm.status || 'unchanged'} onValueChange={(v) => setEditForm(f => ({ ...f, status: v === 'unchanged' ? '' : (v as EditableLoadFields['status']) }))}>
+                    <SelectTrigger id="edit-status"><SelectValue placeholder="Leave unchanged" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unchanged">Leave unchanged</SelectItem>
+                      <SelectItem value="Pending">Pending</SelectItem>
+                      <SelectItem value="Matched">Matched</SelectItem>
+                      <SelectItem value="In-transit">In-transit</SelectItem>
+                      <SelectItem value="Delivered">Delivered</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-pickup">Pickup Date</Label>
+                  <Input id="edit-pickup" type="date" value={editForm.pickupDate} onChange={(e) => setEditForm(f => ({ ...f, pickupDate: e.target.value }))} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-trailer">Trailer Type</Label>
+                <Input id="edit-trailer" value={editForm.trailerType} onChange={(e) => setEditForm(f => ({ ...f, trailerType: e.target.value }))} placeholder="e.g. dry-van, reefer, flatbed" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-reqs">Required Qualifications <span className="text-xs text-muted-foreground">(comma-separated)</span></Label>
+                <Input id="edit-reqs" value={editForm.requiredQualifications} onChange={(e) => setEditForm(f => ({ ...f, requiredQualifications: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-description">Description</Label>
+                <Textarea id="edit-description" rows={3} value={editForm.description} onChange={(e) => setEditForm(f => ({ ...f, description: e.target.value }))} />
+              </div>
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingLoad(null)}>Cancel</Button>
+            <Button onClick={handleEditLoad} disabled={isProcessing}>
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : 'Save Changes'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
