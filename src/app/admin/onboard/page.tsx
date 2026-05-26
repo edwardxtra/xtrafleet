@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, UserPlus, Copy, CheckCircle2 } from 'lucide-react';
+import { Loader2, UserPlus, Copy, CheckCircle2, Search } from 'lucide-react';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { useAdminRole } from '../layout';
 
@@ -23,38 +23,108 @@ interface OnboardResult {
   carrier: { legalName?: string; authorityStatus?: string; allowedToOperate: boolean };
 }
 
+interface FormState {
+  companyName: string;
+  legalName: string;
+  contactName: string;
+  contactEmail: string;
+  phone: string;
+  dotNumber: string;
+  mcNumber: string;
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+}
+
+const EMPTY_FORM: FormState = {
+  companyName: '',
+  legalName: '',
+  contactName: '',
+  contactEmail: '',
+  phone: '',
+  dotNumber: '',
+  mcNumber: '',
+  address: '',
+  city: '',
+  state: '',
+  zip: '',
+};
+
 export default function AdminOnboardPage() {
   const { hasPermission } = useAdminRole();
   const canOnboard = hasPermission('users:create');
 
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [lookingUp, setLookingUp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<OnboardResult | null>(null);
 
+  const update =
+    (field: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+    };
+
+  const handleLookup = async () => {
+    const dot = form.dotNumber.trim();
+    if (!dot) {
+      showError('Enter a DOT number first.');
+      return;
+    }
+    setLookingUp(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/fmcsa-lookup?dot=${encodeURIComponent(dot)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.carrier) {
+        const message = data?.error || 'FMCSA lookup failed.';
+        setError(message);
+        showError(message);
+        return;
+      }
+      const c = data.carrier as {
+        legalName?: string;
+        dbaName?: string;
+        mcNumber?: string;
+        hqAddress?: string;
+        hqCity?: string;
+        hqState?: string;
+        hqZip?: string;
+        phone?: string;
+      };
+      // Don't overwrite anything the admin has already typed.
+      setForm((prev) => ({
+        ...prev,
+        companyName: prev.companyName || c.dbaName || c.legalName || '',
+        legalName: prev.legalName || c.legalName || '',
+        mcNumber: prev.mcNumber || c.mcNumber || '',
+        address: prev.address || c.hqAddress || '',
+        city: prev.city || c.hqCity || '',
+        state: prev.state || c.hqState || '',
+        zip: prev.zip || c.hqZip || '',
+        phone: prev.phone || c.phone || '',
+      }));
+      showSuccess(`FMCSA records loaded${c.legalName ? ` for ${c.legalName}` : ''}.`);
+    } catch (err) {
+      console.error('FMCSA lookup error:', err);
+      const message = 'Could not reach FMCSA. Try again.';
+      setError(message);
+      showError(message);
+    } finally {
+      setLookingUp(false);
+    }
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
-    const form = new FormData(event.currentTarget);
-    const payload = {
-      companyName: String(form.get('companyName') || ''),
-      legalName: String(form.get('legalName') || ''),
-      contactName: String(form.get('contactName') || ''),
-      contactEmail: String(form.get('contactEmail') || ''),
-      phone: String(form.get('phone') || ''),
-      dotNumber: String(form.get('dotNumber') || ''),
-      mcNumber: String(form.get('mcNumber') || ''),
-      address: String(form.get('address') || ''),
-      city: String(form.get('city') || ''),
-      state: String(form.get('state') || ''),
-      zip: String(form.get('zip') || ''),
-    };
-
     setSubmitting(true);
     try {
       const res = await fetch('/api/admin/onboard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(form),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -139,6 +209,7 @@ export default function AdminOnboardPage() {
                 setResult(null);
                 setError(null);
                 setSubmitting(false);
+                setForm(EMPTY_FORM);
               }}
             >
               Onboard another customer
@@ -158,9 +229,9 @@ export default function AdminOnboardPage() {
             Onboard a Customer
           </CardTitle>
           <CardDescription>
-            Pre-register a fleet on the customer&apos;s behalf using the details collected
-            over the phone. The carrier is verified against FMCSA and a one-time activation
-            link is generated.
+            Pre-register a fleet on the customer&apos;s behalf. Enter the DOT and click
+            <em> Look up FMCSA</em> to auto-fill the company details, then add the contact
+            information.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -173,27 +244,64 @@ export default function AdminOnboardPage() {
             <div className="grid gap-4">
               <p className="text-sm font-medium text-muted-foreground">Company</p>
               <div className="grid gap-2">
+                <Label htmlFor="dotNumber">DOT Number *</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="dotNumber"
+                    value={form.dotNumber}
+                    onChange={update('dotNumber')}
+                    required
+                    disabled={submitting || lookingUp}
+                    placeholder="e.g. 1234567"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleLookup}
+                    disabled={submitting || lookingUp || !form.dotNumber.trim()}
+                  >
+                    {lookingUp ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Search className="mr-2 h-4 w-4" />
+                        Look up FMCSA
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Looks up the carrier and auto-fills the company name, address, and MC #.
+                </p>
+              </div>
+              <div className="grid gap-2">
                 <Label htmlFor="companyName">Company Name *</Label>
-                <Input id="companyName" name="companyName" required disabled={submitting} />
+                <Input
+                  id="companyName"
+                  value={form.companyName}
+                  onChange={update('companyName')}
+                  required
+                  disabled={submitting}
+                />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="legalName">Legal Name</Label>
                 <Input
                   id="legalName"
-                  name="legalName"
+                  value={form.legalName}
+                  onChange={update('legalName')}
                   placeholder="Defaults to the FMCSA legal name"
                   disabled={submitting}
                 />
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label htmlFor="dotNumber">DOT Number *</Label>
-                  <Input id="dotNumber" name="dotNumber" required disabled={submitting} />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="mcNumber">MC Number</Label>
-                  <Input id="mcNumber" name="mcNumber" disabled={submitting} />
-                </div>
+              <div className="grid gap-2">
+                <Label htmlFor="mcNumber">MC Number</Label>
+                <Input
+                  id="mcNumber"
+                  value={form.mcNumber}
+                  onChange={update('mcNumber')}
+                  disabled={submitting}
+                />
               </div>
             </div>
 
@@ -202,19 +310,32 @@ export default function AdminOnboardPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="grid gap-2">
                   <Label htmlFor="contactName">Contact Name *</Label>
-                  <Input id="contactName" name="contactName" required disabled={submitting} />
+                  <Input
+                    id="contactName"
+                    value={form.contactName}
+                    onChange={update('contactName')}
+                    required
+                    disabled={submitting}
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="phone">Phone</Label>
-                  <Input id="phone" name="phone" type="tel" disabled={submitting} />
+                  <Input
+                    id="phone"
+                    type="tel"
+                    value={form.phone}
+                    onChange={update('phone')}
+                    disabled={submitting}
+                  />
                 </div>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="contactEmail">Contact Email *</Label>
                 <Input
                   id="contactEmail"
-                  name="contactEmail"
                   type="email"
+                  value={form.contactEmail}
+                  onChange={update('contactEmail')}
                   required
                   disabled={submitting}
                 />
@@ -226,24 +347,44 @@ export default function AdminOnboardPage() {
 
             <div className="grid gap-4 border-t pt-4">
               <p className="text-sm font-medium text-muted-foreground">
-                Address <span className="font-normal">(optional — filled from FMCSA if blank)</span>
+                Address <span className="font-normal">(filled by FMCSA lookup)</span>
               </p>
               <div className="grid gap-2">
                 <Label htmlFor="address">Street Address</Label>
-                <Input id="address" name="address" disabled={submitting} />
+                <Input
+                  id="address"
+                  value={form.address}
+                  onChange={update('address')}
+                  disabled={submitting}
+                />
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="grid gap-2">
                   <Label htmlFor="city">City</Label>
-                  <Input id="city" name="city" disabled={submitting} />
+                  <Input
+                    id="city"
+                    value={form.city}
+                    onChange={update('city')}
+                    disabled={submitting}
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="state">State</Label>
-                  <Input id="state" name="state" disabled={submitting} />
+                  <Input
+                    id="state"
+                    value={form.state}
+                    onChange={update('state')}
+                    disabled={submitting}
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="zip">ZIP</Label>
-                  <Input id="zip" name="zip" disabled={submitting} />
+                  <Input
+                    id="zip"
+                    value={form.zip}
+                    onChange={update('zip')}
+                    disabled={submitting}
+                  />
                 </div>
               </div>
             </div>
