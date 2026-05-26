@@ -1,14 +1,25 @@
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Firestore } from 'firebase/firestore';
 
-export type AuditAction = 
+export type AuditAction =
+  | 'user_created'
   | 'user_suspended'
   | 'user_reactivated'
   | 'user_updated'
-  | 'tla_voided'
-  | 'match_cancelled'
+  | 'user_deleted'
+  | 'user_activation_resent'
+  | 'driver_updated'
+  | 'driver_deleted'
   | 'driver_deactivated'
   | 'driver_reactivated'
+  | 'load_updated'
+  | 'load_deleted'
+  | 'match_cancelled'
+  | 'match_updated'
+  | 'match_deleted'
+  | 'tla_voided'
+  | 'tla_updated'
+  | 'tla_deleted'
   | 'admin_login'
   | 'data_exported';
 
@@ -17,7 +28,7 @@ export interface AuditLogEntry {
   action: AuditAction;
   adminId: string;
   adminEmail: string;
-  targetType: 'user' | 'tla' | 'match' | 'driver' | 'system';
+  targetType: 'user' | 'tla' | 'match' | 'driver' | 'load' | 'system';
   targetId: string;
   targetName?: string;
   details?: Record<string, any>;
@@ -41,13 +52,24 @@ export async function logAuditAction(
 
 export function getActionLabel(action: AuditAction): string {
   const labels: Record<AuditAction, string> = {
+    user_created: 'User Created',
     user_suspended: 'User Suspended',
     user_reactivated: 'User Reactivated',
     user_updated: 'User Updated',
-    tla_voided: 'TLA Voided',
-    match_cancelled: 'Match Cancelled',
+    user_deleted: 'User Deleted',
+    user_activation_resent: 'Activation Email Sent',
+    driver_updated: 'Driver Updated',
+    driver_deleted: 'Driver Deleted',
     driver_deactivated: 'Driver Deactivated',
     driver_reactivated: 'Driver Reactivated',
+    load_updated: 'Load Updated',
+    load_deleted: 'Load Deleted',
+    match_cancelled: 'Match Cancelled',
+    match_updated: 'Match Updated',
+    match_deleted: 'Match Deleted',
+    tla_voided: 'TLA Voided',
+    tla_updated: 'TLA Updated',
+    tla_deleted: 'TLA Deleted',
     admin_login: 'Admin Login',
     data_exported: 'Data Exported',
   };
@@ -58,8 +80,11 @@ export function getActionColor(action: AuditAction): string {
   if (action.includes('suspended') || action.includes('voided') || action.includes('cancelled') || action.includes('deactivated')) {
     return 'text-red-600';
   }
-  if (action.includes('reactivated')) {
+  if (action.includes('reactivated') || action.includes('activation_resent')) {
     return 'text-green-600';
+  }
+  if (action.includes('updated')) {
+    return 'text-amber-600';
   }
   return 'text-blue-600';
 }

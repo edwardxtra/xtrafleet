@@ -45,7 +45,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, writeBatch } from 'firebase/firestore';
-import { Search, MoreHorizontal, Users, Truck, Package, Eye, RefreshCw, Building2, Ban, CheckCircle, Download, Loader2, UserPlus, Edit2, Trash2 } from 'lucide-react';
+import { Search, MoreHorizontal, Users, Truck, Package, Eye, RefreshCw, Building2, Ban, CheckCircle, Download, Loader2, UserPlus, Edit2, Trash2, Send } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { OwnerOperator } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
 import { showSuccess, showError } from '@/lib/toast-utils';
@@ -61,14 +62,25 @@ type UserWithStats = OwnerOperator & {
 type EditableUserFields = {
   companyName: string;
   legalName: string;
+  contactName: string;
   contactEmail: string;
   phone: string;
   dotNumber: string;
   mcNumber: string;
+  ein: string;
+  dba: string;
   address: string;
+  hqAddress: string;
   city: string;
   state: string;
   zipCode: string;
+  loadLocation: string;
+  serviceRegions: string;
+  coiDocumentUrl: string;
+  coiDocumentUploadedAt: string;
+  accountStatus: '' | 'pre-activated' | 'active' | 'suspended';
+  subscriptionStatus: string;
+  subscriptionPlan: string;
 };
 
 export default function AdminUsersPage() {
@@ -91,28 +103,50 @@ export default function AdminUsersPage() {
   const [editForm, setEditForm] = useState<EditableUserFields>({
     companyName: '',
     legalName: '',
+    contactName: '',
     contactEmail: '',
     phone: '',
     dotNumber: '',
     mcNumber: '',
+    ein: '',
+    dba: '',
     address: '',
+    hqAddress: '',
     city: '',
     state: '',
     zipCode: '',
+    loadLocation: '',
+    serviceRegions: '',
+    coiDocumentUrl: '',
+    coiDocumentUploadedAt: '',
+    accountStatus: '',
+    subscriptionStatus: '',
+    subscriptionPlan: '',
   });
 
   // Create form state
   const [createForm, setCreateForm] = useState<EditableUserFields>({
     companyName: '',
     legalName: '',
+    contactName: '',
     contactEmail: '',
     phone: '',
     dotNumber: '',
     mcNumber: '',
+    ein: '',
+    dba: '',
     address: '',
+    hqAddress: '',
     city: '',
     state: '',
     zipCode: '',
+    loadLocation: '',
+    serviceRegions: '',
+    coiDocumentUrl: '',
+    coiDocumentUploadedAt: '',
+    accountStatus: '',
+    subscriptionStatus: '',
+    subscriptionPlan: '',
   });
 
   const canCreate = hasPermission('users:create');
@@ -207,14 +241,25 @@ export default function AdminUsersPage() {
       setCreateForm({
         companyName: '',
         legalName: '',
+        contactName: '',
         contactEmail: '',
         phone: '',
         dotNumber: '',
         mcNumber: '',
+        ein: '',
+        dba: '',
         address: '',
+        hqAddress: '',
         city: '',
         state: '',
         zipCode: '',
+        loadLocation: '',
+        serviceRegions: '',
+        coiDocumentUrl: '',
+        coiDocumentUploadedAt: '',
+        accountStatus: '',
+        subscriptionStatus: '',
+        subscriptionPlan: '',
       });
       fetchUsers();
     } catch (error: any) {
@@ -229,11 +274,20 @@ export default function AdminUsersPage() {
 
     setIsProcessing(true);
     try {
-      await updateDoc(doc(firestore, 'owner_operators', editingUser.id), {
-        ...editForm,
+      const { coiDocumentUrl, coiDocumentUploadedAt, accountStatus, ...rest } = editForm;
+      const payload: Record<string, any> = {
+        ...rest,
         updatedAt: new Date().toISOString(),
         updatedBy: adminUser.uid,
-      });
+      };
+      // Nested insurance fields via dot-notation so other insurance.* fields
+      // (set by other flows) aren't clobbered.
+      if (coiDocumentUrl) payload['insurance.coiDocumentUrl'] = coiDocumentUrl;
+      if (coiDocumentUploadedAt) payload['insurance.coiDocumentUploadedAt'] = coiDocumentUploadedAt;
+      // accountStatus is optional in the form — only flip when the admin picked a value.
+      if (accountStatus) payload.accountStatus = accountStatus;
+
+      await updateDoc(doc(firestore, 'owner_operators', editingUser.id), payload);
 
       await logAuditAction(firestore, {
         action: 'user_updated',
@@ -366,18 +420,60 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleSendActivation = async (user: UserWithStats) => {
+    if (!firestore || !adminUser) return;
+    if (user.accountStatus !== 'pre-activated') {
+      showError('Only pre-activated accounts can receive an activation email.');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/send-activation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to send activation email.');
+      showSuccess(`Activation email sent to ${user.contactEmail}.`);
+      fetchUsers();
+    } catch (error: any) {
+      showError(error.message || 'Failed to send activation email.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleOpenEdit = (user: UserWithStats) => {
+    const u = user as UserWithStats & {
+      address?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+      subscriptionStatus?: string;
+      subscriptionPlan?: string;
+    };
     setEditForm({
       companyName: user.companyName || '',
       legalName: user.legalName || '',
+      contactName: user.contactName || '',
       contactEmail: user.contactEmail || '',
       phone: user.phone || '',
       dotNumber: user.dotNumber || '',
       mcNumber: user.mcNumber || '',
-      address: (user as any).address || '',
-      city: (user as any).city || '',
-      state: (user as any).state || '',
-      zipCode: (user as any).zipCode || '',
+      ein: user.ein || '',
+      dba: user.dba || '',
+      address: u.address || '',
+      hqAddress: user.hqAddress || '',
+      city: u.city || '',
+      state: u.state || '',
+      zipCode: u.zipCode || '',
+      loadLocation: user.loadLocation || '',
+      serviceRegions: user.serviceRegions || '',
+      coiDocumentUrl: user.insurance?.coiDocumentUrl || '',
+      coiDocumentUploadedAt: user.insurance?.coiDocumentUploadedAt || '',
+      accountStatus: (user.accountStatus as '' | 'pre-activated' | 'active' | 'suspended') || '',
+      subscriptionStatus: u.subscriptionStatus || '',
+      subscriptionPlan: u.subscriptionPlan || '',
     });
     setEditingUser(user);
   };
@@ -529,6 +625,11 @@ export default function AdminUsersPage() {
                           {canEdit && (
                             <DropdownMenuItem onClick={() => handleOpenEdit(user)}>
                               <Edit2 className="h-4 w-4 mr-2" />Edit User
+                            </DropdownMenuItem>
+                          )}
+                          {user.accountStatus === 'pre-activated' && hasPermission('users:create') && (
+                            <DropdownMenuItem onClick={() => handleSendActivation(user)} className="text-blue-600">
+                              <Send className="h-4 w-4 mr-2" />Send Activation Email
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />
@@ -728,6 +829,75 @@ export default function AdminUsersPage() {
                 <div className="space-y-2">
                   <Label htmlFor="edit-zip">ZIP Code</Label>
                   <Input id="edit-zip" value={editForm.zipCode} onChange={(e) => setEditForm(f => ({ ...f, zipCode: e.target.value }))} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-contact-name">Contact Name</Label>
+                <Input id="edit-contact-name" value={editForm.contactName} onChange={(e) => setEditForm(f => ({ ...f, contactName: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-ein">EIN</Label>
+                  <Input id="edit-ein" value={editForm.ein} onChange={(e) => setEditForm(f => ({ ...f, ein: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-dba">DBA</Label>
+                  <Input id="edit-dba" value={editForm.dba} onChange={(e) => setEditForm(f => ({ ...f, dba: e.target.value }))} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-hq-address">HQ Address</Label>
+                <Input id="edit-hq-address" value={editForm.hqAddress} onChange={(e) => setEditForm(f => ({ ...f, hqAddress: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-load-location">Load Location</Label>
+                  <Input id="edit-load-location" value={editForm.loadLocation} onChange={(e) => setEditForm(f => ({ ...f, loadLocation: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-service-regions">Service Regions</Label>
+                  <Input id="edit-service-regions" value={editForm.serviceRegions} onChange={(e) => setEditForm(f => ({ ...f, serviceRegions: e.target.value }))} />
+                </div>
+              </div>
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Account &amp; Subscription</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-account-status">Account Status</Label>
+                    <Select
+                      value={editForm.accountStatus || 'unchanged'}
+                      onValueChange={(v) => setEditForm(f => ({ ...f, accountStatus: v === 'unchanged' ? '' : (v as '' | 'pre-activated' | 'active' | 'suspended') }))}
+                    >
+                      <SelectTrigger id="edit-account-status">
+                        <SelectValue placeholder="Leave unchanged" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unchanged">Leave unchanged</SelectItem>
+                        <SelectItem value="pre-activated">Pre-activated</SelectItem>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="suspended">Suspended</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-subscription-status">Subscription Status</Label>
+                    <Input id="edit-subscription-status" value={editForm.subscriptionStatus} onChange={(e) => setEditForm(f => ({ ...f, subscriptionStatus: e.target.value }))} placeholder="e.g. active, inactive, trialing" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-subscription-plan">Subscription Plan</Label>
+                  <Input id="edit-subscription-plan" value={editForm.subscriptionPlan} onChange={(e) => setEditForm(f => ({ ...f, subscriptionPlan: e.target.value }))} placeholder="e.g. starter, pro, enterprise" />
+                </div>
+              </div>
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Insurance (COI)</p>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-coi-url">COI Document URL</Label>
+                  <Input id="edit-coi-url" type="url" value={editForm.coiDocumentUrl} onChange={(e) => setEditForm(f => ({ ...f, coiDocumentUrl: e.target.value }))} placeholder="https://..." />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-coi-uploaded">COI Uploaded At</Label>
+                  <Input id="edit-coi-uploaded" type="datetime-local" value={editForm.coiDocumentUploadedAt} onChange={(e) => setEditForm(f => ({ ...f, coiDocumentUploadedAt: e.target.value }))} />
                 </div>
               </div>
             </div>
