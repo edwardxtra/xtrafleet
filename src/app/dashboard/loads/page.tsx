@@ -120,8 +120,8 @@ export default function LoadsPage() {
   const statusCounts = loads.reduce((acc, l) => { const s = (l.status || 'live') as string; acc[s] = (acc[s] || 0) + 1; return acc; }, {} as Record<string, number>);
 
   return (
-    <div className="container py-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold font-headline">Freight Loads</h1>
           <p className="text-muted-foreground mt-1">Manage your posted freight loads and track their status</p>
@@ -181,7 +181,7 @@ export default function LoadsPage() {
                   const compensation = load.driverCompensation || load.price || 0;
                   const loadType = load.loadType || load.cargo || '';
                   return (
-                    <TableRow key={load.id} className="cursor-pointer hover:bg-muted/50" onClick={() => router.push(`/dashboard/loads/${load.id}/edit`)}>
+                    <TableRow key={load.id} className="hover:bg-muted/50">
                       <TableCell>
                         <div className="font-medium">{load.origin}</div>
                         <div className="text-sm text-muted-foreground">{`\u2192 ${load.destination}`}</div>
@@ -192,7 +192,7 @@ export default function LoadsPage() {
                       <TableCell className="text-right font-medium">{compensation > 0 ? `$${compensation.toLocaleString()}` : 'N/A'}</TableCell>
                       <TableCell><Badge variant={getStatusBadgeVariant(status)}>{getStatusLabel(status)}</Badge></TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1">
                           {editable && <Button variant="ghost" size="sm" onClick={() => router.push(`/dashboard/loads/${load.id}/edit`)}><Edit className="h-4 w-4" /></Button>}
                           {deletable && <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteTarget(load)}>{status === 'draft' ? <Trash2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}</Button>}
                         </div>

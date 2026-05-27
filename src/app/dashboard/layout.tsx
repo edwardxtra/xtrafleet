@@ -18,7 +18,7 @@ import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HelpWidget } from "@/components/help-widget";
 import { OnboardingBanner } from "@/components/onboarding-banner";
-import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Loader2, FileText, HelpCircle, Shield, MessageSquare, User, ChevronDown, ArrowLeftRight } from "lucide-react";
+import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Loader2, FileText, Shield, MessageSquare, User, ChevronDown, ArrowLeftRight, CreditCard } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
 import { ImpersonationBanner } from "@/components/impersonation-banner";
@@ -66,8 +66,8 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
         <SidebarMenu>
           <SidebarMenuItem><SidebarNavLink href="/dashboard/profile" tooltip="Profile"><User /><span>Profile</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem><SidebarNavLink href="/dashboard/settings" tooltip="Settings"><Settings /><span>Settings</span></SidebarNavLink></SidebarMenuItem>
-          <SidebarMenuItem><SidebarNavLink href="/dashboard/billing" tooltip="Billing"><LifeBuoy /><span>Billing & Support</span></SidebarNavLink></SidebarMenuItem>
-          <SidebarMenuItem><SidebarNavLink href="/dashboard/contact" tooltip="Contact Us"><HelpCircle /><span>Contact Us</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/billing" tooltip="Billing"><CreditCard /><span>Billing & Support</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/contact" tooltip="Contact Us"><LifeBuoy /><span>Contact Us</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton onClick={handleSignOutClick} tooltip="Logout"><LogOut /><span>Logout</span></SidebarMenuButton></SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
