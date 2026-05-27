@@ -288,7 +288,9 @@ export default function RequestsPage() {
       if (complianceWarning && complianceMessage) showInfo(complianceMessage);
       showInfo("You can now message the driver owner.");
       setCounterModalOpen(false);
-      setTimeout(() => { router.push(`/dashboard/tla/${tlaId}`); }, 800);
+      // DEV-141: navigate immediately instead of via a delayed setTimeout that
+      // can fire after the user has already navigated away.
+      router.push(`/dashboard/tla/${tlaId}`);
     } catch (error: any) { console.error("Error accepting counter:", error); showError(error.message || "Failed to accept counter offer."); } finally { setIsAccepting(false); }
   };
 
@@ -304,7 +306,10 @@ export default function RequestsPage() {
     } catch (error: any) { console.error("Error declining counter:", error); showError(error.message || "Failed to decline counter offer."); } finally { setIsDeclining(false); }
   };
 
-  const isLoading = activeTab === "incoming" ? incomingLoading : sentLoading;
+  // DEV-148: both queries fire on mount; if we gate solely on the active
+  // tab's loading flag, the inactive tab's badge can render `0` and look
+  // like there's nothing there. Wait for both before showing badges.
+  const isLoading = incomingLoading || sentLoading;
   if (isLoading) return (<div className="space-y-6"><div><h1 className="text-2xl font-bold font-headline">Match Requests</h1><p className="text-muted-foreground">Loading...</p></div><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{[1,2,3].map(i => (<Card key={i}><CardHeader><Skeleton className="h-6 w-48" /><Skeleton className="h-4 w-32" /></CardHeader><CardContent><Skeleton className="h-20 w-full" /></CardContent></Card>))}</div></div>);
 
   return (
