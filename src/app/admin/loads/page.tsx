@@ -161,6 +161,12 @@ export default function AdminLoadsPage() {
 
   useEffect(() => { fetchLoads(); }, [firestore]);
 
+  // Prefill the search box from `?q=` so global-search deep links land here.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q) setSearchQuery(q);
+  }, []);
+
   useEffect(() => {
     let filtered = loads;
     if (searchQuery.trim() !== '') {

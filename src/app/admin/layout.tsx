@@ -28,7 +28,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from "@/components/logo";
-import { Home, Users, Truck, LogOut, Loader2, FileText, Link2, Shield, ClipboardList, Package, Settings, CreditCard, UserPlus, MessageSquare, Activity } from "lucide-react";
+import { Home, Users, Truck, LogOut, Loader2, FileText, Link2, Shield, ClipboardList, Package, Settings, CreditCard, UserPlus, MessageSquare, Activity, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -51,6 +52,33 @@ const AdminContext = createContext<AdminContextType>({
 });
 
 export const useAdminRole = () => useContext(AdminContext);
+
+function AdminHeaderSearch() {
+  const router = useRouter();
+  const [q, setQ] = useState('');
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const trimmed = q.trim();
+        if (!trimmed) return;
+        router.push(`/admin/search?q=${encodeURIComponent(trimmed)}`);
+        setQ('');
+      }}
+      className="ml-auto flex items-center gap-2"
+    >
+      <div className="relative">
+        <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search…"
+          className="pl-7 h-9 w-48 sm:w-64"
+        />
+      </div>
+    </form>
+  );
+}
 
 function AdminSidebarNavLink({ href, children, tooltip }: { href: string; children: React.ReactNode; tooltip: string; }) {
   const { setOpenMobile, isMobile } = useSidebar();
@@ -120,6 +148,11 @@ function AdminSidebarNav({ onSignOutClick, adminRole }: { onSignOutClick: () => 
           {checkPermission('audit:view') && (
             <SidebarMenuItem>
               <AdminSidebarNavLink href="/admin/health" tooltip="System Health"><Activity /><span>System Health</span></AdminSidebarNavLink>
+            </SidebarMenuItem>
+          )}
+          {checkPermission('audit:view') && (
+            <SidebarMenuItem>
+              <AdminSidebarNavLink href="/admin/search" tooltip="Global Search"><Search /><span>Global Search</span></AdminSidebarNavLink>
             </SidebarMenuItem>
           )}
           {checkPermission('billing:view') && (
@@ -253,7 +286,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <AdminSidebarNav onSignOutClick={() => setShowLogoutDialog(true)} adminRole={adminRole} />
         </Sidebar>
         <SidebarInset>
-          <header className="flex h-14 items-center justify-between border-b bg-background px-4">
+          <header className="flex h-14 items-center justify-between gap-3 border-b bg-background px-4">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="md:hidden" />
               <Badge variant="destructive"><Shield className="h-3 w-3 mr-1" />Admin Console</Badge>
@@ -261,7 +294,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 {roleInfo.name}
               </Badge>
             </div>
-            <div className="ml-auto text-sm text-muted-foreground">{user?.email}</div>
+            <AdminHeaderSearch />
+            <div className="text-sm text-muted-foreground hidden sm:block">{user?.email}</div>
           </header>
           <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
           <footer className="border-t bg-background px-4 py-3">

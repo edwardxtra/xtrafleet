@@ -191,6 +191,12 @@ export default function AdminUsersPage() {
     fetchUsers();
   }, [firestore]);
 
+  // Prefill the search box from `?q=` so global-search deep links land here.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q) setSearchQuery(q);
+  }, []);
+
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setFilteredUsers(users);
