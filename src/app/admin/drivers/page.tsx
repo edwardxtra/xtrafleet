@@ -814,15 +814,44 @@ export default function AdminDriversPage() {
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="edit-clearinghouse">Clearinghouse</Label>
-                    <Input id="edit-clearinghouse" value={editForm.clearinghouseStatus} onChange={(e) => setEditForm(f => ({ ...f, clearinghouseStatus: e.target.value }))} />
+                    <Select value={editForm.clearinghouseStatus || '__unset'} onValueChange={(val) => setEditForm(f => ({ ...f, clearinghouseStatus: val === '__unset' ? '' : val }))}>
+                      <SelectTrigger id="edit-clearinghouse"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— Not set —</SelectItem>
+                        <SelectItem value="compliant">Compliant</SelectItem>
+                        <SelectItem value="pending_query">Pending query</SelectItem>
+                        <SelectItem value="prohibited">Prohibited</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-dqf">DQF Status</Label>
-                    <Input id="edit-dqf" value={editForm.dqfStatus} onChange={(e) => setEditForm(f => ({ ...f, dqfStatus: e.target.value }))} />
+                    <Select value={editForm.dqfStatus || '__unset'} onValueChange={(val) => setEditForm(f => ({ ...f, dqfStatus: val === '__unset' ? '' : val }))}>
+                      <SelectTrigger id="edit-dqf"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— Not set —</SelectItem>
+                        <SelectItem value="not_required">Not required</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="submitted">Submitted</SelectItem>
+                        <SelectItem value="approved">Approved</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="edit-profile-status">Profile Status</Label>
-                    <Input id="edit-profile-status" value={editForm.profileStatus} onChange={(e) => setEditForm(f => ({ ...f, profileStatus: e.target.value }))} />
+                    <Select value={editForm.profileStatus || '__unset'} onValueChange={(val) => setEditForm(f => ({ ...f, profileStatus: val === '__unset' ? '' : val }))}>
+                      <SelectTrigger id="edit-profile-status"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— Not set —</SelectItem>
+                        <SelectItem value="incomplete">Incomplete</SelectItem>
+                        <SelectItem value="pending_confirmation">Pending confirmation</SelectItem>
+                        <SelectItem value="confirmed">Confirmed</SelectItem>
+                        <SelectItem value="complete">Complete</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                        <SelectItem value="self_driver">Self driver</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </div>
