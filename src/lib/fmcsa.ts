@@ -139,7 +139,7 @@ interface SAFERResult {
  * legacy tags (<font>, <b>, etc.), which makes DOM-structure regexes
  * unreliable. Matching against plain text is simpler and more robust.
  */
-function stripSAFERHtml(html: string): string {
+export function stripSAFERHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -151,7 +151,7 @@ function stripSAFERHtml(html: string): string {
     .trim();
 }
 
-interface SAFERParsed {
+export interface SAFERParsed {
   inactive: boolean;
   phone?: string;
   phoneRaw?: string;
@@ -162,7 +162,7 @@ interface SAFERParsed {
 /**
  * Parse the tag-stripped SAFER text for the fields we care about.
  */
-function parseSAFERText(text: string): SAFERParsed {
+export function parseSAFERText(text: string): SAFERParsed {
   const inactive = /is\s+inactive\s+in\s+the\s+safer\s+database/i.test(text);
 
   const phoneMatch = text.match(/\bPhone:\s*([()\d\s.+-]{7,20})/i);
