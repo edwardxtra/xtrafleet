@@ -8,7 +8,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -25,15 +28,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useFirestore } from '@/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { format, parseISO } from 'date-fns';
-import { Shield, Search } from 'lucide-react';
-import { ATTESTATIONS, type AttestationEntry, type AttestationType } from '@/lib/attestations';
+import { Shield, Search, Ban, Loader2 } from 'lucide-react';
+import {
+  ATTESTATIONS,
+  type AttestationEntry,
+  type AttestationType,
+  type AttestationVoid,
+} from '@/lib/attestations';
+import { useAdminRole } from '../layout';
+import { showSuccess, showError } from '@/lib/toast-utils';
 
 interface FlatAttestation extends AttestationEntry {
   ownerUid: string;
   ownerName: string;
+  voided?: AttestationVoid;
 }
 
 const SURFACE_LABELS: Record<string, string> = {
@@ -48,35 +69,86 @@ const SURFACE_LABELS: Record<string, string> = {
 
 export default function AdminAttestationsPage() {
   const firestore = useFirestore();
+  const { hasPermission } = useAdminRole();
+  const canVoid = hasPermission('users:edit');
   const [rows, setRows] = useState<FlatAttestation[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [surfaceFilter, setSurfaceFilter] = useState<string>('all');
+  const [voidingEntry, setVoidingEntry] = useState<FlatAttestation | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [isVoiding, setIsVoiding] = useState(false);
 
-  useEffect(() => {
-    async function load() {
-      if (!firestore) return;
-      try {
-        const snap = await getDocs(collection(firestore, 'owner_operators'));
-        const flat: FlatAttestation[] = [];
-        snap.forEach(docSnap => {
-          const data = docSnap.data() as { legalName?: string; companyName?: string; attestations?: AttestationEntry[] };
-          const ownerName = data.legalName || data.companyName || docSnap.id;
-          (data.attestations || []).forEach(entry => {
-            flat.push({ ...entry, ownerUid: docSnap.id, ownerName });
+  async function loadRows() {
+    if (!firestore) return;
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(firestore, 'owner_operators'));
+      const flat: FlatAttestation[] = [];
+      snap.forEach(docSnap => {
+        const data = docSnap.data() as {
+          legalName?: string;
+          companyName?: string;
+          attestations?: AttestationEntry[];
+          attestationVoids?: AttestationVoid[];
+        };
+        const ownerName = data.legalName || data.companyName || docSnap.id;
+        const voids = data.attestationVoids || [];
+        (data.attestations || []).forEach(entry => {
+          const matchedVoid = voids.find(
+            v => v.type === entry.type && v.entryAcceptedAt === entry.acceptedAt
+          );
+          flat.push({
+            ...entry,
+            ownerUid: docSnap.id,
+            ownerName,
+            voided: matchedVoid,
           });
         });
-        flat.sort((a, b) => (b.acceptedAt || '').localeCompare(a.acceptedAt || ''));
-        setRows(flat);
-      } catch (err) {
-        console.error('Failed to load attestations:', err);
-      } finally {
-        setLoading(false);
-      }
+      });
+      flat.sort((a, b) => (b.acceptedAt || '').localeCompare(a.acceptedAt || ''));
+      setRows(flat);
+    } catch (err) {
+      console.error('Failed to load attestations:', err);
+    } finally {
+      setLoading(false);
     }
-    load();
+  }
+
+  useEffect(() => {
+    loadRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestore]);
+
+  const handleVoid = async () => {
+    if (!voidingEntry || !voidReason.trim()) return;
+    setIsVoiding(true);
+    try {
+      const res = await fetch('/api/admin/attestations/void', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerUid: voidingEntry.ownerUid,
+          type: voidingEntry.type,
+          entryAcceptedAt: voidingEntry.acceptedAt,
+          reason: voidReason.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to void attestation.');
+      }
+      showSuccess('Attestation marked voided.');
+      setVoidingEntry(null);
+      setVoidReason('');
+      loadRows();
+    } catch (e: any) {
+      showError(e?.message || 'Failed to void attestation.');
+    } finally {
+      setIsVoiding(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -178,8 +250,10 @@ export default function AdminAttestationsPage() {
                   <TableHead>Type</TableHead>
                   <TableHead>Surface</TableHead>
                   <TableHead>Version</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Context</TableHead>
                   <TableHead>IP</TableHead>
+                  <TableHead className="w-20"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -188,7 +262,7 @@ export default function AdminAttestationsPage() {
                   const surface = def?.surface;
                   const stale = def && r.version < def.v;
                   return (
-                    <TableRow key={`${r.ownerUid}-${r.acceptedAt}-${idx}`}>
+                    <TableRow key={`${r.ownerUid}-${r.acceptedAt}-${idx}`} className={r.voided ? 'opacity-60' : ''}>
                       <TableCell className="font-mono text-xs whitespace-nowrap">
                         {(() => {
                           try {
@@ -202,12 +276,22 @@ export default function AdminAttestationsPage() {
                         <div className="font-medium">{r.ownerName}</div>
                         <div className="font-mono text-xs text-muted-foreground">{r.ownerUid}</div>
                       </TableCell>
-                      <TableCell className="text-sm">{r.type}</TableCell>
+                      <TableCell className={`text-sm ${r.voided ? 'line-through' : ''}`}>{def?.label || r.type}</TableCell>
                       <TableCell className="text-xs">{surface ? (SURFACE_LABELS[surface] || surface) : '—'}</TableCell>
                       <TableCell>
                         <Badge variant={stale ? 'outline' : 'default'} className={stale ? 'text-amber-600 border-amber-600' : ''}>
                           v{r.version}{stale && def && ` of v${def.v}`}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {r.voided ? (
+                          <div className="space-y-0.5">
+                            <Badge variant="destructive">Voided</Badge>
+                            <p className="text-xs text-muted-foreground" title={r.voided.voidedReason}>{r.voided.voidedReason}</p>
+                          </div>
+                        ) : (
+                          <Badge variant="outline" className="text-green-700 border-green-300">Valid</Badge>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs space-y-0.5">
                         {r.context?.matchId && <div>match: {r.context.matchId}</div>}
@@ -218,6 +302,13 @@ export default function AdminAttestationsPage() {
                         {!r.context && <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="font-mono text-xs">{r.ip || '—'}</TableCell>
+                      <TableCell>
+                        {canVoid && !r.voided && (
+                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { setVoidingEntry(r); setVoidReason(''); }}>
+                            <Ban className="h-3.5 w-3.5 mr-1" />Void
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -226,6 +317,45 @@ export default function AdminAttestationsPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!voidingEntry} onOpenChange={(open) => { if (!open) { setVoidingEntry(null); setVoidReason(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Void this attestation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The original attestation entry stays on the record (audit integrity); a parallel
+              void entry is added with your reason. Voided attestations render with a strike on
+              the user&apos;s profile.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {voidingEntry && (
+            <div className="rounded-lg border bg-muted/40 p-3 text-sm space-y-1">
+              <p><strong>{ATTESTATIONS[voidingEntry.type]?.label || voidingEntry.type}</strong> — {ATTESTATIONS[voidingEntry.type]?.text}</p>
+              <p className="text-xs text-muted-foreground">{voidingEntry.ownerName} · accepted {voidingEntry.acceptedAt}</p>
+            </div>
+          )}
+          <div className="py-2">
+            <Label htmlFor="void-reason">Reason for voiding</Label>
+            <Textarea
+              id="void-reason"
+              placeholder="Why is this attestation being voided?"
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              className="mt-2"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isVoiding}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleVoid}
+              disabled={isVoiding || !voidReason.trim()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isVoiding ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Voiding...</> : 'Void Attestation'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
