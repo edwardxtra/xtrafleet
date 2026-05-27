@@ -105,20 +105,38 @@ service cloud.firestore {
     }
 
     // Matches collection
+    // DEV-95: tighten to require the caller is a party to the match (load
+    // owner, driver owner, or the driver themselves), or an admin. Match
+    // *formation* happens server-side via /api/matches/accept (DEV-162) and
+    // bypasses these rules entirely via the Admin SDK — these rules only
+    // constrain direct client writes (e.g. rejecting an offer, cancelling).
     match /matches/{matchId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
+      allow update: if isSignedIn() && (
+        resource.data.loadOwnerId == request.auth.uid ||
+        resource.data.driverOwnerId == request.auth.uid ||
+        resource.data.driverId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isSignedIn() && (
+        resource.data.loadOwnerId == request.auth.uid ||
+        isSuperAdmin()
+      );
     }
 
     // TLAs collection
+    // Creation is server-only (/api/matches/accept) so the synchronous
+    // compliance gate cannot be bypassed (DEV-162). DEV-95: lock updates
+    // to TLA parties or admins — was over-permissive before.
     match /tlas/{tlaId} {
       allow read: if isSignedIn();
-      // TLAs are created only server-side (/api/matches/accept) so the
-      // synchronous compliance gate cannot be bypassed (DEV-162).
       allow create: if false;
-      allow update: if isSignedIn();
+      allow update: if isSignedIn() && (
+        resource.data.lessor.ownerOperatorId == request.auth.uid ||
+        resource.data.lessee.ownerOperatorId == request.auth.uid ||
+        isAdmin()
+      );
       allow delete: if isSignedIn() && isSuperAdmin();
     }
 
