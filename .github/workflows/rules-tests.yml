@@ -1,0 +1,46 @@
+name: Firestore rules tests
+
+# Phase 2 of DEV-157: integration tests for firestore.rules. Runs the
+# Firestore emulator and asserts every patent-relevant access pattern
+# (DEV-95 party-or-admin writes, DEV-162 server-only TLA create, DEV-158
+# pre-activated isolation, audit_logs append-only, activation_tokens
+# server-only). Required check on PRs to qa/main.
+
+on:
+  pull_request:
+    branches: [qa, main]
+  push:
+    branches: [qa]
+  workflow_dispatch:
+
+jobs:
+  rules:
+    name: Firestore rules tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Java (for Firebase emulators)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Enable Firebase webframeworks experiment
+        # firebase.json has a `hosting` block with `frameworksBackend`.
+        # Even `emulators:exec --only=firestore` parses the whole config
+        # and refuses to run unless this experiment is enabled.
+        run: npx firebase experiments:enable webframeworks
+
+      - name: Run rules tests under managed Firestore emulator
+        run: npm run test:rules

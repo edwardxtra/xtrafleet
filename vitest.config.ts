@@ -5,7 +5,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
-    exclude: ['tests/e2e/**', 'node_modules/**', '.next/**'],
+    exclude: ['tests/e2e/**', 'tests/rules/**', 'node_modules/**', '.next/**'],
     globals: false,
     coverage: {
       provider: 'v8',
