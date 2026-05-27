@@ -310,3 +310,39 @@ export function attestationsForSurface(
   if (!attestations) return [];
   return attestations.filter(a => ATTESTATIONS[a.type]?.surface === surface);
 }
+
+/**
+ * Append-only record of admin-voided attestations. The original entry stays
+ * in `attestations[]` (audit integrity); a void entry is added in parallel
+ * to mark it as no longer valid.
+ */
+export interface AttestationVoid {
+  /** Attestation type that was voided. */
+  type: AttestationType;
+  /** ISO `acceptedAt` of the entry being voided — pairs with `type` to identify it uniquely. */
+  entryAcceptedAt: string;
+  /** ISO timestamp of when the admin voided it. */
+  voidedAt: string;
+  /** uid of the admin who voided the attestation. */
+  voidedBy: string;
+  /** Admin's reason for voiding (audit). */
+  voidedReason: string;
+}
+
+/** True if the given attestation entry has been voided by an admin. */
+export function isAttestationVoided(
+  voids: AttestationVoid[] | undefined,
+  entry: Pick<AttestationEntry, 'type' | 'acceptedAt'>,
+): boolean {
+  if (!voids || voids.length === 0) return false;
+  return voids.some(v => v.type === entry.type && v.entryAcceptedAt === entry.acceptedAt);
+}
+
+/** Look up the void record for a given attestation entry, if any. */
+export function findAttestationVoid(
+  voids: AttestationVoid[] | undefined,
+  entry: Pick<AttestationEntry, 'type' | 'acceptedAt'>,
+): AttestationVoid | undefined {
+  if (!voids) return undefined;
+  return voids.find(v => v.type === entry.type && v.entryAcceptedAt === entry.acceptedAt);
+}

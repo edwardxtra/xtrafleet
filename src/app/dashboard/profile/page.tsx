@@ -29,7 +29,7 @@ import { showSuccess, showError } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
 import { format, parseISO } from 'date-fns';
 import type { FMCSACarrier } from '@/lib/fmcsa';
-import { ATTESTATIONS, hasCurrent, type AttestationEntry, type AttestationType } from '@/lib/attestations';
+import { ATTESTATIONS, hasCurrent, findAttestationVoid, type AttestationEntry, type AttestationType, type AttestationVoid } from '@/lib/attestations';
 import { AttestationRecaptureSheet } from '@/components/attestation-recapture-sheet';
 import { AlertCircle } from 'lucide-react';
 
@@ -961,23 +961,36 @@ export default function ProfilePage() {
                 {profile.attestations.map((entry, idx) => {
                   const def = ATTESTATIONS[entry.type];
                   const stale = def && entry.version < def.v;
+                  const voids = (profile as unknown as { attestationVoids?: AttestationVoid[] }).attestationVoids;
+                  const voided = findAttestationVoid(voids, entry);
                   return (
-                    <div key={`${entry.type}-${entry.acceptedAt}-${idx}`} className="rounded-lg border bg-muted/30 p-3">
+                    <div
+                      key={`${entry.type}-${entry.acceptedAt}-${idx}`}
+                      className={`rounded-lg border p-3 ${voided ? 'bg-red-50/40 dark:bg-red-950/10 border-red-200 dark:border-red-900' : 'bg-muted/30'}`}
+                    >
                       <div className="flex items-start gap-2">
-                        <CheckCircle2 className={`h-4 w-4 mt-0.5 shrink-0 ${stale ? 'text-amber-500' : 'text-green-600'}`} />
+                        <CheckCircle2 className={`h-4 w-4 mt-0.5 shrink-0 ${voided ? 'text-red-500' : stale ? 'text-amber-500' : 'text-green-600'}`} />
                         <div className="flex-1">
-                          <p className="text-sm font-medium">
+                          <p className={`text-sm font-medium ${voided ? 'line-through text-muted-foreground' : ''}`}>
                             {def?.label || entry.type}
-                            <span className="ml-2 text-xs text-muted-foreground font-normal">
+                            <span className="ml-2 text-xs text-muted-foreground font-normal no-underline">
                               v{entry.version}{stale && ` (current: v${def.v})`}
                             </span>
+                            {voided && (
+                              <span className="ml-2 inline-flex items-center rounded-md bg-red-100 dark:bg-red-950/30 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300 no-underline">Voided</span>
+                            )}
                           </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{entry.text}</p>
+                          <p className={`text-xs text-muted-foreground mt-0.5 ${voided ? 'line-through' : ''}`}>{entry.text}</p>
                           <p className="text-xs text-muted-foreground mt-1">
                             Accepted: {formatTimestamp(entry.acceptedAt)}
                             {entry.context?.matchId && <> · match {entry.context.matchId}</>}
                             {entry.context?.driverId && <> · driver {entry.context.driverId}</>}
                           </p>
+                          {voided && (
+                            <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+                              Voided by admin {formatTimestamp(voided.voidedAt)} — {voided.voidedReason}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
