@@ -24,6 +24,8 @@ export type AuditAction =
   | 'attestation_voided'
   | 'message_deleted'
   | 'password_reset_sent'
+  | 'impersonation_started'
+  | 'impersonation_ended'
   | 'admin_login'
   | 'data_exported';
 
@@ -78,6 +80,8 @@ export function getActionLabel(action: AuditAction): string {
     attestation_voided: 'Attestation Voided',
     message_deleted: 'Message Deleted',
     password_reset_sent: 'Password Reset Sent',
+    impersonation_started: 'Impersonation Started',
+    impersonation_ended: 'Impersonation Ended',
     admin_login: 'Admin Login',
     data_exported: 'Data Exported',
   };

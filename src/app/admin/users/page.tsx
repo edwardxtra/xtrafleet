@@ -45,7 +45,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, writeBatch } from 'firebase/firestore';
-import { Search, MoreHorizontal, Users, Truck, Package, Eye, RefreshCw, Building2, Ban, CheckCircle, Download, Loader2, UserPlus, Edit2, Trash2, Send, KeyRound } from 'lucide-react';
+import { Search, MoreHorizontal, Users, Truck, Package, Eye, RefreshCw, Building2, Ban, CheckCircle, Download, Loader2, UserPlus, Edit2, Trash2, Send, KeyRound, UserCog } from 'lucide-react';
+import { signInWithCustomToken } from 'firebase/auth';
+import { useAuth } from '@/firebase';
+import { setImpersonation } from '@/components/impersonation-banner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { OwnerOperator } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
@@ -86,7 +89,9 @@ type EditableUserFields = {
 export default function AdminUsersPage() {
   const firestore = useFirestore();
   const { user: adminUser } = useUser();
-  const { hasPermission } = useAdminRole();
+  const auth = useAuth();
+  const { hasPermission, adminRole } = useAdminRole();
+  const canImpersonate = adminRole === 'super_admin';
   const [users, setUsers] = useState<UserWithStats[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserWithStats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -449,6 +454,60 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleImpersonate = async (user: UserWithStats) => {
+    if (!adminUser) return;
+    if (!canImpersonate) {
+      showError('Only super admins can impersonate.');
+      return;
+    }
+    if (user.isAdmin) {
+      showError('Refusing to impersonate another admin.');
+      return;
+    }
+    if (!window.confirm(`Log in as ${user.companyName || user.contactEmail}? Your admin session will end and you will browse the app as this user. Every action is audit-logged.`)) {
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/impersonate`, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to start impersonation.');
+
+      // End the admin's session, then sign in with the custom token.
+      try { await auth.signOut(); } catch { /* ignore */ }
+      await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
+
+      const credential = await signInWithCustomToken(auth, data.customToken);
+      const idToken = await credential.user.getIdToken();
+
+      const sessionRes = await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: idToken }),
+      });
+      if (!sessionRes.ok) {
+        throw new Error('Could not establish the impersonated session.');
+      }
+
+      setImpersonation({
+        adminUid: data.admin.uid,
+        adminEmail: data.admin.email || '',
+        targetUid: data.target.uid,
+        targetEmail: data.target.email || '',
+        targetName: data.target.companyName || data.target.email || data.target.uid,
+        startedAt: new Date().toISOString(),
+        expiresAt: data.expiresAt,
+      });
+
+      window.location.href = '/dashboard';
+    } catch (error: any) {
+      showError(error.message || 'Failed to start impersonation.');
+      setIsProcessing(false);
+    }
+  };
+
   const handleSendPasswordReset = async (user: UserWithStats) => {
     if (!firestore || !adminUser) return;
     if (user.accountStatus === 'pre-activated') {
@@ -663,6 +722,11 @@ export default function AdminUsersPage() {
                           {user.accountStatus !== 'pre-activated' && canEdit && (
                             <DropdownMenuItem onClick={() => handleSendPasswordReset(user)}>
                               <KeyRound className="h-4 w-4 mr-2" />Send Password Reset
+                            </DropdownMenuItem>
+                          )}
+                          {canImpersonate && !user.isAdmin && user.accountStatus !== 'pre-activated' && (
+                            <DropdownMenuItem onClick={() => handleImpersonate(user)} className="text-amber-700">
+                              <UserCog className="h-4 w-4 mr-2" />Log in as user
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />
