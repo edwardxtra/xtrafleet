@@ -154,6 +154,12 @@ export default function AdminMatchesPage() {
 
   useEffect(() => { fetchMatches(); }, [firestore]);
 
+  // Prefill the search box from `?q=` so global-search deep links land here.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q) setSearchQuery(q);
+  }, []);
+
   useEffect(() => {
     let filtered = matches;
     if (searchQuery.trim() !== '') {
