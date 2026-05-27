@@ -33,6 +33,32 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  evaluateRequiredField,
+  evaluateExpiry,
+  evaluateScreening,
+  type FieldCompliance,
+  type FieldStatus,
+} from '@/lib/field-compliance';
+
+// Small visual marker shown beside compliance-affecting field labels.
+// Pure UI signal — does NOT gate save. The aggregate compliance scorer
+// in src/lib/compliance.ts is still the source of truth.
+function FieldDot({ status, message }: FieldCompliance) {
+  const color: Record<FieldStatus, string> = {
+    green: 'bg-green-500',
+    yellow: 'bg-amber-500',
+    red: 'bg-red-500',
+    gray: 'bg-muted-foreground/30',
+  };
+  return (
+    <span
+      className={`ml-1.5 inline-block h-2 w-2 rounded-full align-middle ${color[status]}`}
+      title={message}
+      aria-label={message}
+    />
+  );
+}
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -688,21 +714,21 @@ export default function AdminDriversPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-cdl">CDL License</Label>
+                  <Label htmlFor="edit-cdl">CDL License<FieldDot {...evaluateRequiredField(editForm.cdlLicense, 'CDL License')} /></Label>
                   <Input id="edit-cdl" value={editForm.cdlLicense} onChange={(e) => setEditForm(f => ({ ...f, cdlLicense: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-cdl-expiry">CDL Expiry</Label>
+                  <Label htmlFor="edit-cdl-expiry">CDL Expiry<FieldDot {...evaluateExpiry(editForm.cdlExpiry, 'CDL Expiry')} /></Label>
                   <Input id="edit-cdl-expiry" type="date" value={editForm.cdlExpiry} onChange={(e) => setEditForm(f => ({ ...f, cdlExpiry: e.target.value }))} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-medical">Medical Card Expiry</Label>
+                  <Label htmlFor="edit-medical">Medical Card Expiry<FieldDot {...evaluateExpiry(editForm.medicalCardExpiry, 'Medical Card')} /></Label>
                   <Input id="edit-medical" type="date" value={editForm.medicalCardExpiry} onChange={(e) => setEditForm(f => ({ ...f, medicalCardExpiry: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-insurance">Insurance Expiry</Label>
+                  <Label htmlFor="edit-insurance">Insurance Expiry<FieldDot {...evaluateExpiry(editForm.insuranceExpiry, 'Insurance')} /></Label>
                   <Input id="edit-insurance" type="date" value={editForm.insuranceExpiry} onChange={(e) => setEditForm(f => ({ ...f, insuranceExpiry: e.target.value }))} />
                 </div>
               </div>
@@ -769,7 +795,7 @@ export default function AdminDriversPage() {
                 <p className="text-sm font-medium text-muted-foreground">MVR &amp; Screenings</p>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-mvr-number">MVR Number</Label>
+                    <Label htmlFor="edit-mvr-number">MVR Number<FieldDot {...evaluateRequiredField(editForm.motorVehicleRecordNumber, 'MVR Number')} /></Label>
                     <Input id="edit-mvr-number" value={editForm.motorVehicleRecordNumber} onChange={(e) => setEditForm(f => ({ ...f, motorVehicleRecordNumber: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
@@ -779,7 +805,7 @@ export default function AdminDriversPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-bg-date">Background Check Date</Label>
+                    <Label htmlFor="edit-bg-date">Background Check Date<FieldDot {...evaluateScreening(editForm.backgroundCheckDate, 'Background Check')} /></Label>
                     <Input id="edit-bg-date" type="date" value={editForm.backgroundCheckDate} onChange={(e) => setEditForm(f => ({ ...f, backgroundCheckDate: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
@@ -789,7 +815,7 @@ export default function AdminDriversPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-pes-date">Pre-Employment Date</Label>
+                    <Label htmlFor="edit-pes-date">Pre-Employment Date<FieldDot {...evaluateRequiredField(editForm.preEmploymentScreeningDate, 'Pre-Employment Screening')} /></Label>
                     <Input id="edit-pes-date" type="date" value={editForm.preEmploymentScreeningDate} onChange={(e) => setEditForm(f => ({ ...f, preEmploymentScreeningDate: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
@@ -799,7 +825,7 @@ export default function AdminDriversPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-da-date">Drug &amp; Alcohol Date</Label>
+                    <Label htmlFor="edit-da-date">Drug &amp; Alcohol Date<FieldDot {...evaluateScreening(editForm.drugAndAlcoholScreeningDate, 'Drug & Alcohol Screening')} /></Label>
                     <Input id="edit-da-date" type="date" value={editForm.drugAndAlcoholScreeningDate} onChange={(e) => setEditForm(f => ({ ...f, drugAndAlcoholScreeningDate: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
