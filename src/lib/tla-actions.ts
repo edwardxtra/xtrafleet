@@ -237,7 +237,15 @@ export async function signTLA(params: SignTLAParams): Promise<TLA | null> {
  */
 export async function startTrip(params: TripActionParams): Promise<TLA | null> {
   const { firestore, tlaId, tla, userId, userName } = params;
-  
+
+  // DEV-81: insurance attestation must be on file before a trip can start.
+  // The sign flow already requires the lessee to pick an insurance option,
+  // so this is defense in depth against records created by other paths.
+  if (!tla.insurance?.option) {
+    showError("Trip cannot start: insurance attestation is missing.");
+    return null;
+  }
+
   try {
     const now = new Date().toISOString();
     
