@@ -23,6 +23,7 @@ export type AuditAction =
   | 'billing_refunded'
   | 'attestation_voided'
   | 'message_deleted'
+  | 'password_reset_sent'
   | 'admin_login'
   | 'data_exported';
 
@@ -76,6 +77,7 @@ export function getActionLabel(action: AuditAction): string {
     billing_refunded: 'Payment Refunded',
     attestation_voided: 'Attestation Voided',
     message_deleted: 'Message Deleted',
+    password_reset_sent: 'Password Reset Sent',
     admin_login: 'Admin Login',
     data_exported: 'Data Exported',
   };

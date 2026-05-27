@@ -118,6 +118,33 @@ export async function sendOwnerProfileCompleteEmail(email: string, companyName: 
   return sendEmail(email, subject, html);
 }
 
+// ==================== PASSWORD RESET (admin-triggered) ====================
+
+export async function sendPasswordResetEmail(
+  email: string,
+  recipientName: string,
+  resetUrl: string
+) {
+  const subject = 'Reset your XtraFleet password';
+  const html = emailTemplate(`
+    <h2 style="color: #1a1a1a; font-size: 20px; margin-bottom: 16px;">Reset your password</h2>
+
+    <p>Hi ${recipientName || 'there'},</p>
+
+    <p>A password reset was requested for your XtraFleet account. Click the button below to choose a new password:</p>
+
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="${resetUrl}" style="${buttonStyle()}">
+        Reset Password
+      </a>
+    </div>
+
+    <p style="color: #6b7280; font-size: 14px;">This link is unique to you and expires in about an hour. If you didn't request this, you can safely ignore this email — your password won't change.</p>
+  `);
+
+  return sendEmail(email, subject, html);
+}
+
 // ==================== ACTIVATION EMAIL (white-glove pre-activation) ====================
 
 export async function sendActivationEmail(
