@@ -44,8 +44,16 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { Search, FileText, RefreshCw, ArrowRight, CheckCircle, XCircle, Ban, Download, Loader2, Trash2, Edit2 } from 'lucide-react';
+import { Search, FileText, RefreshCw, ArrowRight, CheckCircle, XCircle, Ban, Download, Loader2, Trash2, Edit2, MoreHorizontal, Eye } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useAdminRole } from '../layout';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { TLA } from '@/lib/data';
@@ -454,12 +462,13 @@ export default function AdminTLAsPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Created</TableHead>
+                <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? <TableSkeleton /> : filteredTLAs.length > 0 ? (
                 filteredTLAs.map(tla => (
-                  <TableRow key={tla.id} className="cursor-pointer hover:bg-muted/50">
+                  <TableRow key={tla.id} className="hover:bg-muted/50">
                     {canDelete && (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
@@ -469,20 +478,46 @@ export default function AdminTLAsPage() {
                         />
                       </TableCell>
                     )}
-                    <TableCell className="font-medium" onClick={() => setSelectedTLA(tla)}>
+                    <TableCell className="font-medium">
                       <div className="flex items-center gap-1">{tla.trip?.origin}<ArrowRight className="h-3 w-3 text-muted-foreground" />{tla.trip?.destination}</div>
                     </TableCell>
-                    <TableCell onClick={() => setSelectedTLA(tla)}>{tla.driver?.name || '-'}</TableCell>
-                    <TableCell onClick={() => setSelectedTLA(tla)}>{tla.lessor?.legalName || '-'}</TableCell>
-                    <TableCell onClick={() => setSelectedTLA(tla)}>{tla.lessee?.legalName || '-'}</TableCell>
-                    <TableCell onClick={() => setSelectedTLA(tla)}><Badge variant={getStatusBadgeVariant(tla.status)}>{tla.status.replace('_', ' ')}</Badge></TableCell>
-                    <TableCell onClick={() => setSelectedTLA(tla)}>${tla.payment?.amount?.toLocaleString() || '-'}</TableCell>
-                    <TableCell onClick={() => setSelectedTLA(tla)} className="text-muted-foreground text-sm">{tla.createdAt ? formatDistanceToNow(new Date(tla.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell>{tla.driver?.name || '-'}</TableCell>
+                    <TableCell>{tla.lessor?.legalName || '-'}</TableCell>
+                    <TableCell>{tla.lessee?.legalName || '-'}</TableCell>
+                    <TableCell><Badge variant={getStatusBadgeVariant(tla.status)}>{tla.status.replace('_', ' ')}</Badge></TableCell>
+                    <TableCell>${tla.payment?.amount?.toLocaleString() || '-'}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{tla.createdAt ? formatDistanceToNow(new Date(tla.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => setSelectedTLA(tla)}>
+                            <Eye className="h-4 w-4 mr-2" />View Details
+                          </DropdownMenuItem>
+                          {canEditTLA && (
+                            <DropdownMenuItem onClick={() => handleOpenEditTLA(tla)}>
+                              <Edit2 className="h-4 w-4 mr-2" />Edit
+                            </DropdownMenuItem>
+                          )}
+                          {canVoidTLA(tla) && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => setVoidingTLA(tla)} className="text-destructive">
+                                <Ban className="h-4 w-4 mr-2" />Void TLA
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={canDelete ? 8 : 7} className="h-24 text-center">
+                  <TableCell colSpan={canDelete ? 9 : 8} className="h-24 text-center">
                     <FileText className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-muted-foreground">No TLAs found</p>
                   </TableCell>
@@ -507,18 +542,7 @@ export default function AdminTLAsPage() {
                   <Badge variant={getStatusBadgeVariant(selectedTLA.status)}>{selectedTLA.status.replace('_', ' ')}</Badge>
                   <span className="text-sm text-muted-foreground">Version {selectedTLA.version}</span>
                 </div>
-                <div className="flex gap-2">
-                  {canEditTLA && (
-                    <Button variant="outline" size="sm" onClick={() => handleOpenEditTLA(selectedTLA)}>
-                      <Edit2 className="h-4 w-4 mr-2" />Edit
-                    </Button>
-                  )}
-                  {canVoidTLA(selectedTLA) && (
-                    <Button variant="destructive" size="sm" onClick={() => setVoidingTLA(selectedTLA)}>
-                      <Ban className="h-4 w-4 mr-2" />Void TLA
-                    </Button>
-                  )}
-                </div>
+                <div />
               </div>
 
               <div className="grid grid-cols-2 gap-6">

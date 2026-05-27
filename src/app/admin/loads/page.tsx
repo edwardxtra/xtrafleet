@@ -30,6 +30,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -45,7 +52,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collectionGroup, getDocs, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { Search, Package, RefreshCw, ArrowRight, Building2, Download, Trash2, Loader2, Edit2 } from 'lucide-react';
+import { Search, Package, RefreshCw, ArrowRight, Building2, Download, Trash2, Loader2, Edit2, MoreHorizontal, Eye } from 'lucide-react';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { useAdminRole } from '../layout';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -419,12 +426,13 @@ export default function AdminLoadsPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Owner</TableHead>
                 <TableHead>Created</TableHead>
+                <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? <TableSkeleton /> : filteredLoads.length > 0 ? (
                 filteredLoads.map(load => (
-                  <TableRow key={load.id} className="cursor-pointer hover:bg-muted/50">
+                  <TableRow key={load.id} className="hover:bg-muted/50">
                     {canDelete && (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
@@ -434,24 +442,42 @@ export default function AdminLoadsPage() {
                         />
                       </TableCell>
                     )}
-                    <TableCell className="font-medium" onClick={() => setSelectedLoad(load)}>
+                    <TableCell className="font-medium">
                       <div className="flex items-center gap-1">{load.origin}<ArrowRight className="h-3 w-3 text-muted-foreground" />{load.destination}</div>
                     </TableCell>
-                    <TableCell onClick={() => setSelectedLoad(load)}>{load.cargo || '-'}</TableCell>
-                    <TableCell onClick={() => setSelectedLoad(load)}>{load.weight?.toLocaleString() || '-'} lbs</TableCell>
-                    <TableCell onClick={() => setSelectedLoad(load)} className="text-green-600 font-medium">${load.price?.toLocaleString() || '-'}</TableCell>
-                    <TableCell onClick={() => setSelectedLoad(load)}><Badge variant={getStatusBadgeVariant(load.status)}>{load.status || 'Unknown'}</Badge></TableCell>
-                    <TableCell onClick={() => setSelectedLoad(load)}>
+                    <TableCell>{load.cargo || '-'}</TableCell>
+                    <TableCell>{load.weight?.toLocaleString() || '-'} lbs</TableCell>
+                    <TableCell className="text-green-600 font-medium">${load.price?.toLocaleString() || '-'}</TableCell>
+                    <TableCell><Badge variant={getStatusBadgeVariant(load.status)}>{load.status || 'Unknown'}</Badge></TableCell>
+                    <TableCell>
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Building2 className="h-3 w-3" />{load.ownerCompanyName || 'Unknown'}
                       </div>
                     </TableCell>
-                    <TableCell onClick={() => setSelectedLoad(load)} className="text-muted-foreground text-sm">{load.createdAt ? formatDistanceToNow(new Date(load.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{load.createdAt ? formatDistanceToNow(new Date(load.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => setSelectedLoad(load)}>
+                            <Eye className="h-4 w-4 mr-2" />View Details
+                          </DropdownMenuItem>
+                          {canEdit && (
+                            <DropdownMenuItem onClick={() => handleOpenEditLoad(load)}>
+                              <Edit2 className="h-4 w-4 mr-2" />Edit Load
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={canDelete ? 8 : 7} className="h-24 text-center">
+                  <TableCell colSpan={canDelete ? 9 : 8} className="h-24 text-center">
                     <Package className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-muted-foreground">No loads found</p>
                   </TableCell>
@@ -494,13 +520,6 @@ export default function AdminLoadsPage() {
                 </div>
               )}
             </div>
-          )}
-          {canEdit && selectedLoad && (
-            <DialogFooter>
-              <Button variant="outline" onClick={() => handleOpenEditLoad(selectedLoad)}>
-                <Edit2 className="h-4 w-4 mr-2" />Edit Load
-              </Button>
-            </DialogFooter>
           )}
         </DialogContent>
       </Dialog>

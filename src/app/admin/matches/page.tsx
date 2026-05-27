@@ -45,7 +45,15 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, getDocs, doc, updateDoc, getDoc, deleteDoc } from 'firebase/firestore';
-import { Search, Link2, RefreshCw, ArrowRight, Ban, Download, Loader2, Trash2, Edit2 } from 'lucide-react';
+import { Search, Link2, RefreshCw, ArrowRight, Ban, Download, Loader2, Trash2, Edit2, MoreHorizontal, Eye } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useAdminRole } from '../layout';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { Match, MatchStatus } from '@/lib/data';
@@ -456,12 +464,13 @@ export default function AdminMatchesPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Score</TableHead>
                 <TableHead>Created</TableHead>
+                <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? <TableSkeleton /> : filteredMatches.length > 0 ? (
                 filteredMatches.map(match => (
-                  <TableRow key={match.id} className="cursor-pointer hover:bg-muted/50">
+                  <TableRow key={match.id} className="hover:bg-muted/50">
                     {canDelete && (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
@@ -471,19 +480,45 @@ export default function AdminMatchesPage() {
                         />
                       </TableCell>
                     )}
-                    <TableCell className="font-medium" onClick={() => setSelectedMatch(match)}>
+                    <TableCell className="font-medium">
                       <div className="flex items-center gap-1">{match.loadSnapshot?.origin}<ArrowRight className="h-3 w-3 text-muted-foreground" />{match.loadSnapshot?.destination}</div>
                     </TableCell>
-                    <TableCell onClick={() => setSelectedMatch(match)}>{match.driverSnapshot?.name || match.driverName || '-'}</TableCell>
-                    <TableCell onClick={() => setSelectedMatch(match)}>{match.loadOwnerName || '-'}</TableCell>
-                    <TableCell onClick={() => setSelectedMatch(match)}><Badge variant={getStatusBadgeVariant(match.status)}>{match.status.replace('_', ' ')}</Badge></TableCell>
-                    <TableCell onClick={() => setSelectedMatch(match)}>{match.matchScore}/100</TableCell>
-                    <TableCell onClick={() => setSelectedMatch(match)} className="text-muted-foreground text-sm">{match.createdAt ? formatDistanceToNow(new Date(match.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell>{match.driverSnapshot?.name || match.driverName || '-'}</TableCell>
+                    <TableCell>{match.loadOwnerName || '-'}</TableCell>
+                    <TableCell><Badge variant={getStatusBadgeVariant(match.status)}>{match.status.replace('_', ' ')}</Badge></TableCell>
+                    <TableCell>{match.matchScore}/100</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{match.createdAt ? formatDistanceToNow(new Date(match.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => setSelectedMatch(match)}>
+                            <Eye className="h-4 w-4 mr-2" />View Details
+                          </DropdownMenuItem>
+                          {canEditMatch && (
+                            <DropdownMenuItem onClick={() => handleOpenEditMatch(match)}>
+                              <Edit2 className="h-4 w-4 mr-2" />Edit
+                            </DropdownMenuItem>
+                          )}
+                          {canCancelMatch(match) && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => setCancellingMatch(match)} className="text-destructive">
+                                <Ban className="h-4 w-4 mr-2" />Cancel Match
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={canDelete ? 7 : 6} className="h-24 text-center">
+                  <TableCell colSpan={canDelete ? 8 : 7} className="h-24 text-center">
                     <Link2 className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-muted-foreground">No matches found</p>
                   </TableCell>
@@ -508,18 +543,7 @@ export default function AdminMatchesPage() {
                   <Badge variant={getStatusBadgeVariant(selectedMatch.status)}>{selectedMatch.status.replace('_', ' ')}</Badge>
                   <span className="text-sm text-muted-foreground">Score: {selectedMatch.matchScore}/100</span>
                 </div>
-                <div className="flex gap-2">
-                  {canEditMatch && (
-                    <Button variant="outline" size="sm" onClick={() => handleOpenEditMatch(selectedMatch)}>
-                      <Edit2 className="h-4 w-4 mr-2" />Edit
-                    </Button>
-                  )}
-                  {canCancelMatch(selectedMatch) && (
-                    <Button variant="destructive" size="sm" onClick={() => setCancellingMatch(selectedMatch)}>
-                      <Ban className="h-4 w-4 mr-2" />Cancel Match
-                    </Button>
-                  )}
-                </div>
+                <div />
               </div>
               
               <div className="grid grid-cols-2 gap-4">
