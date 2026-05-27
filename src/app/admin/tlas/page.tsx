@@ -43,8 +43,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { Search, FileText, RefreshCw, ArrowRight, CheckCircle, XCircle, Ban, Download, Loader2, Trash2, Edit2, MoreHorizontal, Eye } from 'lucide-react';
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, where, getDoc, limit } from 'firebase/firestore';
+import { Search, FileText, RefreshCw, ArrowRight, CheckCircle, XCircle, Ban, Download, Loader2, Trash2, Edit2, MoreHorizontal, Eye, DollarSign } from 'lucide-react';
+import { RefundModal } from '@/components/admin/billing/refund-modal';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   DropdownMenu,
@@ -122,6 +123,55 @@ export default function AdminTLAsPage() {
 
   const canDelete = hasPermission('tlas:delete');
   const canEditTLA = hasPermission('tlas:void');
+  const canRefund = hasPermission('billing:refund');
+
+  const [refundPayment, setRefundPayment] = useState<any | null>(null);
+  const [refundOwnerOp, setRefundOwnerOp] = useState<any | null>(null);
+  const [isLookingUpRefund, setIsLookingUpRefund] = useState(false);
+
+  const handleOpenRefund = async (tla: TLA) => {
+    if (!firestore) return;
+    if (!tla.matchId) {
+      showError('This TLA has no match — no payment to refund.');
+      return;
+    }
+    setIsLookingUpRefund(true);
+    try {
+      // Find a refundable payment for this match (succeeded, not yet refunded).
+      const paymentsQuery = query(
+        collection(firestore, 'payments'),
+        where('matchId', '==', tla.matchId),
+        where('status', '==', 'succeeded'),
+        limit(1)
+      );
+      const snap = await getDocs(paymentsQuery);
+      if (snap.empty) {
+        showError('No refundable payment found for this match.');
+        return;
+      }
+      const paymentDoc = snap.docs[0];
+      const payment = { id: paymentDoc.id, ...paymentDoc.data() } as any;
+
+      // Load the OwnerOperator that paid (the refund returns to them).
+      const ooSnap = await getDoc(doc(firestore, 'owner_operators', payment.ownerOperatorId));
+      if (!ooSnap.exists()) {
+        showError('Payment owner not found.');
+        return;
+      }
+      const ooData = ooSnap.data() as any;
+      setRefundOwnerOp({
+        id: ooSnap.id,
+        email: ooData?.contactEmail || '',
+        companyName: ooData?.companyName || ooData?.legalName || '',
+      });
+      setRefundPayment(payment);
+    } catch (e: any) {
+      console.error('[Refund lookup]', e);
+      showError('Failed to load refund details.');
+    } finally {
+      setIsLookingUpRefund(false);
+    }
+  };
 
   const fetchTLAs = async () => {
     if (!firestore) return;
@@ -502,6 +552,11 @@ export default function AdminTLAsPage() {
                               <Edit2 className="h-4 w-4 mr-2" />Edit
                             </DropdownMenuItem>
                           )}
+                          {canRefund && tla.matchId && (
+                            <DropdownMenuItem onClick={() => handleOpenRefund(tla)} disabled={isLookingUpRefund}>
+                              <DollarSign className="h-4 w-4 mr-2" />Process Refund
+                            </DropdownMenuItem>
+                          )}
                           {canVoidTLA(tla) && (
                             <>
                               <DropdownMenuSeparator />
@@ -739,6 +794,26 @@ export default function AdminTLAsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Refund Modal */}
+      {refundPayment && refundOwnerOp && (
+        <RefundModal
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) {
+              setRefundPayment(null);
+              setRefundOwnerOp(null);
+            }
+          }}
+          payment={refundPayment}
+          ownerOperator={refundOwnerOp}
+          onRefundComplete={() => {
+            setRefundPayment(null);
+            setRefundOwnerOp(null);
+            fetchTLAs();
+          }}
+        />
+      )}
 
       {/* Void TLA Dialog */}
       <AlertDialog open={!!voidingTLA} onOpenChange={(open) => { if (!open) { setVoidingTLA(null); setVoidReason(''); } }}>

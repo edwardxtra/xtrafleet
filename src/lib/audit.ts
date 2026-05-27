@@ -20,6 +20,7 @@ export type AuditAction =
   | 'tla_voided'
   | 'tla_updated'
   | 'tla_deleted'
+  | 'billing_refunded'
   | 'admin_login'
   | 'data_exported';
 
@@ -70,6 +71,7 @@ export function getActionLabel(action: AuditAction): string {
     tla_voided: 'TLA Voided',
     tla_updated: 'TLA Updated',
     tla_deleted: 'TLA Deleted',
+    billing_refunded: 'Payment Refunded',
     admin_login: 'Admin Login',
     data_exported: 'Data Exported',
   };
