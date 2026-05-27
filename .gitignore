@@ -5,6 +5,7 @@ node_modules/
 .next/
 .firebase/
 out/
+tsconfig.tsbuildinfo
 
 # Environment files
 .env
