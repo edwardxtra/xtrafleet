@@ -28,7 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Logo } from "@/components/logo";
-import { Home, Users, Truck, LogOut, Loader2, FileText, Link2, Shield, ClipboardList, Package, Settings, CreditCard, UserPlus } from "lucide-react";
+import { Home, Users, Truck, LogOut, Loader2, FileText, Link2, Shield, ClipboardList, Package, Settings, CreditCard, UserPlus, MessageSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -110,6 +110,11 @@ function AdminSidebarNav({ onSignOutClick, adminRole }: { onSignOutClick: () => 
           {checkPermission('audit:view') && (
             <SidebarMenuItem>
               <AdminSidebarNavLink href="/admin/audit" tooltip="Audit Log"><ClipboardList /><span>Audit Log</span></AdminSidebarNavLink>
+            </SidebarMenuItem>
+          )}
+          {checkPermission('audit:view') && (
+            <SidebarMenuItem>
+              <AdminSidebarNavLink href="/admin/conversations" tooltip="Conversations"><MessageSquare /><span>Conversations</span></AdminSidebarNavLink>
             </SidebarMenuItem>
           )}
           {checkPermission('billing:view') && (
