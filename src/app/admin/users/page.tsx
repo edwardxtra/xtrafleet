@@ -45,7 +45,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, writeBatch } from 'firebase/firestore';
-import { Search, MoreHorizontal, Users, Truck, Package, Eye, RefreshCw, Building2, Ban, CheckCircle, Download, Loader2, UserPlus, Edit2, Trash2, Send } from 'lucide-react';
+import { Search, MoreHorizontal, Users, Truck, Package, Eye, RefreshCw, Building2, Ban, CheckCircle, Download, Loader2, UserPlus, Edit2, Trash2, Send, KeyRound } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { OwnerOperator } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
@@ -443,6 +443,28 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleSendPasswordReset = async (user: UserWithStats) => {
+    if (!firestore || !adminUser) return;
+    if (user.accountStatus === 'pre-activated') {
+      showError('Pre-activated accounts have no password yet — use Send Activation Email.');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/password-reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to send password reset.');
+      showSuccess(`Password reset email sent to ${user.contactEmail}.`);
+    } catch (error: any) {
+      showError(error.message || 'Failed to send password reset.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleOpenEdit = (user: UserWithStats) => {
     const u = user as UserWithStats & {
       address?: string;
@@ -630,6 +652,11 @@ export default function AdminUsersPage() {
                           {user.accountStatus === 'pre-activated' && hasPermission('users:create') && (
                             <DropdownMenuItem onClick={() => handleSendActivation(user)} className="text-blue-600">
                               <Send className="h-4 w-4 mr-2" />Send Activation Email
+                            </DropdownMenuItem>
+                          )}
+                          {user.accountStatus !== 'pre-activated' && canEdit && (
+                            <DropdownMenuItem onClick={() => handleSendPasswordReset(user)}>
+                              <KeyRound className="h-4 w-4 mr-2" />Send Password Reset
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />
