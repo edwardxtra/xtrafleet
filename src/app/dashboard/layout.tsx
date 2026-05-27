@@ -21,6 +21,7 @@ import { OnboardingBanner } from "@/components/onboarding-banner";
 import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Loader2, FileText, HelpCircle, Shield, MessageSquare, User, ChevronDown, ArrowLeftRight } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
+import { ImpersonationBanner } from "@/components/impersonation-banner";
 
 interface OnboardingStatus {
   profileComplete?: boolean;
@@ -123,6 +124,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <SidebarProvider>
+      <ImpersonationBanner />
       <Sidebar>
         <SidebarHeader><Logo linkTo="/" forceLight /></SidebarHeader>
         <SidebarNav onSignOutClick={() => setShowLogoutDialog(true)} isAdmin={isAdmin} />
