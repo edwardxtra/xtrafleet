@@ -104,6 +104,37 @@ export default function AdminMatchesPage() {
 
   const canDelete = hasPermission('matches:delete');
   const canEditMatch = hasPermission('matches:cancel');
+  const canActOnBehalf = hasPermission('users:create');
+
+  const [acceptingOnBehalfMatch, setAcceptingOnBehalfMatch] = useState<Match | null>(null);
+  const [isAcceptingOnBehalf, setIsAcceptingOnBehalf] = useState(false);
+
+  const handleAcceptOnBehalf = async (match: Match, actingOnBehalfOf: string) => {
+    if (!firestore || !adminUser) return;
+    setIsAcceptingOnBehalf(true);
+    try {
+      const res = await fetch('/api/matches/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId: match.id, actingOnBehalfOf }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to accept match on behalf.');
+      }
+      if (data.complianceWarning && data.complianceMessage) {
+        showSuccess(`Match formed with a compliance warning: ${data.complianceMessage}`);
+      } else {
+        showSuccess('Match accepted on behalf of the selected party.');
+      }
+      setAcceptingOnBehalfMatch(null);
+      fetchMatches();
+    } catch (e: any) {
+      showError(e?.message || 'Failed to accept match on behalf.');
+    } finally {
+      setIsAcceptingOnBehalf(false);
+    }
+  };
 
   const fetchMatches = async () => {
     if (!firestore) return;
@@ -503,6 +534,11 @@ export default function AdminMatchesPage() {
                               <Edit2 className="h-4 w-4 mr-2" />Edit
                             </DropdownMenuItem>
                           )}
+                          {canActOnBehalf && (match.status === 'pending' || match.status === 'countered') && (
+                            <DropdownMenuItem onClick={() => setAcceptingOnBehalfMatch(match)}>
+                              <ArrowRight className="h-4 w-4 mr-2" />Accept on behalf of…
+                            </DropdownMenuItem>
+                          )}
                           {canCancelMatch(match) && (
                             <>
                               <DropdownMenuSeparator />
@@ -703,6 +739,50 @@ export default function AdminMatchesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Accept on behalf of Dialog */}
+      <AlertDialog open={!!acceptingOnBehalfMatch} onOpenChange={(open) => { if (!open) setAcceptingOnBehalfMatch(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Accept on behalf of which party?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The synchronous compliance gate still fires — there is no admin shortcut.
+              Pick which side of the match you are acting for.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {acceptingOnBehalfMatch && (
+            <div className="rounded-lg border bg-muted/40 p-3 text-sm space-y-2">
+              <p className="font-medium">{acceptingOnBehalfMatch.loadSnapshot?.origin} → {acceptingOnBehalfMatch.loadSnapshot?.destination}</p>
+              <div className="grid gap-2">
+                <Button
+                  variant="outline"
+                  disabled={isAcceptingOnBehalf}
+                  onClick={() => handleAcceptOnBehalf(acceptingOnBehalfMatch, acceptingOnBehalfMatch.loadOwnerId)}
+                  className="justify-start"
+                >
+                  <span className="font-medium">Load owner</span>
+                  <span className="ml-2 text-xs text-muted-foreground truncate">{acceptingOnBehalfMatch.loadOwnerName || acceptingOnBehalfMatch.loadOwnerId}</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={isAcceptingOnBehalf}
+                  onClick={() => handleAcceptOnBehalf(acceptingOnBehalfMatch, acceptingOnBehalfMatch.driverOwnerId)}
+                  className="justify-start"
+                >
+                  <span className="font-medium">Driver owner</span>
+                  <span className="ml-2 text-xs text-muted-foreground truncate">{acceptingOnBehalfMatch.driverOwnerName || acceptingOnBehalfMatch.driverOwnerId}</span>
+                </Button>
+              </div>
+              {isAcceptingOnBehalf && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Running the compliance gate…</p>
+              )}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isAcceptingOnBehalf}>Cancel</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Bulk Delete Dialog */}
       <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
