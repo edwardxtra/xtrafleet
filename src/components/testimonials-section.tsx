@@ -26,7 +26,7 @@ const testimonials: Testimonial[] = [
     name: 'Sarah Chen',
     role: 'Owner-Operator',
     company: 'Chen Logistics',
-    content: 'Finally, a platform built for owner-operators. No more juggling spreadsheets and emails. Everything I need is in one place, and the AI matching actually works.',
+    content: 'Finally, a platform built for owner-operators. No more juggling spreadsheets and emails. Everything I need is in one place, and the compliance-verified matching actually works.',
     rating: 5,
     initials: 'SC',
   },

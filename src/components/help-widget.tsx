@@ -25,8 +25,8 @@ const faqs = [
     answer: 'Click "Add Driver" in the Quick Actions widget or navigate to the Drivers page. You\'ll need to enter their name, contact info, and upload their CDL, medical card, and insurance documents.',
   },
   {
-    question: 'How does AI matching work?',
-    answer: 'Our AI analyzes your driver qualifications, location, equipment, and load requirements to suggest the best matches. It considers compliance, profitability, and route efficiency.',
+    question: 'How does the matching work?',
+    answer: 'XtraFleet scores potential matches on driver qualifications, equipment compatibility, location/deadhead, and a synchronous bilateral FMCSA compliance check that runs the moment a match is formed. Both parties must clear the gate for a match to result in a TLA.',
   },
   {
     question: 'What documents do I need?',

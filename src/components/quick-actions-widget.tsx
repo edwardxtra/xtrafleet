@@ -29,7 +29,7 @@ const quickActions: QuickActionButton[] = [
   {
     icon: BarChart,
     label: 'Find Matches',
-    description: 'AI-powered driver matching',
+    description: 'Compliance-verified driver matching',
     href: '/dashboard/matches',
   },
   {
