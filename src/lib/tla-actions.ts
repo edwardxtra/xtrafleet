@@ -246,6 +246,15 @@ export async function startTrip(params: TripActionParams): Promise<TLA | null> {
     return null;
   }
 
+  // DEV-84: the $25 match fee must be paid before the trip can start.
+  // TLAMatchFeeCard surfaces the payment CTA to the load owner the moment
+  // the TLA is fully signed — this guard catches any path that tries to
+  // jump straight to start without paying.
+  if (tla.matchFeePaid !== true) {
+    showError("Trip cannot start: match fee has not been paid yet.");
+    return null;
+  }
+
   try {
     const now = new Date().toISOString();
     
