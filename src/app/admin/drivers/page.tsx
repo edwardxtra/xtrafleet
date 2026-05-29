@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { AddDriverDialog } from '@/components/admin/add-driver-dialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -78,7 +80,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, collectionGroup, getDocs, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { Search, MoreHorizontal, Truck, Eye, RefreshCw, ShieldCheck, Building2, Download, Edit2, Trash2, Loader2 } from 'lucide-react';
+import { Search, MoreHorizontal, Truck, Eye, RefreshCw, ShieldCheck, Building2, Download, Edit2, Trash2, Loader2, PlusCircle } from 'lucide-react';
 import { getComplianceStatus, ComplianceStatus } from '@/lib/compliance';
 import type { Driver } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
@@ -187,6 +189,15 @@ export default function AdminDriversPage() {
 
   const canEdit = hasPermission('drivers:edit');
   const canDelete = hasPermission('drivers:delete');
+
+  // DEV-170: Add-Driver dialog. Auto-opens when /admin/drivers is loaded
+  // with ?addFor={ownerOperatorId} (deep link from /admin/onboard).
+  const searchParams = useSearchParams();
+  const addForParam = searchParams?.get('addFor') || '';
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  useEffect(() => {
+    if (addForParam) setAddDialogOpen(true);
+  }, [addForParam]);
 
   const fetchDrivers = async () => {
     if (!firestore) return;
@@ -504,6 +515,11 @@ export default function AdminDriversPage() {
           <Button variant="outline" onClick={handleExport} disabled={filteredDrivers.length === 0}>
             <Download className="h-4 w-4 mr-2" />Export
           </Button>
+          {canEdit && (
+            <Button onClick={() => setAddDialogOpen(true)}>
+              <PlusCircle className="h-4 w-4 mr-2" />Add Driver
+            </Button>
+          )}
           <Button variant="outline" onClick={fetchDrivers} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />Refresh
           </Button>
@@ -939,6 +955,14 @@ export default function AdminDriversPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* DEV-170: Add Driver dialog */}
+      <AddDriverDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        onSuccess={fetchDrivers}
+        initialOwnerOperatorId={addForParam}
+      />
     </div>
   );
 }

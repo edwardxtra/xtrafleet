@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { AddLoadDialog } from '@/components/admin/add-load-dialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -52,7 +54,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collectionGroup, getDocs, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { Search, Package, RefreshCw, ArrowRight, Building2, Download, Trash2, Loader2, Edit2, MoreHorizontal, Eye } from 'lucide-react';
+import { Search, Package, RefreshCw, ArrowRight, Building2, Download, Trash2, Loader2, Edit2, MoreHorizontal, Eye, PlusCircle } from 'lucide-react';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { useAdminRole } from '../layout';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -107,6 +109,15 @@ export default function AdminLoadsPage() {
 
   const canDelete = hasPermission('loads:delete');
   const canEdit = hasPermission('loads:edit');
+
+  // DEV-170: Post-Load dialog. Auto-opens when /admin/loads is loaded with
+  // ?addFor={ownerOperatorId} (deep link from /admin/onboard).
+  const searchParams = useSearchParams();
+  const addForParam = searchParams?.get('addFor') || '';
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  useEffect(() => {
+    if (addForParam) setAddDialogOpen(true);
+  }, [addForParam]);
 
   const fetchLoads = async () => {
     if (!firestore) return;
@@ -381,6 +392,11 @@ export default function AdminLoadsPage() {
           <Button variant="outline" onClick={handleExport} disabled={filteredLoads.length === 0}>
             <Download className="h-4 w-4 mr-2" />Export CSV
           </Button>
+          {canEdit && (
+            <Button onClick={() => setAddDialogOpen(true)}>
+              <PlusCircle className="h-4 w-4 mr-2" />Post Load
+            </Button>
+          )}
           <Button variant="outline" onClick={fetchLoads} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />Refresh
           </Button>
@@ -624,6 +640,14 @@ export default function AdminLoadsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* DEV-170: Post Load dialog */}
+      <AddLoadDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        onSuccess={fetchLoads}
+        initialOwnerOperatorId={addForParam}
+      />
     </div>
   );
 }

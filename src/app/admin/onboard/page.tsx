@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, UserPlus, Copy, CheckCircle2, Search } from 'lucide-react';
+import { Loader2, UserPlus, Copy, CheckCircle2, Search, Users, Truck } from 'lucide-react';
+import Link from 'next/link';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { useAdminRole } from '../layout';
 
@@ -200,6 +201,30 @@ export default function AdminOnboardPage() {
                 <Input readOnly value={result.activationUrl} className="font-mono text-xs" />
                 <Button type="button" variant="outline" onClick={copyLink}>
                   <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2 rounded-lg border border-dashed p-3">
+              <p className="text-sm font-medium">Next: complete the white-glove setup</p>
+              <p className="text-xs text-muted-foreground">
+                Pre-populate this customer's drivers and loads so the activation lands on a
+                lived-in dashboard with a real match waiting.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/admin/drivers?addFor=${result.ownerOperatorId}`}>
+                    <Users className="h-4 w-4 mr-1.5" /> Add drivers
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/admin/loads?addFor=${result.ownerOperatorId}`}>
+                    <Truck className="h-4 w-4 mr-1.5" /> Post loads
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/admin/matches?q=${result.ownerOperatorId}`}>
+                    Form a match
+                  </Link>
                 </Button>
               </div>
             </div>
