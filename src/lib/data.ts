@@ -310,6 +310,11 @@ export type TLA = {
   lesseeSignature?: TLASignature;
   // Bilateral compliance snapshot captured at match formation (DEV-162).
   complianceSnapshot?: ComplianceSnapshot;
+  // $25 match fee paid by the load owner (lessee). Stripe webhook flips
+  // these once the checkout session completes (DEV-84).
+  matchFeePaid?: boolean;
+  matchFeePaymentId?: string;
+  matchFeePaidAt?: string;
   status: 'draft' | 'pending_lessor' | 'pending_lessee' | 'signed' | 'in_progress' | 'completed' | 'voided';
   tripTracking?: {
     startedAt?: string;

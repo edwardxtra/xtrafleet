@@ -310,6 +310,44 @@ describe('audit_logs — append-only', () => {
   });
 });
 
+// --- payments: server-only writes, admin-only reads (DEV-84) -------------
+
+describe('payments — server-only writes, admin-only reads (DEV-84)', () => {
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'payments/pi_test1'), {
+        type: 'match_fee',
+        amount: 2500,
+        status: 'succeeded',
+        tlaId: 't1',
+        ownerOperatorId: 'load-owner',
+        createdAt: new Date().toISOString(),
+      });
+    });
+  });
+
+  it('admins can read any payment', async () => {
+    await seedAdmin('admin1');
+    await assertSucceeds(getDoc(doc(asUser('admin1'), 'payments/pi_test1')));
+  });
+
+  it('regular signed-in users cannot read payments', async () => {
+    await seedOwner('load-owner');
+    await assertFails(getDoc(doc(asUser('load-owner'), 'payments/pi_test1')));
+  });
+
+  it('no one can write a payment from the client (server-only)', async () => {
+    await seedOwner('load-owner');
+    await seedAdmin('admin1', 'super_admin');
+    await assertFails(
+      setDoc(doc(asUser('load-owner'), 'payments/new1'), { type: 'match_fee' })
+    );
+    await assertFails(
+      setDoc(doc(asUser('admin1'), 'payments/new1'), { type: 'match_fee' })
+    );
+  });
+});
+
 // --- activation_tokens: server-only (DEV-158) -----------------------------
 
 describe('activation_tokens — server-only (DEV-158)', () => {

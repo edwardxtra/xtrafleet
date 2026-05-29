@@ -184,5 +184,14 @@ service cloud.firestore {
     match /activation_tokens/{tokenId} {
       allow read, write: if false;
     }
+
+    // Stripe payments (DEV-84). Written ONLY by the server (webhook + refund
+    // routes via Admin SDK). Readable by admins so /admin/billing and
+    // /admin/tlas can render the payment history; not exposed to regular
+    // users — the TLA doc's matchFeePaid flag carries the user-facing state.
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && isAdmin();
+      allow write: if false;
+    }
   }
 }

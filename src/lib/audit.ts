@@ -23,6 +23,7 @@ export type AuditAction =
   | 'tla_updated'
   | 'tla_deleted'
   | 'billing_refunded'
+  | 'match_fee_paid'
   | 'attestation_voided'
   | 'message_deleted'
   | 'password_reset_sent'
@@ -81,6 +82,7 @@ export function getActionLabel(action: AuditAction): string {
     tla_updated: 'TLA Updated',
     tla_deleted: 'TLA Deleted',
     billing_refunded: 'Payment Refunded',
+    match_fee_paid: 'Match Fee Paid',
     attestation_voided: 'Attestation Voided',
     message_deleted: 'Message Deleted',
     password_reset_sent: 'Password Reset Sent',
