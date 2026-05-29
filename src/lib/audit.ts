@@ -9,10 +9,12 @@ export type AuditAction =
   | 'user_deleted'
   | 'user_activation_resent'
   | 'driver_updated'
+  | 'driver_created_by_admin'
   | 'driver_deleted'
   | 'driver_deactivated'
   | 'driver_reactivated'
   | 'load_updated'
+  | 'load_created_by_admin'
   | 'load_deleted'
   | 'match_cancelled'
   | 'match_updated'
@@ -65,10 +67,12 @@ export function getActionLabel(action: AuditAction): string {
     user_deleted: 'User Deleted',
     user_activation_resent: 'Activation Email Sent',
     driver_updated: 'Driver Updated',
+    driver_created_by_admin: 'Driver Created (Admin)',
     driver_deleted: 'Driver Deleted',
     driver_deactivated: 'Driver Deactivated',
     driver_reactivated: 'Driver Reactivated',
     load_updated: 'Load Updated',
+    load_created_by_admin: 'Load Created (Admin)',
     load_deleted: 'Load Deleted',
     match_cancelled: 'Match Cancelled',
     match_updated: 'Match Updated',
