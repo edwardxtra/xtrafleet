@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
+import { authenticateRequest } from '@/lib/api-auth';
+import {
+  hasPermission,
+  getDefaultRoleForLegacyAdmin,
+  type AdminRole,
+} from '@/lib/admin-roles';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -7,17 +13,32 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     // Dynamic imports to prevent build-time initialization
-    const Stripe = (await import('stripe')).default;
-    const { adminDb } = await import('@/lib/firebase-admin');
-    
-    if (!process.env.STRIPE_SECRET_KEY) {
-      throw new Error('STRIPE_SECRET_KEY is not set');
+    const { stripe } = await import('@/lib/stripe');
+    const { getAdminDb } = await import('@/lib/firebase-admin');
+    const adminDb = await getAdminDb();
+
+    // 1. Authenticate the caller (same-origin cookie auth, matches the admin UI).
+    let caller;
+    try {
+      caller = await authenticateRequest(request);
+    } catch {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: '2024-12-18.acacia',
-    });
-    
+
+    // 2. Authorize: caller must be an admin with the billing:refund permission.
+    const callerDoc = await adminDb.collection('owner_operators').doc(caller.uid).get();
+    const callerData = callerDoc.data();
+    const callerRole: AdminRole | undefined = callerData?.isAdmin
+      ? ((callerData.adminRole as AdminRole) || getDefaultRoleForLegacyAdmin())
+      : undefined;
+
+    if (!callerRole || !hasPermission(callerRole, 'billing:refund')) {
+      return NextResponse.json(
+        { error: 'Access denied. Billing refund permission required.' },
+        { status: 403 }
+      );
+    }
+
     const { paymentId, reason, details, ownerOperatorId } = await request.json();
 
     if (!paymentId || !reason || !details || !ownerOperatorId) {
@@ -39,6 +60,24 @@ export async function POST(request: NextRequest) {
 
     const paymentData = paymentDoc.data();
 
+    // 3. Consistency check: the payment must actually belong to the owner the
+    // caller claims to be refunding. Prevents a malformed/forged request from
+    // refunding one owner's payment while attributing it to another.
+    if (paymentData?.ownerOperatorId !== ownerOperatorId) {
+      return NextResponse.json(
+        { error: 'Payment does not belong to the specified owner operator' },
+        { status: 400 }
+      );
+    }
+
+    // 4. Idempotency: never refund a payment that is already refunded.
+    if (paymentData?.status === 'refunded') {
+      return NextResponse.json(
+        { error: 'Payment has already been refunded' },
+        { status: 409 }
+      );
+    }
+
     if (!paymentData?.stripePaymentIntentId) {
       return NextResponse.json(
         { error: 'No Stripe payment intent found for this payment' },
@@ -55,6 +94,7 @@ export async function POST(request: NextRequest) {
         refund_details: details,
         owner_operator_id: ownerOperatorId,
         admin_refund: 'true',
+        refunded_by: caller.uid,
       },
     });
 
@@ -65,6 +105,7 @@ export async function POST(request: NextRequest) {
       refundReason: reason,
       refundDetails: details,
       stripeRefundId: refund.id,
+      refundedBy: caller.uid,
       updatedAt: FieldValue.serverTimestamp(),
     });
 
@@ -73,7 +114,8 @@ export async function POST(request: NextRequest) {
       action: 'refund_processed',
       entityType: 'payment',
       entityId: paymentId,
-      performedBy: 'admin', // TODO: Get actual admin user ID from session
+      performedBy: caller.uid,
+      performedByEmail: caller.email ?? null,
       ownerOperatorId,
       metadata: {
         amount: paymentData.amount,

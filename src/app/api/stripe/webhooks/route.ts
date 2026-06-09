@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
     }
 
-    const adminDb = getAdminDb();
+    const adminDb = await getAdminDb();
 
     // Handle events
     switch (event.type) {
