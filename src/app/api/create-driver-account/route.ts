@@ -33,6 +33,47 @@ async function handlePost(request: NextRequest) {
     // Get Firebase Admin
     const { auth, db } = await getFirebaseAdmin();
 
+    // SECURITY: Validate the invitation BEFORE creating any account.
+    // The invitation document — not the request body — is the source of truth
+    // for which fleet (ownerId) the driver joins and which email is claimed.
+    // Trusting the body would let an attacker attach a driver to any fleet,
+    // reuse a spent token, or register a different email than was invited.
+    const invitationSnap = await db.collection('driver_invitations').doc(token).get();
+
+    if (!invitationSnap.exists) {
+      throw new Error('Invalid invitation token');
+    }
+
+    const invitation = invitationSnap.data() as any;
+
+    if (invitation.status !== 'pending') {
+      throw new Error('Invitation has already been used or is no longer valid');
+    }
+
+    const expiresAt =
+      typeof invitation.expiresAt?.toDate === 'function'
+        ? invitation.expiresAt.toDate()
+        : invitation.expiresAt
+          ? new Date(invitation.expiresAt)
+          : null;
+    if (expiresAt && expiresAt.getTime() < Date.now()) {
+      throw new Error('Invitation has expired');
+    }
+
+    // The invitation determines the owning fleet — override anything from the body.
+    const resolvedOwnerId: string = invitation.ownerId;
+    if (!resolvedOwnerId) {
+      throw new Error('Invitation is missing an owner');
+    }
+
+    // The email being registered must match the invited email.
+    if (
+      invitation.email &&
+      email.toLowerCase() !== String(invitation.email).toLowerCase()
+    ) {
+      throw new Error('Email does not match the invitation');
+    }
+
     // Create Firebase Auth user
     console.log('[Create Driver] Creating Firebase user:', email);
     const userRecord = await auth.createUser({
@@ -47,12 +88,12 @@ async function handlePost(request: NextRequest) {
     const dqfStatus = driverType === 'newHire' ? 'pending' : 'not_required';
 
     // Save driver profile to Firestore
-    const driverDocRef = db.collection('owner_operators').doc(ownerId).collection('drivers').doc(userRecord.uid);
-    
+    const driverDocRef = db.collection('owner_operators').doc(resolvedOwnerId).collection('drivers').doc(userRecord.uid);
+
     await driverDocRef.set({
       ...profileData,
       id: userRecord.uid,
-      ownerId: ownerId,
+      ownerId: resolvedOwnerId,
       email: email,
       status: 'active',
       availability: 'Available',
@@ -73,7 +114,7 @@ async function handlePost(request: NextRequest) {
     await db.collection('users').doc(userRecord.uid).set({
       role: 'driver',
       email: email,
-      ownerId: ownerId,
+      ownerId: resolvedOwnerId,
       driverId: userRecord.uid,
       driverType: driverType || 'existing', // NEW: Store driver type in user doc
       createdAt: FieldValue.serverTimestamp(),
@@ -109,6 +150,16 @@ async function handlePost(request: NextRequest) {
     
     if (errorMessage.includes('email-already-exists') || errorMessage.includes('already in use')) {
       return handleApiError('conflict', error instanceof Error ? error : new Error(errorMessage), {
+        endpoint: 'POST /api/create-driver-account'
+      });
+    }
+
+    if (
+      errorMessage.includes('invitation') ||
+      errorMessage.includes('Invitation') ||
+      errorMessage.includes('Email does not match')
+    ) {
+      return handleApiError('validation', error instanceof Error ? error : new Error(errorMessage), {
         endpoint: 'POST /api/create-driver-account'
       });
     }

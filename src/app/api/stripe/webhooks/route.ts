@@ -31,6 +31,16 @@ export async function POST(request: NextRequest) {
 
     const adminDb = await getAdminDb();
 
+    // Idempotency: Stripe retries webhooks (on timeout/non-2xx), so the same
+    // event can arrive more than once. Skip any event we've already fully
+    // processed. The ledger entry is written only AFTER successful handling
+    // below, so a handler that throws is still retried by Stripe.
+    const eventRef = adminDb.collection('stripe_webhook_events').doc(event.id);
+    const alreadyProcessed = await eventRef.get();
+    if (alreadyProcessed.exists) {
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+
     // Handle events
     switch (event.type) {
       case 'checkout.session.completed': {
@@ -128,6 +138,12 @@ export async function POST(request: NextRequest) {
         break;
       }
     }
+
+    // Record the event as processed so any retry is treated as a duplicate.
+    await eventRef.set({
+      type: event.type,
+      processedAt: new Date().toISOString(),
+    });
 
     return NextResponse.json({ received: true });
   } catch (error: any) {

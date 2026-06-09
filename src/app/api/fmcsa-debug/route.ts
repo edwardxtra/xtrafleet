@@ -8,6 +8,13 @@ import { withCors } from '@/lib/api-cors';
 import { authenticateRequest } from '@/lib/api-auth';
 
 async function handleGet(request: NextRequest) {
+  // Debug endpoint: disabled in production builds unless explicitly opted in
+  // via FMCSA_DEBUG_ENABLED=true. Keeps it usable in local dev and (when needed)
+  // in QA, while keeping it off the live production site by default.
+  if (process.env.NODE_ENV === 'production' && process.env.FMCSA_DEBUG_ENABLED !== 'true') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
   try {
     await authenticateRequest(request);
   } catch {
