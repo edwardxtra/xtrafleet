@@ -105,7 +105,13 @@ export function OwnerOperatorPicker({
   const selected = useMemo(() => owners.find((o) => o.id === value), [owners, value]);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    // `modal` is required because this picker renders inside a Radix Dialog
+    // (the "Add Driver" / "Post Load" dialogs). Without it, the Popover's
+    // portaled content lives outside the Dialog's scroll-lock subtree, so the
+    // Dialog's react-remove-scroll blocks mouse-wheel events on the list —
+    // the user could only move through results with the arrow keys. A modal
+    // Popover manages its own scroll region, restoring wheel/scrollbar scrolling.
+    <Popover open={open} onOpenChange={setOpen} modal>
       <PopoverTrigger asChild>
         <Button
           type="button"
