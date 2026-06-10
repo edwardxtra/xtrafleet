@@ -14,7 +14,9 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.substring(7);
-    const decodedToken = await getAdminAuth().verifyIdToken(token);
+    const auth = await getAdminAuth();
+    const adminDb = await getAdminDb();
+    const decodedToken = await auth.verifyIdToken(token);
     const userId = decodedToken.uid;
 
     const body = await request.json();
@@ -25,7 +27,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get or create Stripe customer
-    const userDoc = await getAdminDb().collection('owner_operators').doc(userId).get();
+    const userDoc = await adminDb.collection('owner_operators').doc(userId).get();
     const userData = userDoc.data();
     let customerId = userData?.stripeCustomerId;
 
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest) {
       });
       customerId = customer.id;
       
-      await getAdminDb().collection('owner_operators').doc(userId).update({
+      await adminDb.collection('owner_operators').doc(userId).update({
         stripeCustomerId: customerId
       });
     }

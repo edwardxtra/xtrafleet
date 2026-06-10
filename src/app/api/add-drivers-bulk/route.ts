@@ -64,6 +64,15 @@ async function handlePost(req: NextRequest) {
       throw new Error('Driver add attestations are required.');
     }
     const ownerDoc = await db.doc(`owner_operators/${ownerUser.uid}`).get();
+
+    // Only actual owner-operators may bulk-invite drivers. This prevents any
+    // other authenticated account (e.g. a driver) from using the endpoint as
+    // an email cannon — invitations are always scoped to ownerUser.uid, and
+    // only owner-operators have an owner_operators profile document.
+    if (!ownerDoc.exists) {
+      throw new Error('Unauthorized');
+    }
+
     const companyName = ownerDoc.data()?.legalName || ownerDoc.data()?.companyName || 'A fleet';
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://xtrafleet.com';
 
