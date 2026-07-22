@@ -45,7 +45,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, getDocs, doc, updateDoc, getDoc, deleteDoc } from 'firebase/firestore';
-import { Search, Link2, RefreshCw, ArrowRight, Ban, Download, Loader2, Trash2, Edit2, MoreHorizontal, Eye } from 'lucide-react';
+import { Search, Link2, RefreshCw, ArrowRight, Ban, Download, Loader2, Trash2, Edit2, MoreHorizontal, Eye, Plus } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,6 +59,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import type { Match, MatchStatus } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
 import { showSuccess, showError } from '@/lib/toast-utils';
+import { AdminCreateMatchModal } from '@/components/admin-create-match-modal';
 
 type EditableMatchFields = {
   originalRate: string;
@@ -108,6 +109,7 @@ export default function AdminMatchesPage() {
 
   const [acceptingOnBehalfMatch, setAcceptingOnBehalfMatch] = useState<Match | null>(null);
   const [isAcceptingOnBehalf, setIsAcceptingOnBehalf] = useState(false);
+  const [showCreateMatch, setShowCreateMatch] = useState(false);
 
   const handleAcceptOnBehalf = async (match: Match, actingOnBehalfOf: string) => {
     if (!firestore || !adminUser) return;
@@ -437,6 +439,11 @@ export default function AdminMatchesPage() {
           <p className="text-muted-foreground">View and manage all matches across the platform</p>
         </div>
         <div className="flex gap-2">
+          {canActOnBehalf && (
+            <Button onClick={() => setShowCreateMatch(true)}>
+              <Plus className="h-4 w-4 mr-2" />Create Match
+            </Button>
+          )}
           {canDelete && selectedMatchIds.size > 0 && (
             <Button variant="destructive" onClick={() => setShowBulkDeleteDialog(true)}>
               <Trash2 className="h-4 w-4 mr-2" />Delete ({selectedMatchIds.size})
@@ -789,6 +796,13 @@ export default function AdminMatchesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Create Match Modal */}
+      <AdminCreateMatchModal
+        open={showCreateMatch}
+        onOpenChange={setShowCreateMatch}
+        onSuccess={fetchMatches}
+      />
 
       {/* Bulk Delete Dialog */}
       <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
