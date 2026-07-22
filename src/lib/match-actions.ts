@@ -19,12 +19,13 @@ export interface AcceptMatchResult {
 
 export async function acceptMatch(
   firestore: Firestore,
-  matchId: string
+  matchId: string,
+  actingOnBehalfOf?: string
 ): Promise<AcceptMatchResult> {
   const res = await fetch('/api/matches/accept', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ matchId }),
+    body: JSON.stringify(actingOnBehalfOf ? { matchId, actingOnBehalfOf } : { matchId }),
   });
 
   let data: any = {};
