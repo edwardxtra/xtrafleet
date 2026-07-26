@@ -81,7 +81,7 @@ async function handlePost(req: NextRequest) {
         .collection('drivers')
         .doc(driverId!);
       const driverDoc = await driverRef.get();
-      if (!driverDoc.exists()) {
+      if (!driverDoc.exists) {
         throw new Error('Driver document not found');
       }
     }
