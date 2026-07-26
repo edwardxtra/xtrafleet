@@ -171,7 +171,8 @@ export function MatchRequestModal({
           origin: load.origin,
           destination: load.destination,
           cargo: load.cargo,
-          weight: load.weight,
+          // Firestore rejects undefined; weight is optional on some loads.
+          weight: load.weight ?? 0,
         },
         driverSnapshot: {
           name: driver.name,
