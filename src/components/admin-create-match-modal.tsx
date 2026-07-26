@@ -233,7 +233,8 @@ export function AdminCreateMatchModal({
           origin: selectedLoad.origin,
           destination: selectedLoad.destination,
           cargo: selectedLoad.cargo,
-          weight: selectedLoad.weight,
+          // Firestore rejects undefined; weight is optional on some loads.
+          weight: selectedLoad.weight ?? 0,
         },
         driverSnapshot: {
           name: selectedDriver.name,
