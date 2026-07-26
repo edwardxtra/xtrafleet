@@ -51,7 +51,7 @@ async function handlePost(req: NextRequest) {
     const driverDoc = await driverRef.get();
     const driverData = driverDoc.data();
 
-    if (!driverDoc.exists()) {
+    if (!driverDoc.exists) {
       console.error(`${LOG_PREFIX} Driver document not found at owner_operators/${userData.ownerId}/drivers/${user.uid}`);
       throw new Error('Driver document not found');
     }
