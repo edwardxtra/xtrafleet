@@ -83,12 +83,16 @@ export function AdminCreateMatchModal({
           getDocs(collectionGroup(firestore, "drivers")),
         ]);
 
+        // Loads use the current lifecycle vocabulary (draft/live/match_pending/
+        // ...); "Pending" is legacy. Show loads that are still on the
+        // marketplace, treating a missing status as 'live' (as the loads UI does).
+        const AVAILABLE_LOAD_STATUSES = new Set(["Pending", "live", "match_pending"]);
         const ownerIds = new Set<string>();
         const rawLoads: LoadWithOwner[] = [];
         loadsSnap.docs.forEach((docSnap) => {
           const data = docSnap.data() as Load;
           const ownerId = docSnap.ref.path.split("/")[1];
-          if (data.status === "Pending") {
+          if (AVAILABLE_LOAD_STATUSES.has((data.status as string) || "live")) {
             ownerIds.add(ownerId);
             rawLoads.push({ ...data, id: docSnap.id, ownerId });
           }
