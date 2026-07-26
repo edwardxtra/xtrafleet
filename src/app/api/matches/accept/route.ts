@@ -135,11 +135,17 @@ async function handlePost(request: NextRequest) {
     const driver = { id: driverSnap.id, ...(driverSnap.data() as object) } as Driver;
     const loadData = loadSnap.data() as { status?: string };
 
-    // 8. The load must still be available.
-    if (loadData.status !== 'Pending') {
+    // 8. The load must still be available. Loads use the current lifecycle
+    //    vocabulary (draft/live/match_pending/driver_matched/...); "Pending" is
+    //    legacy. A load is matchable while it is still on the marketplace —
+    //    mirror the marketplace's AVAILABLE set and treat a missing status as
+    //    'live' (as the loads UI does).
+    const AVAILABLE_LOAD_STATUSES = ['Pending', 'live', 'match_pending'];
+    const loadStatus = loadData.status || 'live';
+    if (!AVAILABLE_LOAD_STATUSES.includes(loadStatus)) {
       return json(
         {
-          error: `This load has already been matched (status: ${loadData.status}). Please refresh.`,
+          error: `This load is no longer available for matching (status: ${loadStatus}). Please refresh.`,
         },
         409
       );
