@@ -15,6 +15,10 @@ const bodySchema = z.object({
   email: z.string().email('A valid email is required'),
   password: z.string().min(1, 'Password is required'),
   companyName: z.string().min(1, 'Company name is required'),
+  // DEV-154 profile attestations pulled into the registration step so the
+  // user is fully onboarded on finishing signup (no post-signup side modal).
+  profileInsurance: z.boolean().optional(),
+  profileAuthority: z.boolean().optional(),
 });
 
 /**
@@ -69,7 +73,7 @@ async function handlePost(req: NextRequest) {
         Object.values(parsed.error.flatten().fieldErrors).flat().join(', ') || 'Invalid request body',
       );
     }
-    const { email, password, companyName } = parsed.data;
+    const { email, password, companyName, profileInsurance, profileAuthority } = parsed.data;
 
     const pw = passwordSchema.safeParse(password);
     if (!pw.success) {
@@ -126,11 +130,16 @@ async function handlePost(req: NextRequest) {
             fmcsaDesignated: false,
             completedAt: null,
           },
-          // DEV-154 staged-attestation model — signup surface.
+          // DEV-154 staged-attestation model — signup surface. The two
+          // profile attestations (insurance / DOT authority) are captured
+          // inline on the registration form, so record them here when the
+          // user checked them rather than deferring to a post-signup modal.
           attestations: [
             buildAttestationEntry('signupAuthorized', uid),
             buildAttestationEntry('signupEsignConsent', uid),
             buildAttestationEntry('signupTermsOfService', uid),
+            ...(profileInsurance ? [buildAttestationEntry('profileInsurance', uid)] : []),
+            ...(profileAuthority ? [buildAttestationEntry('profileAuthority', uid)] : []),
           ],
           updatedAt: FieldValue.serverTimestamp(),
         });
