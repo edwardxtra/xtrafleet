@@ -185,6 +185,9 @@ export default function ProfilePage() {
   // Unified carrier view: prefer the most recent fresh lookup, fall back to
   // the saved FMCSA snapshot from Firestore.
   const fmcsaCarrier = fmcsa.carrier ?? profile?.fmcsaData;
+  // #6: active liability (BIPD) insurance on file with FMCSA means the carrier
+  // doesn't need to upload a COI — hide the upload and don't require it.
+  const hasFmcsaInsurance = !!fmcsaCarrier?.liInsuranceSummary?.hasBIPD;
   // True once we have a completed lookup (fresh or hydrated from saved data).
   // Used to decide when to show "not on file with FMCSA" empty states vs
   // hiding fields before the user has run a lookup yet.
@@ -193,6 +196,17 @@ export default function ProfilePage() {
     fmcsa.state === 'verified_safer_discrepancy' ||
     fmcsa.state === 'verified_inactive' ||
     fmcsaLocked;
+
+  // #7: pre-fill operating states from the carrier's FMCSA home state when none
+  // are set yet. Optional — the user can add or remove states freely.
+  useEffect(() => {
+    const hq = fmcsaCarrier?.hqState?.toUpperCase();
+    const match = hq ? US_STATES.find((s) => s.value === hq)?.value : undefined;
+    if (!match) return;
+    setEditedProfile((prev) =>
+      prev && !prev.operatingStates?.length ? { ...prev, operatingStates: [match] } : prev,
+    );
+  }, [fmcsaCarrier?.hqState]);
 
   const verifyDOT = useCallback(async (dotNumber: string, opts: { force?: boolean } = {}) => {
     if (fmcsaLocked && !opts.force) return;
@@ -381,7 +395,10 @@ export default function ProfilePage() {
     try {
       const hasCoiData = !!(editedProfile.coi?.fileUrl || (coiInsurerName && coiPolicyNumber && coiExpiryDate));
       const hasAddress = !!(editedProfile.hqStreet && editedProfile.hqCity && editedProfile.hqState);
-      const isComplete = !!(editedProfile.legalName && editedProfile.dotNumber && editedProfile.mcNumber && hasAddress && editedProfile.operatingStates?.length && hasCoiData);
+      // #6: COI is only required when FMCSA has no active insurance on file.
+      const coiSatisfied = hasFmcsaInsurance || hasCoiData;
+      // #7: operating states are optional (pre-filled from FMCSA, editable).
+      const isComplete = !!(editedProfile.legalName && editedProfile.dotNumber && editedProfile.mcNumber && hasAddress && coiSatisfied);
 
       // Compose legacy hqAddress for any consumers still reading it
       const hqAddress = [editedProfile.hqStreet, editedProfile.hqCity, editedProfile.hqState, editedProfile.hqZip]
@@ -453,8 +470,7 @@ export default function ProfilePage() {
         if (!editedProfile.dotNumber) missing.push('DOT #');
         if (!editedProfile.mcNumber) missing.push('MC #');
         if (!hasAddress) missing.push('HQ Address');
-        if (!editedProfile.operatingStates?.length) missing.push('Operating States');
-        if (!hasCoiData) missing.push('Certificate of Insurance');
+        if (!coiSatisfied) missing.push('Certificate of Insurance');
         showSuccess(`Profile saved. Still missing: ${missing.join(', ')}`);
       } else if (fmcsa.state === 'verified_safer_discrepancy' && canLock && fmcsa.carrier) {
         showSuccess('Profile verified and saved. Note: SAFER still shows this DOT as inactive — view your SAFER record or dispute via DataQs.');
@@ -865,6 +881,19 @@ export default function ProfilePage() {
         );
       })()}
 
+      {hasFmcsaInsurance ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Certificate of Insurance (COI)</CardTitle>
+          <CardDescription>Active insurance verified via FMCSA — no COI upload needed.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Alert><CheckCircle2 className="h-4 w-4" /><AlertDescription>
+            We found active liability insurance on file with FMCSA{fmcsaCarrier?.liInsuranceSummary?.primaryInsurer ? ` (insurer: ${fmcsaCarrier.liInsuranceSummary.primaryInsurer})` : ''}. You don&apos;t need to upload a Certificate of Insurance.
+          </AlertDescription></Alert>
+        </CardContent>
+      </Card>
+      ) : (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Certificate of Insurance (COI)</CardTitle>
@@ -914,6 +943,7 @@ export default function ProfilePage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardHeader>
