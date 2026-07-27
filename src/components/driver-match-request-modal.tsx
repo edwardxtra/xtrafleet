@@ -29,6 +29,7 @@ import type { Driver, Load } from "@/lib/data";
 import type { LoadMatchScore } from "@/lib/matching";
 import { useUser, useFirestore } from "@/firebase";
 import { collection, addDoc, doc, getDoc } from "firebase/firestore";
+import { stripUndefined } from "@/lib/firestore-utils";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import { notify } from "@/lib/notifications";
 import { getComplianceStatus } from "@/lib/compliance";
@@ -175,7 +176,7 @@ export function DriverMatchRequestModal({
       }
 
       // Save to Firestore
-      const matchRef = await addDoc(collection(firestore, "matches"), matchData);
+      const matchRef = await addDoc(collection(firestore, "matches"), stripUndefined(matchData));
 
       console.log("Driver-initiated match request created:", matchRef.id);
 

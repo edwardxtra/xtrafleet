@@ -22,6 +22,7 @@ export { FieldValue, Timestamp };
 
 const APP_NAME = 'xtrafleet-admin';
 let adminApp: App | null = null;
+let firestoreSettingsApplied = false;
 
 /**
  * Initialize Firebase Admin SDK
@@ -109,10 +110,25 @@ async function initializeFirebaseAdmin(): Promise<App> {
  */
 export async function getFirebaseAdmin() {
   const app = await initializeFirebaseAdmin();
-  
+
+  const db = app.firestore();
+
+  // Drop undefined field values instead of throwing on write. Firestore rejects
+  // `undefined` ("Unsupported field value: undefined"); optional fields left
+  // blank routinely produce it. Must be set once, before the first Firestore
+  // operation — guard with a flag (repeat calls to settings() throw).
+  if (!firestoreSettingsApplied) {
+    try {
+      db.settings({ ignoreUndefinedProperties: true });
+    } catch {
+      // Already configured (e.g. hot-reload reusing the app) — safe to ignore.
+    }
+    firestoreSettingsApplied = true;
+  }
+
   return {
     auth: app.auth(),
-    db: app.firestore(),
+    db,
     storage: app.storage(),
   };
 }
