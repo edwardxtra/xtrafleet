@@ -82,11 +82,15 @@ export async function createConversation(
         cargo: loadData.cargo,
       },
       tlaId,
-      lastMessage: "Conversation started",
+      lastMessage: "You've been matched — start coordinating this trip.",
       lastMessageAt: new Date().toISOString(),
+      // Seed a single unread for both parties so the Messages nav badge lights
+      // up when a match forms (the "new match, go message" signal). Opening the
+      // conversation resets the reader's count to 0. We can't post a real system
+      // message here because Firestore rules require the sender be a participant.
       unreadCount: {
-        [driverOwnerId]: 0,
-        [loadOwnerId]: 0,
+        [driverOwnerId]: 1,
+        [loadOwnerId]: 1,
       },
       createdAt: new Date().toISOString(),
     };

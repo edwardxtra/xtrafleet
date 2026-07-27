@@ -21,6 +21,7 @@ import { OnboardingBanner } from "@/components/onboarding-banner";
 import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Loader2, FileText, Shield, MessageSquare, User, ChevronDown, ArrowLeftRight, CreditCard } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
+import { usePendingRequestsCount } from "@/hooks/use-pending-requests-count";
 import { ImpersonationBanner } from "@/components/impersonation-banner";
 
 interface OnboardingStatus {
@@ -48,6 +49,7 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
   const { setOpenMobile, isMobile } = useSidebar();
   const handleSignOutClick = () => { if (isMobile) setOpenMobile(false); onSignOutClick(); };
   const unreadCount = useUnreadMessagesCount();
+  const pendingRequestsCount = usePendingRequestsCount();
   return (
     <>
       <SidebarContent>
@@ -56,7 +58,7 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
           <SidebarMenuItem data-tour="sidebar-drivers"><SidebarNavLink href="/dashboard/drivers" tooltip="Drivers"><Users /><span>Drivers</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem data-tour="sidebar-loads"><SidebarNavLink href="/dashboard/loads" tooltip="Loads"><Truck /><span>Loads</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem data-tour="sidebar-matches"><SidebarNavLink href="/dashboard/matches" tooltip="Find Matches"><BarChart /><span>Find Matches</span></SidebarNavLink></SidebarMenuItem>
-          <SidebarMenuItem><SidebarNavLink href="/dashboard/requests" tooltip="Requests"><ArrowLeftRight /><span>Requests</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/requests" tooltip="Requests" badge={pendingRequestsCount}><ArrowLeftRight /><span>Requests</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem><SidebarNavLink href="/dashboard/messages" tooltip="Messages" badge={unreadCount}><MessageSquare /><span>Messages</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem><SidebarNavLink href="/dashboard/agreements" tooltip="Agreements"><FileText /><span>Agreements</span></SidebarNavLink></SidebarMenuItem>
         </SidebarMenu>
