@@ -20,6 +20,25 @@ export interface MatchScoreBreakdown {
   qualificationWarning?: string;
   // Individual expiry details for the Learn More panel
   expiryDetails?: ExpiryDetail[];
+  // PR 3: pickup-window feasibility (can the driver physically reach the
+  // load origin by the pickup deadline?). Computed when both endpoints
+  // geocode AND the load has a usable pickupDate. Otherwise undefined.
+  feasibility?: PickupFeasibility;
+}
+
+export interface PickupFeasibility {
+  /** False = physically can't make the pickup window. */
+  feasible: boolean;
+  /** True when feasible but cutting it close (>70% of available time). */
+  tightSchedule: boolean;
+  /** Estimated deadhead miles (driver location → load origin). */
+  estimatedMiles?: number;
+  /** Estimated travel hours including HOS buffer. */
+  estimatedTravelHours?: number;
+  /** Hours between "now" and the pickup deadline (end of pickupDate). */
+  hoursUntilPickup?: number;
+  /** Human-readable explanation when infeasible / tight. */
+  reason?: string;
 }
 
 export interface ExpiryDetail {
@@ -58,15 +77,30 @@ const DEFAULT_OPTIONS: MatchingOptions = {
 };
 
 // ---------------------------------------------------------------------------
-// Scoring weights (DEV-123)
-// Total: 100 pts
+// Scoring weights — total: 100 pts
+// PR 1 (transparency sprint) reweight:
+//   - Equipment dropped from 20 → 10 because it's now a soft scoring penalty
+//     rather than a hard filter (wrong-equipment drivers still appear in
+//     results, just ranked lower).
+//   - Rating bumped from 5 → 10 because the previous 5 was noise — couldn't
+//     distinguish a 4.9 from a 3.2 driver in any meaningful way.
+//   - Location bumped from 35 → 40 to keep the total at 100 and give a
+//     small additional weight to proximity, the most operationally
+//     significant factor after compliance.
+//   - Qualification (40) unchanged — compliance is the largest single bucket.
 // ---------------------------------------------------------------------------
 const WEIGHTS = {
-  location: 35,
-  vehicle: 20,
+  location: 40,
+  vehicle: 10,
   qualification: 40,  // blended qual+compliance
-  rating: 5,
+  rating: 10,
 } as const;
+
+// Multiplier applied to the vehicle bucket when the driver's trailer doesn't
+// match the load's required trailerType. Keeps wrong-equipment drivers in
+// results (so the OO sees them) but pushes them well below correct-equipment
+// candidates.
+const WRONG_EQUIPMENT_MULTIPLIER = 0.2;
 
 const EXPIRY_WARNING_DAYS = 30;
 
@@ -82,9 +116,16 @@ const VEHICLE_CARGO_SYNONYMS: Record<string, string[]> = {
   tanker: ["tank", "liquid", "bulk liquid"],
   hopper: ["grain", "bulk", "dry bulk"],
   lowboy: ["low boy", "low-boy", "heavy haul", "heavy equipment"],
-  "step deck": ["step-deck", "stepdeck", "drop deck"],
+  "step deck": ["step-deck", "stepdeck", "drop deck", "drop-deck"],
   conestoga: ["curtain side", "curtainside"],
   hazmat: ["hazardous", "hazardous materials", "dangerous goods"],
+  // PR 1 — added trailer types that were silently failing equipment match
+  // because the only mapping was the in-code constant.
+  "auto carrier": ["auto-carrier", "car hauler", "car-hauler", "car carrier", "vehicle carrier"],
+  "power only": ["power-only", "poweronly", "tractor only", "bobtail"],
+  rgn: ["removable gooseneck", "removable-gooseneck"],
+  "double drop": ["double-drop", "doubledrop"],
+  livestock: ["cattle", "animal hauler"],
 };
 
 function getSynonyms(term: string): string[] {
@@ -192,6 +233,19 @@ const FALLBACK_COORDINATES: Record<string, { lat: number; lng: number }> = {
   boston: { lat: 42.3601, lng: -71.0589 }, worcester: { lat: 42.2626, lng: -71.8023 },
   "springfield ma": { lat: 42.1015, lng: -72.5898 }, ma: { lat: 42.0, lng: -71.5 },
   massachusetts: { lat: 42.0, lng: -71.5 },
+  // New England backstop — common freight cities near the Boston corridor.
+  lawrence: { lat: 42.707, lng: -71.1631 }, lowell: { lat: 42.6334, lng: -71.3162 },
+  cambridge: { lat: 42.3736, lng: -71.1097 }, quincy: { lat: 42.2529, lng: -71.0023 },
+  springfield: { lat: 42.1015, lng: -72.5898 },
+  providence: { lat: 41.824, lng: -71.4128 }, ri: { lat: 41.7, lng: -71.5 },
+  "rhode island": { lat: 41.7, lng: -71.5 },
+  hartford: { lat: 41.7658, lng: -72.6734 }, "new haven": { lat: 41.3083, lng: -72.9279 },
+  bridgeport: { lat: 41.1792, lng: -73.1894 }, ct: { lat: 41.6, lng: -72.7 },
+  connecticut: { lat: 41.6, lng: -72.7 },
+  "manchester nh": { lat: 42.9956, lng: -71.4548 }, nashua: { lat: 42.7654, lng: -71.4676 },
+  nh: { lat: 43.7, lng: -71.6 }, "new hampshire": { lat: 43.7, lng: -71.6 },
+  "portland me": { lat: 43.6591, lng: -70.2568 }, me: { lat: 45.3, lng: -69.2 },
+  maine: { lat: 45.3, lng: -69.2 },
   phoenix: { lat: 33.4484, lng: -112.074 }, az: { lat: 34.0, lng: -111.5 },
   arizona: { lat: 34.0, lng: -111.5 },
   "las vegas": { lat: 36.1699, lng: -115.1398 }, nv: { lat: 39.0, lng: -117.0 },
@@ -238,19 +292,26 @@ function isGeocodingEnabled(location: string): boolean {
   return false;
 }
 
+// PR 2: routes through our own /api/geocode endpoint which is backed by
+// Radar + a Firestore cache layer. Replaces the previous direct call to
+// Nominatim, which was rate-limited, slow, and produced inconsistent results
+// for US trucking-relevant queries. The in-memory geocodeCache below is
+// still useful as an in-tab cache so repeated calls within a session don't
+// even hit our API.
 async function geocodeLocation(location: string): Promise<{ lat: number; lng: number } | null> {
   const key = location.toLowerCase().trim();
   if (geocodeCache.has(key)) return geocodeCache.get(key) ?? null;
-  if (!isGeocodingEnabled(location)) return null;
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location + ", USA")}&limit=1`,
-      { headers: { "User-Agent": "XtraFleet/1.0 (https://xtrafleet.com)" } }
-    );
-    if (!res.ok) { geocodeCache.set(key, null); return null; }
+    const res = await fetch(`/api/geocode?q=${encodeURIComponent(location)}`);
+    if (!res.ok) {
+      geocodeCache.set(key, null);
+      return null;
+    }
     const data = await res.json();
-    if (data?.length > 0) {
-      const coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    // /api/geocode wraps in { data: { lat, lng, source } } via handleApiSuccess.
+    const payload = (data && (data.data || data)) || {};
+    if (typeof payload.lat === 'number' && typeof payload.lng === 'number') {
+      const coords = { lat: payload.lat, lng: payload.lng };
       geocodeCache.set(key, coords);
       return coords;
     }
@@ -263,28 +324,49 @@ async function geocodeLocation(location: string): Promise<{ lat: number; lng: nu
   }
 }
 
-function getCoordinatesSync(location: string): { lat: number; lng: number } | null {
+// Resolve a "City, ST" / "City, State" / bare-city / street-address string to
+// coordinates from the fallback table. Matching is EXACT on whole tokens — the
+// old `n.includes(key) || key.includes(n)` substring scan mis-resolved any name
+// containing a short key as a substring (e.g. "Lawrence" contains "la" →
+// Los Angeles, "Atlanta" contains "la" → Los Angeles), which silently placed a
+// nearby driver ~2,600 mi away and tanked the location score.
+export function getCoordinatesSync(location: string): { lat: number; lng: number } | null {
   if (!location) return null;
   const n = location.toLowerCase().trim();
+
+  // 1. Exact match on the whole normalized string (e.g. "springfield ma").
   if (FALLBACK_COORDINATES[n]) return FALLBACK_COORDINATES[n];
-  for (const [key, coords] of Object.entries(FALLBACK_COORDINATES)) {
-    if (n.includes(key) || key.includes(n)) return coords;
+
+  const parts = n.split(",").map((p) => p.trim()).filter(Boolean);
+  const state = parts.length > 1 ? parts[parts.length - 1] : "";
+
+  // 2. "<part> <state>" combined keys disambiguate same-named cities across
+  //    states ("springfield ma" vs "springfield il", "portland me" vs "portland").
+  if (state) {
+    for (const part of parts.slice(0, -1)) {
+      const cityState = `${part} ${state}`;
+      if (FALLBACK_COORDINATES[cityState]) return FALLBACK_COORDINATES[cityState];
+    }
   }
-  const city = n.split(",")[0].trim();
-  if (FALLBACK_COORDINATES[city]) return FALLBACK_COORDINATES[city];
-  const parts = n.split(",");
-  if (parts.length > 1) {
-    const st = parts[parts.length - 1].trim();
-    if (FALLBACK_COORDINATES[st]) return FALLBACK_COORDINATES[st];
+
+  // 3. Exact match on any comma-part as a city (handles street addresses like
+  //    "123 Main St, Boston, MA" → "boston"). Exact only — never a substring.
+  for (const part of parts) {
+    if (FALLBACK_COORDINATES[part]) return FALLBACK_COORDINATES[part];
   }
+
   return null;
 }
 
+// PR 2: removed the isGeocodingEnabled() gate. That gate was a workaround
+// for Nominatim rate limits — it restricted external geocoding to a small
+// allowlist of US states. With the Radar-backed /api/geocode endpoint
+// (cached in Firestore for 30 days), every location is fair game and any
+// city or address in the US is reachable for matching.
 async function getCoordinatesAsync(location: string): Promise<{ lat: number; lng: number } | null> {
   const fallback = getCoordinatesSync(location);
   if (fallback) return fallback;
-  if (isGeocodingEnabled(location)) return geocodeLocation(location);
-  return null;
+  return geocodeLocation(location);
 }
 
 function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -431,18 +513,109 @@ function calculateQualificationScore(
 }
 
 // ---------------------------------------------------------------------------
+// PR 3: pickup-window feasibility
+//
+// Rough estimate of whether a driver can physically reach the load origin
+// before the pickup deadline. NOT a full HOS model — that requires actual
+// duty status, recent off-duty hours, and 11-hour driving limit tracking
+// we don't have today. This is a sanity check that catches the obvious
+// "NYC driver for a Tampa pickup in 4 hours" failure mode.
+//
+//   avg highway speed     = 50 mph
+//   pickup deadline       = end of pickupDate (local-time approximation)
+//   HOS sleep buffer      = +10 hours when > 600 miles of deadhead
+//
+// If we lack any of: driver coords, load coords, parseable pickupDate —
+// we return undefined and skip the feasibility signal entirely.
+// ---------------------------------------------------------------------------
+
+const AVG_HIGHWAY_MPH = 50;
+const HOS_SLEEP_THRESHOLD_MI = 600;
+const HOS_SLEEP_BUFFER_HOURS = 10;
+const TIGHT_SCHEDULE_RATIO = 0.7;
+
+function computePickupFeasibility(
+  driverCoords: { lat: number; lng: number } | null,
+  loadCoords: { lat: number; lng: number } | null,
+  pickupDate: string | undefined,
+): PickupFeasibility | undefined {
+  if (!driverCoords || !loadCoords || !pickupDate) return undefined;
+
+  let deadlineMs: number;
+  try {
+    // Treat pickupDate as the local-day deadline. We give the driver until
+    // 23:59 local on the pickup date to arrive. Construct in local time
+    // explicitly so we don't fight TZ offsets.
+    const [yyyy, mm, dd] = pickupDate.split('-').map((s) => parseInt(s, 10));
+    if (!yyyy || !mm || !dd) return undefined;
+    const deadline = new Date(yyyy, mm - 1, dd, 23, 59, 59, 0);
+    deadlineMs = deadline.getTime();
+    if (!Number.isFinite(deadlineMs)) return undefined;
+  } catch {
+    return undefined;
+  }
+
+  const nowMs = Date.now();
+  const hoursUntilPickup = (deadlineMs - nowMs) / (1000 * 60 * 60);
+  const miles = calculateDistance(driverCoords.lat, driverCoords.lng, loadCoords.lat, loadCoords.lng);
+  const baseHours = miles / AVG_HIGHWAY_MPH;
+  const sleepBuffer = miles > HOS_SLEEP_THRESHOLD_MI ? HOS_SLEEP_BUFFER_HOURS : 0;
+  const estimatedTravelHours = baseHours + sleepBuffer;
+
+  if (hoursUntilPickup <= 0) {
+    return {
+      feasible: false,
+      tightSchedule: false,
+      estimatedMiles: Math.round(miles),
+      estimatedTravelHours: Math.round(estimatedTravelHours * 10) / 10,
+      hoursUntilPickup: Math.round(hoursUntilPickup * 10) / 10,
+      reason: 'Pickup date has already passed',
+    };
+  }
+
+  if (estimatedTravelHours > hoursUntilPickup) {
+    return {
+      feasible: false,
+      tightSchedule: false,
+      estimatedMiles: Math.round(miles),
+      estimatedTravelHours: Math.round(estimatedTravelHours * 10) / 10,
+      hoursUntilPickup: Math.round(hoursUntilPickup * 10) / 10,
+      reason: `~${Math.round(estimatedTravelHours)}h drive vs ${Math.round(hoursUntilPickup)}h until pickup`,
+    };
+  }
+
+  const tight = estimatedTravelHours > TIGHT_SCHEDULE_RATIO * hoursUntilPickup;
+  return {
+    feasible: true,
+    tightSchedule: tight,
+    estimatedMiles: Math.round(miles),
+    estimatedTravelHours: Math.round(estimatedTravelHours * 10) / 10,
+    hoursUntilPickup: Math.round(hoursUntilPickup * 10) / 10,
+    reason: tight
+      ? `Tight: ~${Math.round(estimatedTravelHours)}h drive vs ${Math.round(hoursUntilPickup)}h available`
+      : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Core breakdown calculator
 // ---------------------------------------------------------------------------
 
 function buildBreakdown(
   driver: Driver,
   load: Load,
-  locationScore: number
+  locationScore: number,
+  feasibility?: PickupFeasibility,
 ): MatchScoreBreakdown {
-  // Vehicle match (0-20)
+  // Vehicle match (0-WEIGHTS.vehicle).
+  // PR 1: equipment is now a SOFT penalty, not a hard filter. Wrong-equipment
+  // drivers still appear in results — they just get the WRONG_EQUIPMENT_MULTIPLIER
+  // share of this bucket so they rank well below correct-equipment candidates.
   let vehicleMatch = 0;
   if (load.trailerType) {
-    vehicleMatch = WEIGHTS.vehicle; // hard filter already verified compatibility
+    vehicleMatch = isEquipmentCompatible(driver, load)
+      ? WEIGHTS.vehicle
+      : Math.round(WEIGHTS.vehicle * WRONG_EQUIPMENT_MULTIPLIER);
   } else if (load.requiredQualifications && load.requiredQualifications.length > 0) {
     const driverTypes = getDriverTrailerTypes(driver);
     const matches = load.requiredQualifications.some((req) =>
@@ -478,6 +651,7 @@ function buildBreakdown(
     complianceScore: 0, // folded into qualificationScore — kept at 0 for compat
     qualificationWarning: warning,
     expiryDetails,
+    feasibility,
   };
 }
 
@@ -488,13 +662,15 @@ function buildBreakdown(
 export function calculateMatchScore(driver: Driver, load: Load): MatchScoreBreakdown {
   const dCoords = getCoordinatesSync(driver.location || "");
   const lCoords = getCoordinatesSync(load.origin || "");
-  return buildBreakdown(driver, load, calculateLocationScoreWeighted(dCoords, lCoords));
+  const feasibility = computePickupFeasibility(dCoords, lCoords, load.pickupDate);
+  return buildBreakdown(driver, load, calculateLocationScoreWeighted(dCoords, lCoords), feasibility);
 }
 
 export async function calculateMatchScoreAsync(driver: Driver, load: Load): Promise<MatchScoreBreakdown> {
   const dCoords = await getCoordinatesAsync(driver.location || "");
   const lCoords = await getCoordinatesAsync(load.origin || "");
-  return buildBreakdown(driver, load, calculateLocationScoreWeighted(dCoords, lCoords));
+  const feasibility = computePickupFeasibility(dCoords, lCoords, load.pickupDate);
+  return buildBreakdown(driver, load, calculateLocationScoreWeighted(dCoords, lCoords), feasibility);
 }
 
 export function getTotalScore(breakdown: MatchScoreBreakdown): number {
@@ -518,17 +694,9 @@ export function findMatchingDrivers(
 ): MatchScore[] {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
-  const eligible = drivers.filter((driver) => {
-    if (opts.onlyAvailable && driver.availability !== "Available") return false;
-    if (opts.onlyGreenCompliance) {
-      // Still use the lightweight status check as a hard gate
-      const expiryDetails = buildExpiryDetails(driver);
-      const hasExpired = expiryDetails.some((d) => d.status === "expired");
-      if (hasExpired) return false;
-    }
-    if (!isEquipmentCompatible(driver, load)) return false;
-    return true;
-  });
+  // PR 1: equipment is no longer a hard filter — it falls through to scoring.
+  // The remaining hard filters are availability + expired compliance docs.
+  const eligible = drivers.filter((driver) => filterEligibility(driver, opts) === null);
 
   console.log(
     `${LOG_PREFIX} findMatchingDrivers: ${eligible.length}/${drivers.length} eligible for load ${load.id ?? load.origin}`
@@ -540,10 +708,56 @@ export function findMatchingDrivers(
     return { driver, score, breakdown, rank: 0, isBestMatch: false };
   });
 
-  scored.sort((a, b) => b.score - a.score);
-  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0; });
+  // PR 3: infeasible-by-schedule drivers always sort below feasible ones,
+  // regardless of raw score. Within each group we sort by score descending.
+  scored.sort((a, b) => {
+    const aInfeasible = a.breakdown.feasibility?.feasible === false ? 1 : 0;
+    const bInfeasible = b.breakdown.feasibility?.feasible === false ? 1 : 0;
+    if (aInfeasible !== bInfeasible) return aInfeasible - bInfeasible;
+    return b.score - a.score;
+  });
+  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0 && m.breakdown.feasibility?.feasible !== false; });
 
   return opts.maxResults ? scored.slice(0, opts.maxResults) : scored;
+}
+
+// Returns the reason a driver fails hard-eligibility checks, or null if
+// they're eligible. Used both by findMatchingDrivers and the new
+// findIneligibleDrivers helper so the two stay in lockstep.
+function filterEligibility(driver: Driver, opts: MatchingOptions): string | null {
+  if (opts.onlyAvailable && driver.availability !== "Available") {
+    return `Not available (${driver.availability || "no status"})`;
+  }
+  if (opts.onlyGreenCompliance) {
+    const expiryDetails = buildExpiryDetails(driver);
+    const expired = expiryDetails.filter((d) => d.status === "expired");
+    if (expired.length > 0) {
+      return `Expired: ${expired.map((d) => d.label).join(", ")}`;
+    }
+  }
+  return null;
+}
+
+export interface IneligibleDriver {
+  driver: Driver;
+  reason: string;
+}
+
+// Mirror of findMatchingDrivers that returns the drivers who were *excluded*
+// by the hard-eligibility checks, with the reason for each exclusion. The
+// matches page renders this as a diagnostic panel so OOs can see why a
+// driver they expected to appear was filtered out.
+export function findIneligibleDrivers(
+  drivers: Driver[],
+  options: MatchingOptions = {}
+): IneligibleDriver[] {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const out: IneligibleDriver[] = [];
+  for (const driver of drivers) {
+    const reason = filterEligibility(driver, opts);
+    if (reason) out.push({ driver, reason });
+  }
+  return out;
 }
 
 export async function findMatchingDriversAsync(
@@ -553,14 +767,8 @@ export async function findMatchingDriversAsync(
 ): Promise<MatchScore[]> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
-  const eligible = drivers.filter((driver) => {
-    if (opts.onlyAvailable && driver.availability !== "Available") return false;
-    if (opts.onlyGreenCompliance) {
-      const expiryDetails = buildExpiryDetails(driver);
-      if (expiryDetails.some((d) => d.status === "expired")) return false;
-    }
-    return true;
-  });
+  // PR 1: same eligibility helper as findMatchingDrivers.
+  const eligible = drivers.filter((driver) => filterEligibility(driver, opts) === null);
 
   const scored: MatchScore[] = await Promise.all(
     eligible.map(async (driver) => {
@@ -570,11 +778,24 @@ export async function findMatchingDriversAsync(
     })
   );
 
-  scored.sort((a, b) => b.score - a.score);
-  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0; });
+  // PR 3: infeasible-by-schedule drivers always sort below feasible ones,
+  // regardless of raw score. Within each group we sort by score descending.
+  scored.sort((a, b) => {
+    const aInfeasible = a.breakdown.feasibility?.feasible === false ? 1 : 0;
+    const bInfeasible = b.breakdown.feasibility?.feasible === false ? 1 : 0;
+    if (aInfeasible !== bInfeasible) return aInfeasible - bInfeasible;
+    return b.score - a.score;
+  });
+  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0 && m.breakdown.feasibility?.feasible !== false; });
 
   return opts.maxResults ? scored.slice(0, opts.maxResults) : scored;
 }
+
+// PR 1: equipment is a soft penalty here too; the only hard filter on a load
+// is that its status is in the available-for-matching set. The legacy
+// "Pending" string is kept alongside the current "live" / "match_pending"
+// so old data continues to surface.
+const AVAILABLE_LOAD_STATUSES = new Set(['Pending', 'live', 'match_pending']);
 
 export function findMatchingLoads(
   driver: Driver,
@@ -583,22 +804,27 @@ export function findMatchingLoads(
 ): LoadMatchScore[] {
   const { maxResults = 10 } = options;
 
-  const compatible = loads.filter(
-    (load) => load.status === "Pending" && isEquipmentCompatible(driver, load)
-  );
+  const available = loads.filter((load) => AVAILABLE_LOAD_STATUSES.has(load.status as string));
 
   console.log(
-    `${LOG_PREFIX} findMatchingLoads: ${compatible.length}/${loads.length} compatible for driver ${driver.id ?? driver.name}`
+    `${LOG_PREFIX} findMatchingLoads: ${available.length}/${loads.length} available for driver ${driver.id ?? driver.name}`
   );
 
-  const scored = compatible.map((load) => {
+  const scored = available.map((load) => {
     const breakdown = calculateMatchScore(driver, load);
     const score = getTotalScore(breakdown);
     return { load, score, breakdown, rank: 0, isBestMatch: false };
   });
 
-  scored.sort((a, b) => b.score - a.score);
-  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0; });
+  // PR 3: infeasible-by-schedule drivers always sort below feasible ones,
+  // regardless of raw score. Within each group we sort by score descending.
+  scored.sort((a, b) => {
+    const aInfeasible = a.breakdown.feasibility?.feasible === false ? 1 : 0;
+    const bInfeasible = b.breakdown.feasibility?.feasible === false ? 1 : 0;
+    if (aInfeasible !== bInfeasible) return aInfeasible - bInfeasible;
+    return b.score - a.score;
+  });
+  scored.forEach((m, i) => { m.rank = i + 1; m.isBestMatch = i === 0 && m.breakdown.feasibility?.feasible !== false; });
 
   return scored.slice(0, maxResults);
 }

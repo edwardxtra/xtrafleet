@@ -17,7 +17,7 @@ import { useUser, useFirestore, useAuth } from "@/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useRef } from "react";
 import { US_STATES } from "@/lib/us-states";
-import { X, Search, ChevronDown, CheckCircle2, XCircle, Loader2 as SpinnerIcon, AlertCircle, AlertTriangle } from "lucide-react";
+import { X, Search, ChevronDown, CheckCircle2, XCircle, Loader2 as SpinnerIcon, AlertCircle, AlertTriangle, ExternalLink } from "lucide-react";
 import { COIUploadSection, type COIData } from "@/components/coi-upload-section";
 import type { FMCSACarrier } from "@/lib/fmcsa";
 
@@ -43,6 +43,7 @@ interface FMCSAVerification {
 }
 
 const DOT_MIN_DIGITS = 5;
+const SAFER_SNAPSHOT_URL = 'https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=';
 
 export function CompanyProfileForm() {
   const [isPending, startTransition] = useTransition();
@@ -84,12 +85,40 @@ export function CompanyProfileForm() {
           if (data.hqCity) form.setValue('hqCity', data.hqCity);
           if (data.hqState) form.setValue('hqState', data.hqState);
           if (data.hqZip) form.setValue('hqZip', data.hqZip);
-          if (!data.hqStreet && data.hqAddress) form.setValue('hqStreet', data.hqAddress);
+          // Legacy migration: older accounts only had data.hqAddress as a
+          // single comma-separated string. Try to split it into Street /
+          // City / State / Zip so the form's individual fields populate
+          // instead of dumping the entire address into the Street input.
+          // Accepts both FMCSA-style "Street, City, ST 12345" and the
+          // form's own ", "-joined "Street, City, ST, 12345" (the latter
+          // was produced by the onSubmit join and the parser used to miss
+          // it, round-tripping the address into the Street field).
+          if (!data.hqStreet && !data.hqCity && !data.hqState && !data.hqZip && data.hqAddress) {
+            const legacy = String(data.hqAddress).trim();
+            const cszMatch = legacy.match(/^(.*),\s*([A-Za-z][A-Za-z\s.'-]+),\s*([A-Za-z]{2})[\s,]+(\d{5}(?:-\d{4})?)\s*$/);
+            if (cszMatch) {
+              const [, streetPart, cityPart, statePart, zipPart] = cszMatch;
+              form.setValue('hqStreet', streetPart.trim());
+              form.setValue('hqCity', cityPart.trim());
+              form.setValue('hqState', statePart.toUpperCase());
+              form.setValue('hqZip', zipPart);
+            } else {
+              // Could not parse confidently — leave Street populated so the
+              // user can see what was on file and re-enter the split.
+              form.setValue('hqStreet', legacy);
+            }
+          }
           if (data.operatingStates?.length) form.setValue('operatingStates', data.operatingStates);
           if (data.coi) setCoiData(data.coi);
           if (data.fmcsaVerified) {
             const carrier = data.fmcsaData as FMCSACarrier | undefined;
-            const state = carrier?.allowedToOperate === false ? 'verified_inactive' : 'verified';
+            const state: VerificationState = !carrier
+              ? 'verified'
+              : !carrier.allowedToOperate
+                ? 'verified_inactive'
+                : carrier.saferDiscrepancy
+                  ? 'verified_safer_discrepancy'
+                  : 'verified';
             setFmcsa({ state, carrier });
           }
         }
@@ -184,7 +213,13 @@ export function CompanyProfileForm() {
       formData.append('hqCity', values.hqCity || '');
       formData.append('hqState', values.hqState || '');
       formData.append('hqZip', values.hqZip || '');
-      const hqAddress = [values.hqStreet, values.hqCity, values.hqState, values.hqZip].filter(Boolean).join(', ');
+      // Canonical FMCSA-style join: "Street, City, ST ZIP" (space, not
+      // comma, before the ZIP). Keeps the combined hqAddress field
+      // round-trippable by the legacy parser above.
+      const cityStateZip = [values.hqCity, [values.hqState, values.hqZip].filter(Boolean).join(' ')]
+        .filter(Boolean)
+        .join(', ');
+      const hqAddress = [values.hqStreet, cityStateZip].filter(Boolean).join(', ');
       formData.append('hqAddress', hqAddress);
       formData.append('operatingStates', JSON.stringify(values.operatingStates || []));
       formData.append('coiData', JSON.stringify(coiData));
@@ -244,7 +279,7 @@ export function CompanyProfileForm() {
                 <p className="text-green-700 dark:text-green-400">
                   {fmcsa.carrier.legalName}
                   {fmcsa.carrier.safetyRating && fmcsa.carrier.safetyRating !== 'Not Rated' && <span className="ml-2 text-xs">· Safety: {fmcsa.carrier.safetyRating}</span>}
-                  <span className="ml-2 text-xs">· Authority: Active</span>
+                  <span className="ml-2 text-xs">· Authority: {fmcsa.carrier.authorityStatus || 'Active'}</span>
                   {fmcsa.carrier.insuranceOnFile && <span className="ml-2 text-xs">· Insurance on file</span>}
                 </p>
               </div>
@@ -259,9 +294,12 @@ export function CompanyProfileForm() {
                 <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Status Mismatch</p>
                 <p className="text-amber-700 dark:text-amber-400">
                   {fmcsa.carrier.legalName} is authorized to operate per QCMobile, but the SAFER database shows this DOT as inactive.
-                  This usually means authority was recently reinstated and SAFER hasn&apos;t synced yet.
-                  Your profile has been pre-filled. If you believe this is an error, visit{' '}
-                  <a href="https://www.fmcsa.dot.gov/registration/dataqs" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900">FMCSA DataQs</a> to dispute it.
+                  This usually means authority was recently reinstated and SAFER hasn&apos;t synced yet.{' '}
+                  <a href={`${SAFER_SNAPSHOT_URL}${encodeURIComponent(fmcsa.carrier.dotNumber)}`} target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 inline-flex items-center gap-1">
+                    View your SAFER record <ExternalLink className="h-3 w-3" />
+                  </a>
+                  {' '}or{' '}
+                  <a href="https://www.fmcsa.dot.gov/registration/dataqs" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900">dispute via FMCSA DataQs</a>.
                 </p>
               </div>
             </div>
@@ -275,7 +313,11 @@ export function CompanyProfileForm() {
                 <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
                 <p className="text-amber-700 dark:text-amber-400">
                   {fmcsa.carrier.legalName} was found in FMCSA records but is not currently authorized to operate.
-                  Your profile has been pre-filled. To be fully verified on XtraFleet, update your authority at{' '}
+                  Your profile has been pre-filled.{' '}
+                  <a href={`${SAFER_SNAPSHOT_URL}${encodeURIComponent(fmcsa.carrier.dotNumber)}`} target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 inline-flex items-center gap-1">
+                    View your SAFER record <ExternalLink className="h-3 w-3" />
+                  </a>
+                  {' '}and update your authority at{' '}
                   <a href="https://www.fmcsa.dot.gov" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900">fmcsa.dot.gov</a>.
                 </p>
               </div>

@@ -34,7 +34,6 @@ const quickProfileSchema = z.object({
   location: z.string().min(1, "Your current city/state is required"),
   trailerTypes: z.array(z.enum(trailerTypeValues)).min(1, "Select at least one trailer type"),
   password: passwordSchema,
-  userAgreement: z.boolean().refine(val => val === true, "You must accept the User Agreement"),
   esignConsent: z.boolean().refine(val => val === true, "You must accept the E-Sign Agreement"),
 });
 
@@ -69,7 +68,6 @@ export function DriverRegisterForm({
       firstName,
       lastName,
       trailerTypes: [],
-      userAgreement: false,
       esignConsent: false,
     }
   });
@@ -81,7 +79,7 @@ export function DriverRegisterForm({
     setIsSubmitting(true);
 
     try {
-      const { password, firstName, lastName, userAgreement, esignConsent, ...profileData } = values;
+      const { password, firstName, lastName, esignConsent, ...profileData } = values;
 
       const response = await fetch('/api/create-driver-account', {
         method: 'POST',
@@ -101,11 +99,6 @@ export function DriverRegisterForm({
             profileCompletionStep: 'basic_info_complete',
           },
           consents: {
-            userAgreement: {
-              accepted: true,
-              acceptedAt: new Date().toISOString(),
-              version: "2025-10-17",
-            },
             esignAgreement: {
               accepted: true,
               acceptedAt: new Date().toISOString(),
@@ -175,7 +168,7 @@ export function DriverRegisterForm({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
-          <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">\u2728 Quick Setup</p>
+          <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">✨ Quick Setup</p>
           <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
             Create your account in under 2 minutes. You'll complete your CDL and compliance information after logging in.
           </p>
@@ -312,30 +305,6 @@ export function DriverRegisterForm({
         <div className="space-y-4 pt-4 border-t">
           <p className="text-sm font-medium">Legal Agreements</p>
           
-          <FormField
-            control={form.control}
-            name="userAgreement"
-            render={({ field }) => (
-              <FormItem>
-                <div className="flex items-start gap-3">
-                  <FormControl>
-                    <Checkbox checked={field.value} onCheckedChange={field.onChange} className="mt-1" />
-                  </FormControl>
-                  <div className="space-y-1">
-                    <Label className="text-sm leading-relaxed cursor-pointer">
-                      I understand that XtraFleet is a technology platform only and that I remain 
-                      solely responsible for regulatory compliance, insurance adequacy, and trip safety.{' '}
-                      <Link href="/legal/user-agreement" target="_blank" className="underline text-primary hover:text-primary/80">
-                        View User Agreement
-                      </Link>
-                    </Label>
-                    <FormMessage />
-                  </div>
-                </div>
-              </FormItem>
-            )}
-          />
-
           <FormField
             control={form.control}
             name="esignConsent"

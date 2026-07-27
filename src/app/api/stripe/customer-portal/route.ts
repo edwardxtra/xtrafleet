@@ -15,11 +15,13 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.substring(7);
-    const decodedToken = await getAdminAuth().verifyIdToken(token);
+    const auth = await getAdminAuth();
+    const adminDb = await getAdminDb();
+    const decodedToken = await auth.verifyIdToken(token);
     const userId = decodedToken.uid;
 
     // Get user data
-    const userDoc = await getAdminDb().collection('owner_operators').doc(userId).get();
+    const userDoc = await adminDb.collection('owner_operators').doc(userId).get();
     const userData = userDoc.data();
 
     if (!userData?.stripeCustomerId) {

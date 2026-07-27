@@ -115,6 +115,12 @@ export const getComplianceStatusFromItems = (items: ComplianceItem[]): Complianc
     if (item.type === 'expiry') {
       try {
         const expiryDate = parseISO(item.value);
+        // parseISO returns Invalid Date (not a throw) for unparseable input,
+        // and differenceInDays then yields NaN. Treat that as Red — silently
+        // returning Green for a malformed date is the worst failure mode.
+        if (Number.isNaN(expiryDate.getTime())) {
+          return "Red";
+        }
         const daysUntilExpiry = differenceInDays(expiryDate, now);
 
         if (daysUntilExpiry < 0) {
@@ -132,9 +138,12 @@ export const getComplianceStatusFromItems = (items: ComplianceItem[]): Complianc
     if (item.type === 'screening') {
       try {
         const screeningDate = parseISO(item.value);
+        if (Number.isNaN(screeningDate.getTime())) {
+          return "Red";
+        }
         const oneYearFromScreening = new Date(screeningDate);
         oneYearFromScreening.setFullYear(oneYearFromScreening.getFullYear() + SCREENING_VALIDITY_YEARS);
-        
+
         const daysUntilExpiry = differenceInDays(oneYearFromScreening, now);
 
         if (daysUntilExpiry < 0) {

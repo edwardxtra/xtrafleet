@@ -17,10 +17,11 @@ export async function middleware(request: NextRequest) {
   // Get the Firebase ID token from cookies
   const token = request.cookies.get('fb-id-token');
   
-  // No token = not authenticated
+  // No token = not authenticated. Send visitors of shared/deep app links to the
+  // main landing page rather than a bare login form (better for shared links).
   if (!token || !token.value) {
-    console.log(`[Auth] No token found for ${pathname}, redirecting to login`);
-    return NextResponse.redirect(new URL('/login', request.url));
+    console.log(`[Auth] No token found for ${pathname}, redirecting to landing page`);
+    return NextResponse.redirect(new URL('/', request.url));
   }
   
   // Token exists - allow access

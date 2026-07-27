@@ -225,12 +225,29 @@ export function TLAAgreementDetails({ tla }: TLAAgreementDetailsProps) {
                   Fleet A confirms that the Driver holds a valid CDL, possesses a current
                   medical certificate, and has a compliant driver qualification file.
                 </p>
-                {tla.insurance?.option && (
-                  <div className="mt-3 p-2 bg-muted rounded">
-                    <p className="font-medium text-foreground">
+                {tla.insurance?.option ? (
+                  <div className="mt-3 rounded border border-green-200 bg-green-50 p-3 dark:border-green-900 dark:bg-green-950/30">
+                    <p className="text-sm font-medium text-green-900 dark:text-green-100">
+                      ✓ Insurance attested
+                    </p>
+                    <p className="mt-1 text-xs text-green-900/80 dark:text-green-100/80">
                       {tla.insurance.option === 'existing_policy'
-                        ? '☑ Lessee confirms existing insurance policy covers this trip'
-                        : '☑ Lessee elected trip-based coverage'}
+                        ? 'Lessee confirms existing insurance policy covers this trip.'
+                        : 'Lessee elected trip-based coverage.'}
+                    </p>
+                    {tla.insurance.confirmedAt && (
+                      <p className="mt-1 text-xs text-green-900/70 dark:text-green-100/70">
+                        Recorded {formatTLADate(tla.insurance.confirmedAt)}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                      ⚠ Insurance attestation pending
+                    </p>
+                    <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-100/80">
+                      The lessee must confirm an insurance option during signing before the trip can start.
                     </p>
                   </div>
                 )}

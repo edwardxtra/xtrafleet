@@ -28,9 +28,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,12 +45,34 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, getDocs, doc, updateDoc, getDoc, deleteDoc } from 'firebase/firestore';
-import { Search, Link2, RefreshCw, ArrowRight, Ban, Download, Loader2, Trash2 } from 'lucide-react';
+import { Search, Link2, RefreshCw, ArrowRight, Ban, Download, Loader2, Trash2, Edit2, MoreHorizontal, Eye, Plus } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useAdminRole } from '../layout';
 import { format, formatDistanceToNow } from 'date-fns';
 import type { Match, MatchStatus } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
 import { showSuccess, showError } from '@/lib/toast-utils';
+import { AdminCreateMatchModal } from '@/components/admin-create-match-modal';
+
+type EditableMatchFields = {
+  originalRate: string;
+  originalPickupDate: string;
+  originalDeliveryDate: string;
+  originalNotes: string;
+  hasCounterTerms: boolean;
+  counterRate: string;
+  counterPickupDate: string;
+  counterDeliveryDate: string;
+  counterNotes: string;
+  status: '' | MatchStatus;
+};
 
 export default function AdminMatchesPage() {
   const firestore = useFirestore();
@@ -65,8 +89,54 @@ export default function AdminMatchesPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedMatchIds, setSelectedMatchIds] = useState<Set<string>>(new Set());
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [editingMatch, setEditingMatch] = useState<Match | null>(null);
+  const [editForm, setEditForm] = useState<EditableMatchFields>({
+    originalRate: '',
+    originalPickupDate: '',
+    originalDeliveryDate: '',
+    originalNotes: '',
+    hasCounterTerms: false,
+    counterRate: '',
+    counterPickupDate: '',
+    counterDeliveryDate: '',
+    counterNotes: '',
+    status: '',
+  });
 
   const canDelete = hasPermission('matches:delete');
+  const canEditMatch = hasPermission('matches:cancel');
+  const canActOnBehalf = hasPermission('users:create');
+
+  const [acceptingOnBehalfMatch, setAcceptingOnBehalfMatch] = useState<Match | null>(null);
+  const [isAcceptingOnBehalf, setIsAcceptingOnBehalf] = useState(false);
+  const [showCreateMatch, setShowCreateMatch] = useState(false);
+
+  const handleAcceptOnBehalf = async (match: Match, actingOnBehalfOf: string) => {
+    if (!firestore || !adminUser) return;
+    setIsAcceptingOnBehalf(true);
+    try {
+      const res = await fetch('/api/matches/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId: match.id, actingOnBehalfOf }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to accept match on behalf.');
+      }
+      if (data.complianceWarning && data.complianceMessage) {
+        showSuccess(`Match formed with a compliance warning: ${data.complianceMessage}`);
+      } else {
+        showSuccess('Match accepted on behalf of the selected party.');
+      }
+      setAcceptingOnBehalfMatch(null);
+      fetchMatches();
+    } catch (e: any) {
+      showError(e?.message || 'Failed to accept match on behalf.');
+    } finally {
+      setIsAcceptingOnBehalf(false);
+    }
+  };
 
   const fetchMatches = async () => {
     if (!firestore) return;
@@ -85,6 +155,12 @@ export default function AdminMatchesPage() {
   };
 
   useEffect(() => { fetchMatches(); }, [firestore]);
+
+  // Prefill the search box from `?q=` so global-search deep links land here.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q) setSearchQuery(q);
+  }, []);
 
   useEffect(() => {
     let filtered = matches;
@@ -254,6 +330,80 @@ export default function AdminMatchesPage() {
     }
   };
 
+  const handleOpenEditMatch = (match: Match) => {
+    setEditForm({
+      originalRate: match.originalTerms?.rate != null ? String(match.originalTerms.rate) : '',
+      originalPickupDate: match.originalTerms?.pickupDate || '',
+      originalDeliveryDate: match.originalTerms?.deliveryDate || '',
+      originalNotes: match.originalTerms?.notes || '',
+      hasCounterTerms: !!match.counterTerms,
+      counterRate: match.counterTerms?.rate != null ? String(match.counterTerms.rate) : '',
+      counterPickupDate: match.counterTerms?.pickupDate || '',
+      counterDeliveryDate: match.counterTerms?.deliveryDate || '',
+      counterNotes: match.counterTerms?.notes || '',
+      status: '',
+    });
+    setEditingMatch(match);
+    setSelectedMatch(null);
+  };
+
+  const handleEditMatch = async () => {
+    if (!firestore || !editingMatch || !adminUser) return;
+    setIsProcessing(true);
+    try {
+      const originalRateNum = Number(editForm.originalRate);
+      const originalTerms: Record<string, any> = {
+        rate: Number.isNaN(originalRateNum) ? 0 : originalRateNum,
+      };
+      if (editForm.originalPickupDate) originalTerms.pickupDate = editForm.originalPickupDate;
+      if (editForm.originalDeliveryDate) originalTerms.deliveryDate = editForm.originalDeliveryDate;
+      if (editForm.originalNotes) originalTerms.notes = editForm.originalNotes;
+
+      const payload: Record<string, any> = {
+        originalTerms,
+        updatedAt: new Date().toISOString(),
+        updatedBy: adminUser.uid,
+        updatedByAdmin: true,
+      };
+
+      if (editForm.hasCounterTerms) {
+        const counterRateNum = Number(editForm.counterRate);
+        const counterTerms: Record<string, any> = {
+          rate: Number.isNaN(counterRateNum) ? 0 : counterRateNum,
+        };
+        if (editForm.counterPickupDate) counterTerms.pickupDate = editForm.counterPickupDate;
+        if (editForm.counterDeliveryDate) counterTerms.deliveryDate = editForm.counterDeliveryDate;
+        if (editForm.counterNotes) counterTerms.notes = editForm.counterNotes;
+        payload.counterTerms = counterTerms;
+      }
+      if (editForm.status) payload.status = editForm.status;
+
+      await updateDoc(doc(firestore, 'matches', editingMatch.id), payload);
+
+      await logAuditAction(firestore, {
+        action: 'match_updated',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'match',
+        targetId: editingMatch.id,
+        targetName: `${editingMatch.loadSnapshot?.origin || '?'} → ${editingMatch.loadSnapshot?.destination || '?'}`,
+        reason: 'Updated via admin console',
+        details: {
+          statusChanged: !!editForm.status,
+          counterTermsSet: editForm.hasCounterTerms,
+        },
+      });
+
+      showSuccess('Match updated successfully');
+      setEditingMatch(null);
+      fetchMatches();
+    } catch (error: any) {
+      showError(error.message || 'Failed to update match');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const getStatusBadgeVariant = (status: MatchStatus) => {
     switch (status) {
       case 'pending': return 'secondary';
@@ -289,6 +439,11 @@ export default function AdminMatchesPage() {
           <p className="text-muted-foreground">View and manage all matches across the platform</p>
         </div>
         <div className="flex gap-2">
+          {canActOnBehalf && (
+            <Button onClick={() => setShowCreateMatch(true)}>
+              <Plus className="h-4 w-4 mr-2" />Create Match
+            </Button>
+          )}
           {canDelete && selectedMatchIds.size > 0 && (
             <Button variant="destructive" onClick={() => setShowBulkDeleteDialog(true)}>
               <Trash2 className="h-4 w-4 mr-2" />Delete ({selectedMatchIds.size})
@@ -353,12 +508,13 @@ export default function AdminMatchesPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Score</TableHead>
                 <TableHead>Created</TableHead>
+                <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? <TableSkeleton /> : filteredMatches.length > 0 ? (
                 filteredMatches.map(match => (
-                  <TableRow key={match.id} className="cursor-pointer hover:bg-muted/50">
+                  <TableRow key={match.id} className="hover:bg-muted/50">
                     {canDelete && (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
@@ -368,19 +524,50 @@ export default function AdminMatchesPage() {
                         />
                       </TableCell>
                     )}
-                    <TableCell className="font-medium" onClick={() => setSelectedMatch(match)}>
+                    <TableCell className="font-medium">
                       <div className="flex items-center gap-1">{match.loadSnapshot?.origin}<ArrowRight className="h-3 w-3 text-muted-foreground" />{match.loadSnapshot?.destination}</div>
                     </TableCell>
-                    <TableCell onClick={() => setSelectedMatch(match)}>{match.driverSnapshot?.name || match.driverName || '-'}</TableCell>
-                    <TableCell onClick={() => setSelectedMatch(match)}>{match.loadOwnerName || '-'}</TableCell>
-                    <TableCell onClick={() => setSelectedMatch(match)}><Badge variant={getStatusBadgeVariant(match.status)}>{match.status.replace('_', ' ')}</Badge></TableCell>
-                    <TableCell onClick={() => setSelectedMatch(match)}>{match.matchScore}/100</TableCell>
-                    <TableCell onClick={() => setSelectedMatch(match)} className="text-muted-foreground text-sm">{match.createdAt ? formatDistanceToNow(new Date(match.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell>{match.driverSnapshot?.name || match.driverName || '-'}</TableCell>
+                    <TableCell>{match.loadOwnerName || '-'}</TableCell>
+                    <TableCell><Badge variant={getStatusBadgeVariant(match.status)}>{match.status.replace('_', ' ')}</Badge></TableCell>
+                    <TableCell>{match.matchScore}/100</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{match.createdAt ? formatDistanceToNow(new Date(match.createdAt), { addSuffix: true }) : '-'}</TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => setSelectedMatch(match)}>
+                            <Eye className="h-4 w-4 mr-2" />View Details
+                          </DropdownMenuItem>
+                          {canEditMatch && (
+                            <DropdownMenuItem onClick={() => handleOpenEditMatch(match)}>
+                              <Edit2 className="h-4 w-4 mr-2" />Edit
+                            </DropdownMenuItem>
+                          )}
+                          {canActOnBehalf && (match.status === 'pending' || match.status === 'countered') && (
+                            <DropdownMenuItem onClick={() => setAcceptingOnBehalfMatch(match)}>
+                              <ArrowRight className="h-4 w-4 mr-2" />Accept on behalf of…
+                            </DropdownMenuItem>
+                          )}
+                          {canCancelMatch(match) && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => setCancellingMatch(match)} className="text-destructive">
+                                <Ban className="h-4 w-4 mr-2" />Cancel Match
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={canDelete ? 7 : 6} className="h-24 text-center">
+                  <TableCell colSpan={canDelete ? 8 : 7} className="h-24 text-center">
                     <Link2 className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-muted-foreground">No matches found</p>
                   </TableCell>
@@ -405,11 +592,7 @@ export default function AdminMatchesPage() {
                   <Badge variant={getStatusBadgeVariant(selectedMatch.status)}>{selectedMatch.status.replace('_', ' ')}</Badge>
                   <span className="text-sm text-muted-foreground">Score: {selectedMatch.matchScore}/100</span>
                 </div>
-                {canCancelMatch(selectedMatch) && (
-                  <Button variant="destructive" size="sm" onClick={() => setCancellingMatch(selectedMatch)}>
-                    <Ban className="h-4 w-4 mr-2" />Cancel Match
-                  </Button>
-                )}
+                <div />
               </div>
               
               <div className="grid grid-cols-2 gap-4">
@@ -470,6 +653,156 @@ export default function AdminMatchesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Match Dialog */}
+      <Dialog open={!!editingMatch} onOpenChange={(open) => !open && setEditingMatch(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="font-headline">Edit Match</DialogTitle>
+            <DialogDescription>
+              {editingMatch?.loadSnapshot?.origin} → {editingMatch?.loadSnapshot?.destination}
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh] pr-4">
+            <div className="space-y-4">
+              <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-800 dark:text-amber-200">
+                Editing a match bypasses the normal request/accept flow. Both parties will see the new terms next time they refresh.
+              </div>
+
+              <p className="text-sm font-medium text-muted-foreground">Original Terms</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-original-rate">Rate ($)</Label>
+                  <Input id="edit-original-rate" type="number" value={editForm.originalRate} onChange={(e) => setEditForm(f => ({ ...f, originalRate: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-original-pickup">Pickup Date</Label>
+                  <Input id="edit-original-pickup" type="date" value={editForm.originalPickupDate} onChange={(e) => setEditForm(f => ({ ...f, originalPickupDate: e.target.value }))} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-original-delivery">Delivery Date</Label>
+                <Input id="edit-original-delivery" type="date" value={editForm.originalDeliveryDate} onChange={(e) => setEditForm(f => ({ ...f, originalDeliveryDate: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-original-notes">Notes</Label>
+                <Textarea id="edit-original-notes" rows={2} value={editForm.originalNotes} onChange={(e) => setEditForm(f => ({ ...f, originalNotes: e.target.value }))} />
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="edit-has-counter"
+                    checked={editForm.hasCounterTerms}
+                    onCheckedChange={(v) => setEditForm(f => ({ ...f, hasCounterTerms: v === true }))}
+                  />
+                  <Label htmlFor="edit-has-counter" className="cursor-pointer text-sm font-medium">Counter terms present</Label>
+                </div>
+                {editForm.hasCounterTerms && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-counter-rate">Counter Rate ($)</Label>
+                        <Input id="edit-counter-rate" type="number" value={editForm.counterRate} onChange={(e) => setEditForm(f => ({ ...f, counterRate: e.target.value }))} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-counter-pickup">Counter Pickup</Label>
+                        <Input id="edit-counter-pickup" type="date" value={editForm.counterPickupDate} onChange={(e) => setEditForm(f => ({ ...f, counterPickupDate: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-counter-delivery">Counter Delivery</Label>
+                      <Input id="edit-counter-delivery" type="date" value={editForm.counterDeliveryDate} onChange={(e) => setEditForm(f => ({ ...f, counterDeliveryDate: e.target.value }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-counter-notes">Counter Notes</Label>
+                      <Textarea id="edit-counter-notes" rows={2} value={editForm.counterNotes} onChange={(e) => setEditForm(f => ({ ...f, counterNotes: e.target.value }))} />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="pt-4 border-t space-y-2">
+                <Label htmlFor="edit-status">Status override</Label>
+                <Select value={editForm.status || 'unchanged'} onValueChange={(v) => setEditForm(f => ({ ...f, status: v === 'unchanged' ? '' : (v as MatchStatus) }))}>
+                  <SelectTrigger id="edit-status"><SelectValue placeholder="Leave unchanged" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unchanged">Leave unchanged</SelectItem>
+                    <SelectItem value="pending">pending</SelectItem>
+                    <SelectItem value="accepted">accepted</SelectItem>
+                    <SelectItem value="countered">countered</SelectItem>
+                    <SelectItem value="declined">declined</SelectItem>
+                    <SelectItem value="expired">expired</SelectItem>
+                    <SelectItem value="cancelled">cancelled</SelectItem>
+                    <SelectItem value="tla_pending">tla_pending</SelectItem>
+                    <SelectItem value="tla_signed">tla_signed</SelectItem>
+                    <SelectItem value="in_progress">in_progress</SelectItem>
+                    <SelectItem value="completed">completed</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Manual override — bypasses the normal status transitions.</p>
+              </div>
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingMatch(null)}>Cancel</Button>
+            <Button onClick={handleEditMatch} disabled={isProcessing}>
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Accept on behalf of Dialog */}
+      <AlertDialog open={!!acceptingOnBehalfMatch} onOpenChange={(open) => { if (!open) setAcceptingOnBehalfMatch(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Accept on behalf of which party?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The synchronous compliance gate still fires — there is no admin shortcut.
+              Pick which side of the match you are acting for.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {acceptingOnBehalfMatch && (
+            <div className="rounded-lg border bg-muted/40 p-3 text-sm space-y-2">
+              <p className="font-medium">{acceptingOnBehalfMatch.loadSnapshot?.origin} → {acceptingOnBehalfMatch.loadSnapshot?.destination}</p>
+              <div className="grid gap-2">
+                <Button
+                  variant="outline"
+                  disabled={isAcceptingOnBehalf}
+                  onClick={() => handleAcceptOnBehalf(acceptingOnBehalfMatch, acceptingOnBehalfMatch.loadOwnerId)}
+                  className="justify-start"
+                >
+                  <span className="font-medium">Load owner</span>
+                  <span className="ml-2 text-xs text-muted-foreground truncate">{acceptingOnBehalfMatch.loadOwnerName || acceptingOnBehalfMatch.loadOwnerId}</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={isAcceptingOnBehalf}
+                  onClick={() => handleAcceptOnBehalf(acceptingOnBehalfMatch, acceptingOnBehalfMatch.driverOwnerId)}
+                  className="justify-start"
+                >
+                  <span className="font-medium">Driver owner</span>
+                  <span className="ml-2 text-xs text-muted-foreground truncate">{acceptingOnBehalfMatch.driverOwnerName || acceptingOnBehalfMatch.driverOwnerId}</span>
+                </Button>
+              </div>
+              {isAcceptingOnBehalf && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Running the compliance gate…</p>
+              )}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isAcceptingOnBehalf}>Cancel</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Create Match Modal */}
+      <AdminCreateMatchModal
+        open={showCreateMatch}
+        onOpenChange={setShowCreateMatch}
+        onSuccess={fetchMatches}
+      />
 
       {/* Bulk Delete Dialog */}
       <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>

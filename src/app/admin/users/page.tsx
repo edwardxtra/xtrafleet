@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Table,
   TableBody,
@@ -45,7 +46,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, writeBatch } from 'firebase/firestore';
-import { Search, MoreHorizontal, Users, Truck, Package, Eye, RefreshCw, Building2, Ban, CheckCircle, Download, Loader2, UserPlus, Edit2, Trash2 } from 'lucide-react';
+import { Search, MoreHorizontal, Users, Truck, Package, Eye, RefreshCw, Building2, Ban, CheckCircle, Download, Loader2, UserPlus, Edit2, Trash2, Send, KeyRound, UserCog } from 'lucide-react';
+import { signInWithCustomToken } from 'firebase/auth';
+import { useAuth } from '@/firebase';
+import { setImpersonation } from '@/components/impersonation-banner';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { OwnerOperator } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
 import { showSuccess, showError } from '@/lib/toast-utils';
@@ -61,20 +66,33 @@ type UserWithStats = OwnerOperator & {
 type EditableUserFields = {
   companyName: string;
   legalName: string;
+  contactName: string;
   contactEmail: string;
   phone: string;
   dotNumber: string;
   mcNumber: string;
+  ein: string;
+  dba: string;
   address: string;
+  hqAddress: string;
   city: string;
   state: string;
   zipCode: string;
+  loadLocation: string;
+  serviceRegions: string;
+  coiDocumentUrl: string;
+  coiDocumentUploadedAt: string;
+  accountStatus: '' | 'pre-activated' | 'active' | 'suspended';
+  subscriptionStatus: string;
+  subscriptionPlan: string;
 };
 
 export default function AdminUsersPage() {
   const firestore = useFirestore();
   const { user: adminUser } = useUser();
-  const { hasPermission } = useAdminRole();
+  const auth = useAuth();
+  const { hasPermission, adminRole } = useAdminRole();
+  const canImpersonate = adminRole === 'super_admin';
   const [users, setUsers] = useState<UserWithStats[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserWithStats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -87,32 +105,61 @@ export default function AdminUsersPage() {
   const [suspendReason, setSuspendReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Bulk selection
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  const [showBulkSuspend, setShowBulkSuspend] = useState(false);
+  const [showBulkReactivate, setShowBulkReactivate] = useState(false);
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [bulkSuspendReason, setBulkSuspendReason] = useState('');
+
   // Editable form state
   const [editForm, setEditForm] = useState<EditableUserFields>({
     companyName: '',
     legalName: '',
+    contactName: '',
     contactEmail: '',
     phone: '',
     dotNumber: '',
     mcNumber: '',
+    ein: '',
+    dba: '',
     address: '',
+    hqAddress: '',
     city: '',
     state: '',
     zipCode: '',
+    loadLocation: '',
+    serviceRegions: '',
+    coiDocumentUrl: '',
+    coiDocumentUploadedAt: '',
+    accountStatus: '',
+    subscriptionStatus: '',
+    subscriptionPlan: '',
   });
 
   // Create form state
   const [createForm, setCreateForm] = useState<EditableUserFields>({
     companyName: '',
     legalName: '',
+    contactName: '',
     contactEmail: '',
     phone: '',
     dotNumber: '',
     mcNumber: '',
+    ein: '',
+    dba: '',
     address: '',
+    hqAddress: '',
     city: '',
     state: '',
     zipCode: '',
+    loadLocation: '',
+    serviceRegions: '',
+    coiDocumentUrl: '',
+    coiDocumentUploadedAt: '',
+    accountStatus: '',
+    subscriptionStatus: '',
+    subscriptionPlan: '',
   });
 
   const canCreate = hasPermission('users:create');
@@ -156,6 +203,12 @@ export default function AdminUsersPage() {
   useEffect(() => {
     fetchUsers();
   }, [firestore]);
+
+  // Prefill the search box from `?q=` so global-search deep links land here.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q) setSearchQuery(q);
+  }, []);
 
   useEffect(() => {
     if (searchQuery.trim() === '') {
@@ -207,14 +260,25 @@ export default function AdminUsersPage() {
       setCreateForm({
         companyName: '',
         legalName: '',
+        contactName: '',
         contactEmail: '',
         phone: '',
         dotNumber: '',
         mcNumber: '',
+        ein: '',
+        dba: '',
         address: '',
+        hqAddress: '',
         city: '',
         state: '',
         zipCode: '',
+        loadLocation: '',
+        serviceRegions: '',
+        coiDocumentUrl: '',
+        coiDocumentUploadedAt: '',
+        accountStatus: '',
+        subscriptionStatus: '',
+        subscriptionPlan: '',
       });
       fetchUsers();
     } catch (error: any) {
@@ -229,11 +293,20 @@ export default function AdminUsersPage() {
 
     setIsProcessing(true);
     try {
-      await updateDoc(doc(firestore, 'owner_operators', editingUser.id), {
-        ...editForm,
+      const { coiDocumentUrl, coiDocumentUploadedAt, accountStatus, ...rest } = editForm;
+      const payload: Record<string, any> = {
+        ...rest,
         updatedAt: new Date().toISOString(),
         updatedBy: adminUser.uid,
-      });
+      };
+      // Nested insurance fields via dot-notation so other insurance.* fields
+      // (set by other flows) aren't clobbered.
+      if (coiDocumentUrl) payload['insurance.coiDocumentUrl'] = coiDocumentUrl;
+      if (coiDocumentUploadedAt) payload['insurance.coiDocumentUploadedAt'] = coiDocumentUploadedAt;
+      // accountStatus is optional in the form — only flip when the admin picked a value.
+      if (accountStatus) payload.accountStatus = accountStatus;
+
+      await updateDoc(doc(firestore, 'owner_operators', editingUser.id), payload);
 
       await logAuditAction(firestore, {
         action: 'user_updated',
@@ -366,18 +439,280 @@ export default function AdminUsersPage() {
     }
   };
 
+  // ---- Bulk selection ----
+  // Admins are never bulk-selectable — they can't be suspended or deleted.
+  const canBulk = canSuspend || canDelete;
+  const selectableUsers = filteredUsers.filter(u => !u.isAdmin);
+  const selectedUsers = users.filter(u => selectedUserIds.has(u.id));
+  const selectedSuspendable = selectedUsers.filter(u => !u.isSuspended && !u.isAdmin);
+  const selectedReactivatable = selectedUsers.filter(u => u.isSuspended && !u.isAdmin);
+  const selectedDeletable = selectedUsers.filter(u => !u.isAdmin);
+
+  const toggleSelectAll = () => {
+    if (selectableUsers.length > 0 && selectableUsers.every(u => selectedUserIds.has(u.id))) {
+      setSelectedUserIds(new Set());
+    } else {
+      setSelectedUserIds(new Set(selectableUsers.map(u => u.id)));
+    }
+  };
+
+  const toggleSelectUser = (id: string) => {
+    setSelectedUserIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkSuspend = async () => {
+    if (!firestore || !adminUser || selectedSuspendable.length === 0) return;
+    setIsProcessing(true);
+    try {
+      const now = new Date().toISOString();
+      const batch = writeBatch(firestore);
+      selectedSuspendable.forEach(u => {
+        batch.update(doc(firestore, 'owner_operators', u.id), {
+          isSuspended: true,
+          suspendedReason: bulkSuspendReason,
+          suspendedAt: now,
+          suspendedBy: adminUser.uid,
+        });
+      });
+      await batch.commit();
+
+      await logAuditAction(firestore, {
+        action: 'user_suspended',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'user',
+        targetId: 'bulk',
+        targetName: `${selectedSuspendable.length} users`,
+        reason: bulkSuspendReason,
+        details: { count: selectedSuspendable.length, userIds: selectedSuspendable.map(u => u.id) },
+      });
+
+      showSuccess(`${selectedSuspendable.length} user(s) suspended`);
+      setShowBulkSuspend(false);
+      setBulkSuspendReason('');
+      setSelectedUserIds(new Set());
+      fetchUsers();
+    } catch (error: any) {
+      showError(error.message || 'Failed to suspend users');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleBulkReactivate = async () => {
+    if (!firestore || !adminUser || selectedReactivatable.length === 0) return;
+    setIsProcessing(true);
+    try {
+      const now = new Date().toISOString();
+      const batch = writeBatch(firestore);
+      selectedReactivatable.forEach(u => {
+        batch.update(doc(firestore, 'owner_operators', u.id), {
+          isSuspended: false,
+          suspendedReason: null,
+          suspendedAt: null,
+          suspendedBy: null,
+          reactivatedAt: now,
+          reactivatedBy: adminUser.uid,
+        });
+      });
+      await batch.commit();
+
+      await logAuditAction(firestore, {
+        action: 'user_reactivated',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'user',
+        targetId: 'bulk',
+        targetName: `${selectedReactivatable.length} users`,
+        reason: 'Bulk reactivated via admin console',
+        details: { count: selectedReactivatable.length, userIds: selectedReactivatable.map(u => u.id) },
+      });
+
+      showSuccess(`${selectedReactivatable.length} user(s) reactivated`);
+      setShowBulkReactivate(false);
+      setSelectedUserIds(new Set());
+      fetchUsers();
+    } catch (error: any) {
+      showError(error.message || 'Failed to reactivate users');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!firestore || !adminUser || selectedDeletable.length === 0) return;
+    setIsProcessing(true);
+    try {
+      let deleted = 0;
+      // One batch per user so we never exceed the 500-op write limit and a
+      // single user's subcollections are deleted atomically with their doc.
+      for (const u of selectedDeletable) {
+        const batch = writeBatch(firestore);
+        const driversSnap = await getDocs(collection(firestore, `owner_operators/${u.id}/drivers`));
+        driversSnap.docs.forEach(d => batch.delete(d.ref));
+        const loadsSnap = await getDocs(collection(firestore, `owner_operators/${u.id}/loads`));
+        loadsSnap.docs.forEach(d => batch.delete(d.ref));
+        batch.delete(doc(firestore, 'owner_operators', u.id));
+        await batch.commit();
+        deleted++;
+      }
+
+      await logAuditAction(firestore, {
+        action: 'user_deleted',
+        adminId: adminUser.uid,
+        adminEmail: adminUser.email || '',
+        targetType: 'user',
+        targetId: 'bulk',
+        targetName: `${deleted} users`,
+        reason: 'Bulk deleted via admin console',
+        details: { count: deleted, userIds: selectedDeletable.map(u => u.id) },
+      });
+
+      showSuccess(`${deleted} user(s) and their data deleted`);
+      setShowBulkDelete(false);
+      setSelectedUserIds(new Set());
+      fetchUsers();
+    } catch (error: any) {
+      showError(error.message || 'Failed to delete users');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSendActivation = async (user: UserWithStats) => {
+    if (!firestore || !adminUser) return;
+    if (user.accountStatus !== 'pre-activated') {
+      showError('Only pre-activated accounts can receive an activation email.');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/send-activation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to send activation email.');
+      showSuccess(`Activation email sent to ${user.contactEmail}.`);
+      fetchUsers();
+    } catch (error: any) {
+      showError(error.message || 'Failed to send activation email.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleImpersonate = async (user: UserWithStats) => {
+    if (!adminUser) return;
+    if (!canImpersonate) {
+      showError('Only super admins can impersonate.');
+      return;
+    }
+    if (user.isAdmin) {
+      showError('Refusing to impersonate another admin.');
+      return;
+    }
+    if (!window.confirm(`Log in as ${user.companyName || user.contactEmail}? Your admin session will end and you will browse the app as this user. Every action is audit-logged.`)) {
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/impersonate`, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to start impersonation.');
+
+      // End the admin's session, then sign in with the custom token.
+      try { await auth.signOut(); } catch { /* ignore */ }
+      await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => {});
+
+      const credential = await signInWithCustomToken(auth, data.customToken);
+      const idToken = await credential.user.getIdToken();
+
+      const sessionRes = await fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: idToken }),
+      });
+      if (!sessionRes.ok) {
+        throw new Error('Could not establish the impersonated session.');
+      }
+
+      setImpersonation({
+        adminUid: data.admin.uid,
+        adminEmail: data.admin.email || '',
+        targetUid: data.target.uid,
+        targetEmail: data.target.email || '',
+        targetName: data.target.companyName || data.target.email || data.target.uid,
+        startedAt: new Date().toISOString(),
+        expiresAt: data.expiresAt,
+      });
+
+      window.location.href = '/dashboard';
+    } catch (error: any) {
+      showError(error.message || 'Failed to start impersonation.');
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSendPasswordReset = async (user: UserWithStats) => {
+    if (!firestore || !adminUser) return;
+    if (user.accountStatus === 'pre-activated') {
+      showError('Pre-activated accounts have no password yet — use Send Activation Email.');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/password-reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to send password reset.');
+      showSuccess(`Password reset email sent to ${user.contactEmail}.`);
+    } catch (error: any) {
+      showError(error.message || 'Failed to send password reset.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleOpenEdit = (user: UserWithStats) => {
+    const u = user as UserWithStats & {
+      address?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+      subscriptionStatus?: string;
+      subscriptionPlan?: string;
+    };
     setEditForm({
       companyName: user.companyName || '',
       legalName: user.legalName || '',
+      contactName: user.contactName || '',
       contactEmail: user.contactEmail || '',
       phone: user.phone || '',
       dotNumber: user.dotNumber || '',
       mcNumber: user.mcNumber || '',
-      address: (user as any).address || '',
-      city: (user as any).city || '',
-      state: (user as any).state || '',
-      zipCode: (user as any).zipCode || '',
+      ein: user.ein || '',
+      dba: user.dba || '',
+      address: u.address || '',
+      hqAddress: user.hqAddress || '',
+      city: u.city || '',
+      state: u.state || '',
+      zipCode: u.zipCode || '',
+      loadLocation: user.loadLocation || '',
+      serviceRegions: user.serviceRegions || '',
+      coiDocumentUrl: user.insurance?.coiDocumentUrl || '',
+      coiDocumentUploadedAt: user.insurance?.coiDocumentUploadedAt || '',
+      accountStatus: (user.accountStatus as '' | 'pre-activated' | 'active' | 'suspended') || '',
+      subscriptionStatus: u.subscriptionStatus || '',
+      subscriptionPlan: u.subscriptionPlan || '',
     });
     setEditingUser(user);
   };
@@ -422,6 +757,7 @@ export default function AdminUsersPage() {
     <>
       {[1,2,3,4,5].map(i => (
         <TableRow key={i}>
+          {canBulk && <TableCell><Skeleton className="h-4 w-4" /></TableCell>}
           <TableCell><Skeleton className="h-4 w-32" /></TableCell>
           <TableCell><Skeleton className="h-4 w-40" /></TableCell>
           <TableCell><Skeleton className="h-4 w-16" /></TableCell>
@@ -441,6 +777,25 @@ export default function AdminUsersPage() {
           <p className="text-muted-foreground">View and manage all registered owner operators</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {selectedUserIds.size > 0 && (
+            <>
+              {canSuspend && selectedSuspendable.length > 0 && (
+                <Button variant="outline" onClick={() => setShowBulkSuspend(true)}>
+                  <Ban className="h-4 w-4 mr-2" />Suspend ({selectedSuspendable.length})
+                </Button>
+              )}
+              {canSuspend && selectedReactivatable.length > 0 && (
+                <Button variant="outline" className="text-green-600" onClick={() => setShowBulkReactivate(true)}>
+                  <CheckCircle className="h-4 w-4 mr-2" />Reactivate ({selectedReactivatable.length})
+                </Button>
+              )}
+              {canDelete && selectedDeletable.length > 0 && (
+                <Button variant="destructive" onClick={() => setShowBulkDelete(true)}>
+                  <Trash2 className="h-4 w-4 mr-2" />Delete ({selectedDeletable.length})
+                </Button>
+              )}
+            </>
+          )}
           {canCreate && (
             <Button onClick={() => setCreateDialogOpen(true)}>
               <UserPlus className="h-4 w-4 mr-2" />Add User
@@ -472,6 +827,15 @@ export default function AdminUsersPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                {canBulk && (
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={selectableUsers.length > 0 && selectableUsers.every(u => selectedUserIds.has(u.id))}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Select all users"
+                    />
+                  </TableHead>
+                )}
                 <TableHead>Company</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead>Drivers</TableHead>
@@ -486,6 +850,16 @@ export default function AdminUsersPage() {
               ) : filteredUsers.length > 0 ? (
                 filteredUsers.map(user => (
                   <TableRow key={user.id} className={user.isSuspended ? 'opacity-60' : ''}>
+                    {canBulk && (
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedUserIds.has(user.id)}
+                          onCheckedChange={() => toggleSelectUser(user.id)}
+                          disabled={user.isAdmin}
+                          aria-label={`Select ${user.companyName || user.contactEmail}`}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <Building2 className="h-4 w-4 text-muted-foreground" />
@@ -531,6 +905,21 @@ export default function AdminUsersPage() {
                               <Edit2 className="h-4 w-4 mr-2" />Edit User
                             </DropdownMenuItem>
                           )}
+                          {user.accountStatus === 'pre-activated' && hasPermission('users:create') && (
+                            <DropdownMenuItem onClick={() => handleSendActivation(user)} className="text-blue-600">
+                              <Send className="h-4 w-4 mr-2" />Send Activation Email
+                            </DropdownMenuItem>
+                          )}
+                          {user.accountStatus !== 'pre-activated' && canEdit && (
+                            <DropdownMenuItem onClick={() => handleSendPasswordReset(user)}>
+                              <KeyRound className="h-4 w-4 mr-2" />Send Password Reset
+                            </DropdownMenuItem>
+                          )}
+                          {canImpersonate && !user.isAdmin && user.accountStatus !== 'pre-activated' && (
+                            <DropdownMenuItem onClick={() => handleImpersonate(user)} className="text-amber-700">
+                              <UserCog className="h-4 w-4 mr-2" />Log in as user
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuSeparator />
                           {canSuspend && (
                             user.isSuspended ? (
@@ -555,7 +944,7 @@ export default function AdminUsersPage() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center">
+                  <TableCell colSpan={canBulk ? 7 : 6} className="h-24 text-center">
                     <Users className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-muted-foreground">No users found</p>
                   </TableCell>
@@ -730,6 +1119,75 @@ export default function AdminUsersPage() {
                   <Input id="edit-zip" value={editForm.zipCode} onChange={(e) => setEditForm(f => ({ ...f, zipCode: e.target.value }))} />
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-contact-name">Contact Name</Label>
+                <Input id="edit-contact-name" value={editForm.contactName} onChange={(e) => setEditForm(f => ({ ...f, contactName: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-ein">EIN</Label>
+                  <Input id="edit-ein" value={editForm.ein} onChange={(e) => setEditForm(f => ({ ...f, ein: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-dba">DBA</Label>
+                  <Input id="edit-dba" value={editForm.dba} onChange={(e) => setEditForm(f => ({ ...f, dba: e.target.value }))} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-hq-address">HQ Address</Label>
+                <Input id="edit-hq-address" value={editForm.hqAddress} onChange={(e) => setEditForm(f => ({ ...f, hqAddress: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-load-location">Load Location</Label>
+                  <Input id="edit-load-location" value={editForm.loadLocation} onChange={(e) => setEditForm(f => ({ ...f, loadLocation: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-service-regions">Service Regions</Label>
+                  <Input id="edit-service-regions" value={editForm.serviceRegions} onChange={(e) => setEditForm(f => ({ ...f, serviceRegions: e.target.value }))} />
+                </div>
+              </div>
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Account &amp; Subscription</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-account-status">Account Status</Label>
+                    <Select
+                      value={editForm.accountStatus || 'unchanged'}
+                      onValueChange={(v) => setEditForm(f => ({ ...f, accountStatus: v === 'unchanged' ? '' : (v as '' | 'pre-activated' | 'active' | 'suspended') }))}
+                    >
+                      <SelectTrigger id="edit-account-status">
+                        <SelectValue placeholder="Leave unchanged" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unchanged">Leave unchanged</SelectItem>
+                        <SelectItem value="pre-activated">Pre-activated</SelectItem>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="suspended">Suspended</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-subscription-status">Subscription Status</Label>
+                    <Input id="edit-subscription-status" value={editForm.subscriptionStatus} onChange={(e) => setEditForm(f => ({ ...f, subscriptionStatus: e.target.value }))} placeholder="e.g. active, inactive, trialing" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-subscription-plan">Subscription Plan</Label>
+                  <Input id="edit-subscription-plan" value={editForm.subscriptionPlan} onChange={(e) => setEditForm(f => ({ ...f, subscriptionPlan: e.target.value }))} placeholder="e.g. starter, pro, enterprise" />
+                </div>
+              </div>
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Insurance (COI)</p>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-coi-url">COI Document URL</Label>
+                  <Input id="edit-coi-url" type="url" value={editForm.coiDocumentUrl} onChange={(e) => setEditForm(f => ({ ...f, coiDocumentUrl: e.target.value }))} placeholder="https://..." />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-coi-uploaded">COI Uploaded At</Label>
+                  <Input id="edit-coi-uploaded" type="datetime-local" value={editForm.coiDocumentUploadedAt} onChange={(e) => setEditForm(f => ({ ...f, coiDocumentUploadedAt: e.target.value }))} />
+                </div>
+              </div>
             </div>
           </ScrollArea>
           <DialogFooter>
@@ -784,6 +1242,73 @@ export default function AdminUsersPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleSuspendUser} disabled={isProcessing || !suspendReason.trim()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Suspending...</> : 'Suspend User'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Suspend Dialog */}
+      <AlertDialog open={showBulkSuspend} onOpenChange={(open) => { if (!open) { setShowBulkSuspend(false); setBulkSuspendReason(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Suspend {selectedSuspendable.length} User(s)</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will suspend <strong>{selectedSuspendable.length} selected account(s)</strong>. They will not be able to
+              access the platform until reactivated. Admin accounts in your selection are skipped.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Label htmlFor="bulk-suspend-reason">Reason for suspension</Label>
+            <Textarea
+              id="bulk-suspend-reason"
+              placeholder="Enter the reason (applied to all selected accounts)..."
+              value={bulkSuspendReason}
+              onChange={(e) => setBulkSuspendReason(e.target.value)}
+              className="mt-2"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkSuspend} disabled={isProcessing || !bulkSuspendReason.trim()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Suspending...</> : `Suspend ${selectedSuspendable.length} User(s)`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Reactivate Dialog */}
+      <AlertDialog open={showBulkReactivate} onOpenChange={setShowBulkReactivate}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reactivate {selectedReactivatable.length} User(s)</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will reactivate <strong>{selectedReactivatable.length} suspended account(s)</strong>, restoring their
+              access to the platform.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkReactivate} disabled={isProcessing}>
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Reactivating...</> : `Reactivate ${selectedReactivatable.length} User(s)`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog open={showBulkDelete} onOpenChange={setShowBulkDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedDeletable.length} User(s)</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{selectedDeletable.length} selected account(s)</strong> and all their
+              associated data (drivers, loads). Admin accounts are skipped. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete} disabled={isProcessing} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {isProcessing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</> : `Delete ${selectedDeletable.length} User(s)`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

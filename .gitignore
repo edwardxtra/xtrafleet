@@ -5,6 +5,7 @@ node_modules/
 .next/
 .firebase/
 out/
+tsconfig.tsbuildinfo
 
 # Environment files
 .env
@@ -29,3 +30,9 @@ Thumbs.db
 # Firebase
 .firebase/
 *.log
+
+# Playwright
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/

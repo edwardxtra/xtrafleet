@@ -8,6 +8,14 @@ export type Review = {
   comment: string;
 };
 
+// Where an account sits in the white-glove pre-activation lifecycle (DEV-158).
+// Absent on legacy accounts — code reading this should treat a missing value
+// as 'active'.
+export type AccountStatus =
+  | 'pre-activated' // admin-created on the user's behalf; no auth credentials yet
+  | 'active'        // fully activated, has Firebase Auth credentials
+  | 'suspended';    // disabled
+
 export type Driver = {
   id: string;
   name: string;
@@ -61,6 +69,10 @@ export type Driver = {
   // Contact
   phoneNumber?: string;
   phone?: string;
+  // Account lifecycle — white-glove pre-activation onboarding (DEV-158).
+  accountStatus?: AccountStatus;
+  createdByAdmin?: string; // admin UID, when created on the user's behalf
+  activatedAt?: string;    // ISO timestamp the user completed activation
 };
 
 export type Load = {
@@ -100,6 +112,30 @@ export type MatchStatus =
   | 'tla_signed'
   | 'in_progress'
   | 'completed';
+
+// --- Compliance gate (DEV-162) ---
+// Result of the synchronous bilateral compliance check run at match formation.
+export type ComplianceGateStatus = 'Green' | 'Yellow' | 'Red' | 'Unverified';
+
+export type PartyComplianceSnapshot = {
+  ownerOperatorId: string;
+  legalName?: string;
+  dotNumber?: string;
+  verified: boolean;
+  allowedToOperate?: boolean;
+  authorityStatus?: string;
+  saferDiscrepancy?: boolean;
+  status: ComplianceGateStatus;
+};
+
+export type ComplianceSnapshot = {
+  checkedAt: string;
+  overallStatus: ComplianceGateStatus;
+  warnings?: string[];
+  lessor: PartyComplianceSnapshot; // driver owner — carrier supplying the driver
+  lessee: PartyComplianceSnapshot; // load owner — hiring carrier
+  driver: { id: string; status: ComplianceGateStatus };
+};
 
 export type Match = {
   id: string;
@@ -145,12 +181,14 @@ export type Match = {
     rating?: number;
   };
   tlaId?: string;
+  complianceWarning?: boolean;
 };
 
 export type OwnerOperator = {
   id: string;
   companyName?: string;
   legalName?: string;
+  contactName?: string;
   contactEmail: string;
   phone?: string;
   address?: string;
@@ -174,6 +212,10 @@ export type OwnerOperator = {
     coiDocumentUrl?: string;
     coiDocumentUploadedAt?: string;
   };
+  // Account lifecycle — white-glove pre-activation onboarding (DEV-158).
+  accountStatus?: AccountStatus;
+  createdByAdmin?: string; // admin UID, when created on the user's behalf
+  activatedAt?: string;    // ISO timestamp the user completed activation
 };
 
 export type TLASignature = {
@@ -266,6 +308,13 @@ export type TLA = {
   };
   lessorSignature?: TLASignature;
   lesseeSignature?: TLASignature;
+  // Bilateral compliance snapshot captured at match formation (DEV-162).
+  complianceSnapshot?: ComplianceSnapshot;
+  // $25 match fee paid by the load owner (lessee). Stripe webhook flips
+  // these once the checkout session completes (DEV-84).
+  matchFeePaid?: boolean;
+  matchFeePaymentId?: string;
+  matchFeePaidAt?: string;
   status: 'draft' | 'pending_lessor' | 'pending_lessee' | 'signed' | 'in_progress' | 'completed' | 'voided';
   tripTracking?: {
     startedAt?: string;

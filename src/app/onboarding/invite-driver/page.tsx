@@ -18,27 +18,48 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Logo } from '@/components/logo';
 import { useAuth } from '@/firebase';
-import { Loader2, Users, Plus, X, ExternalLink } from 'lucide-react';
+import { Loader2, Users, Plus, X, Shield } from 'lucide-react';
 import { showSuccess, showError } from '@/lib/toast-utils';
+import { ATTESTATIONS, type AttestationType } from '@/lib/attestations';
+
+const DRIVER_ADD_ATTESTATIONS: AttestationType[] = [
+  'driverDqf',
+  'driverFmcsaChecks',
+  'driverAuthority',
+];
+
+type DriverChecks = Record<AttestationType, boolean>;
 
 interface DriverInvite {
   id: string;
   firstName: string;
   lastName: string;
   email: string;
+  // Optional, fleet-owner-supplied at invite time. Driver can correct
+  // during their own registration. Helps the back-end pre-fill DQF data.
+  cdlNumber: string;
+  cdlState: string;
+  medicalCertExpiry: string; // YYYY-MM-DD
 }
 
 export default function OnboardingInviteDriverPage() {
   const router = useRouter();
   const auth = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hasCertifiedDQF, setHasCertifiedDQF] = useState(false);
+  const [driverChecks, setDriverChecks] = useState<DriverChecks>(
+    () =>
+      DRIVER_ADD_ATTESTATIONS.reduce(
+        (acc, t) => ({ ...acc, [t]: false }),
+        {} as DriverChecks,
+      ),
+  );
+  const allDriverChecked = DRIVER_ADD_ATTESTATIONS.every(t => driverChecks[t]);
   const [drivers, setDrivers] = useState<DriverInvite[]>([
-    { id: crypto.randomUUID(), firstName: '', lastName: '', email: '' },
+    { id: crypto.randomUUID(), firstName: '', lastName: '', email: '', cdlNumber: '', cdlState: '', medicalCertExpiry: '' },
   ]);
 
   const addDriver = () => {
-    setDrivers(prev => [...prev, { id: crypto.randomUUID(), firstName: '', lastName: '', email: '' }]);
+    setDrivers(prev => [...prev, { id: crypto.randomUUID(), firstName: '', lastName: '', email: '', cdlNumber: '', cdlState: '', medicalCertExpiry: '' }]);
   };
 
   const removeDriver = (id: string) => {
@@ -67,7 +88,7 @@ export default function OnboardingInviteDriverPage() {
     e.preventDefault();
     const user = auth.currentUser;
     if (!user) { showError('You must be logged in.'); return; }
-    if (!hasCertifiedDQF) { showError('Please certify the DQF requirement.'); return; }
+    if (!allDriverChecked) { showError('Please confirm all three driver attestations.'); return; }
     const error = validateDrivers();
     if (error) { showError(error); return; }
 
@@ -82,8 +103,14 @@ export default function OnboardingInviteDriverPage() {
             firstName: d.firstName.trim(),
             lastName: d.lastName.trim(),
             email: d.email.trim().toLowerCase(),
+            cdlNumber: d.cdlNumber.trim() || undefined,
+            cdlState: d.cdlState.trim().toUpperCase() || undefined,
+            medicalCertExpiry: d.medicalCertExpiry || undefined,
           })),
-          dqfCertification: { accepted: true, timestamp: new Date().toISOString(), userId: user.uid },
+          // DEV-154 phase 3: server records 3 attestations per invited driver
+          // (driverDqf, driverFmcsaChecks, driverAuthority) on the owner's
+          // unified attestations array, with context.driverInvitationToken.
+          attestDriverAdd: true,
         }),
       });
       const result = await response.json();
@@ -177,6 +204,40 @@ export default function OnboardingInviteDriverPage() {
                       disabled={isSubmitting}
                     />
                   </div>
+                  {/* Optional pre-fill data — driver can correct on registration. */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-2 col-span-2">
+                      <Label htmlFor={`cdl-${driver.id}`} className="text-xs text-muted-foreground">CDL Number (optional)</Label>
+                      <Input
+                        id={`cdl-${driver.id}`}
+                        value={driver.cdlNumber}
+                        onChange={e => updateDriver(driver.id, 'cdlNumber', e.target.value)}
+                        placeholder="e.g., D1234567"
+                        disabled={isSubmitting}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`cdlState-${driver.id}`} className="text-xs text-muted-foreground">State</Label>
+                      <Input
+                        id={`cdlState-${driver.id}`}
+                        value={driver.cdlState}
+                        onChange={e => updateDriver(driver.id, 'cdlState', e.target.value.toUpperCase().slice(0, 2))}
+                        placeholder="MA"
+                        maxLength={2}
+                        disabled={isSubmitting}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`med-${driver.id}`} className="text-xs text-muted-foreground">Medical Certificate Expiry (optional)</Label>
+                    <Input
+                      id={`med-${driver.id}`}
+                      type="date"
+                      value={driver.medicalCertExpiry}
+                      onChange={e => updateDriver(driver.id, 'medicalCertExpiry', e.target.value)}
+                      disabled={isSubmitting}
+                    />
+                  </div>
                 </div>
               ))}
               <Button
@@ -191,26 +252,37 @@ export default function OnboardingInviteDriverPage() {
               </Button>
             </div>
 
-            <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="dqf-certification"
-                  checked={hasCertifiedDQF}
-                  onCheckedChange={checked => setHasCertifiedDQF(checked as boolean)}
-                />
-                <div className="flex-1">
-                  <label htmlFor="dqf-certification" className="text-sm font-medium cursor-pointer">
-                    We certify that these drivers have complete and current Driver Qualification Files as required by applicable law and that we remain responsible for all driver qualification and compliance obligations.
-                  </label>
-                  <a
-                    href="/legal/dqf-requirements"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-2"
-                  >
-                    Learn More <ExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
+            {/* DEV-154 phase 3: three driver-add attestations replace the
+                prior single DQF certification. Recorded server-side per
+                invitation on the owner's unified attestations array. */}
+            <div className="rounded-lg border bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4 text-amber-600" />
+                <h4 className="font-medium text-sm">Driver Compliance Attestations</h4>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Required for each driver you invite. By checking each box you confirm:
+              </p>
+              <div className="space-y-2.5">
+                {DRIVER_ADD_ATTESTATIONS.map(type => {
+                  const def = ATTESTATIONS[type];
+                  return (
+                    <div key={type} className="flex items-start space-x-3">
+                      <Checkbox
+                        id={`driver-${type}`}
+                        checked={driverChecks[type]}
+                        onCheckedChange={checked =>
+                          setDriverChecks(prev => ({ ...prev, [type]: checked === true }))
+                        }
+                        disabled={isSubmitting}
+                        className="mt-0.5"
+                      />
+                      <Label htmlFor={`driver-${type}`} className="text-xs leading-relaxed cursor-pointer">
+                        {def.text}
+                      </Label>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -226,7 +298,7 @@ export default function OnboardingInviteDriverPage() {
               type="submit"
               className="w-full"
               size="lg"
-              disabled={isSubmitting || !hasCertifiedDQF}
+              disabled={isSubmitting || !allDriverChecked}
             >
               {isSubmitting ? (
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending Invitations...</>

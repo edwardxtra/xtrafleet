@@ -1,0 +1,32 @@
+name: Unit tests
+
+# Phase 1 of DEV-157: lock the patent-critical compliance scoring and
+# FMCSA parsing helpers against silent regression. Runs on every PR
+# targeting qa/main so a failing test blocks the merge.
+
+on:
+  pull_request:
+    branches: [qa, main]
+  push:
+    branches: [qa]
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: Vitest unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest
+        run: npm test

@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Check, Edit, PlusCircle, Upload, Users, Truck, AlertCircle, Shield, Database, Clock } from "lucide-react";
+import { Check, Edit, PlusCircle, Upload, Users, Truck, AlertCircle, Database, Clock } from "lucide-react";
 import Link from "next/link";
 import { UploadDriversCSV } from "@/components/upload-drivers-csv";
 import { UploadLoadsCSV } from "@/components/upload-loads-csv";
@@ -25,7 +25,6 @@ interface OwnerOperatorProfile {
   onboardingStatus?: {
     profileComplete?: boolean;
     profileCompletedAt?: string;
-    complianceAttested?: boolean;
     fmcsaDesignated?: boolean | string;
     fmcsaDesignatedAt?: string;
     completedAt?: string | null;
@@ -53,9 +52,8 @@ export default function GettingStartedPage() {
   const { data: profile, isLoading: isProfileLoading } = useDoc<OwnerOperatorProfile>(profileQuery);
 
   const isProfileComplete = !!profile?.onboardingStatus?.profileComplete;
-  const isComplianceAttested = !!profile?.onboardingStatus?.complianceAttested;
   const isFmcsaDesignated = profile?.onboardingStatus?.fmcsaDesignated === true;
-  const isFullyOnboarded = isProfileComplete && isComplianceAttested;
+  const isFullyOnboarded = isProfileComplete && isFmcsaDesignated;
 
   const profileCompletedAt = formatTimestamp(profile?.onboardingStatus?.profileCompletedAt || profile?.profileCompletedAt);
   const clearinghouseCompletedAt = formatTimestamp(profile?.clearinghouseCompletedAt || profile?.onboardingStatus?.fmcsaDesignatedAt);
@@ -109,35 +107,9 @@ export default function GettingStartedPage() {
           </CardContent>
         </Card>
 
-        {/* Step 2: Compliance */}
-        <Card className={isComplianceAttested ? "bg-primary/10 border-primary" : "bg-amber-50 border-amber-500 dark:bg-amber-950/30 dark:border-amber-800"}>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 font-headline">
-              {isLoading ? <Skeleton className="h-6 w-6 rounded-full" /> : 
-                isComplianceAttested ? <Check className="text-primary"/> : <AlertCircle className="text-amber-600" />
-              }
-              Compliance
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading && <Skeleton className="h-10 w-full" />}
-            {!isLoading && isComplianceAttested && <p className="text-sm text-muted-foreground">Compliance attestations complete.</p>}
-            {!isLoading && !isComplianceAttested && (
-              <>
-                <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">Attestations required.</p>
-                <p className="text-sm text-muted-foreground mt-1">Acknowledge compliance responsibilities to activate features.</p>
-                <Button asChild className="mt-4 w-full" variant="default">
-                  <Link href="/onboarding/compliance">
-                    <Shield className="mr-2 h-4 w-4"/>
-                    Complete Attestations
-                  </Link>
-                </Button>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Step 3: FMCSA */}
+        {/* Step 2: FMCSA Clearinghouse — compliance attestations are now
+            captured contextually at marketplace / driver-add / match-confirm
+            (DEV-154) and no longer get a setup card here. */}
         <Card className={isFmcsaDesignated ? "bg-primary/10 border-primary" : "bg-amber-50 border-amber-500 dark:bg-amber-950/30 dark:border-amber-800"}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 font-headline">

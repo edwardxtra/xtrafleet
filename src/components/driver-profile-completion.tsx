@@ -62,9 +62,19 @@ type ProfileValues = z.infer<typeof profileSchema>;
 interface DriverProfileCompletionProps {
   driverId: string;
   onComplete?: () => void;
+  /**
+   * Submission endpoint. Defaults to the driver-self path. The owner-self-
+   * driver flow (OO completing their own self-driver record from inside the
+   * owner dashboard) passes /api/submit-self-driver-profile instead.
+   */
+  endpoint?: string;
 }
 
-export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileCompletionProps) {
+export function DriverProfileCompletion({
+  driverId,
+  onComplete,
+  endpoint = '/api/submit-driver-profile',
+}: DriverProfileCompletionProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [coiData, setCoiData] = useState<COIData>({});
   const { toast } = useToast();
@@ -143,10 +153,11 @@ export function DriverProfileCompletion({ driverId, onComplete }: DriverProfileC
         coiPolicyNumber: coiData.policyNumber,
       });
 
-      const response = await fetch('/api/submit-driver-profile', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          driverId,
           profileData: {
             dateOfBirth: values.dateOfBirth,
             cdlNumber: values.cdlNumber,

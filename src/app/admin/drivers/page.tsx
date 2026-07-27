@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { AddDriverDialog } from '@/components/admin/add-driver-dialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -33,6 +35,32 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  evaluateRequiredField,
+  evaluateExpiry,
+  evaluateScreening,
+  type FieldCompliance,
+  type FieldStatus,
+} from '@/lib/field-compliance';
+
+// Small visual marker shown beside compliance-affecting field labels.
+// Pure UI signal — does NOT gate save. The aggregate compliance scorer
+// in src/lib/compliance.ts is still the source of truth.
+function FieldDot({ status, message }: FieldCompliance) {
+  const color: Record<FieldStatus, string> = {
+    green: 'bg-green-500',
+    yellow: 'bg-amber-500',
+    red: 'bg-red-500',
+    gray: 'bg-muted-foreground/30',
+  };
+  return (
+    <span
+      className={`ml-1.5 inline-block h-2 w-2 rounded-full align-middle ${color[status]}`}
+      title={message}
+      aria-label={message}
+    />
+  );
+}
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -52,7 +80,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
 import { collection, collectionGroup, getDocs, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { Search, MoreHorizontal, Truck, Eye, RefreshCw, ShieldCheck, Building2, Download, Edit2, Trash2, Loader2 } from 'lucide-react';
+import { Search, MoreHorizontal, Truck, Eye, RefreshCw, ShieldCheck, Building2, Download, Edit2, Trash2, Loader2, PlusCircle } from 'lucide-react';
 import { getComplianceStatus, ComplianceStatus } from '@/lib/compliance';
 import type { Driver } from '@/lib/data';
 import { logAuditAction } from '@/lib/audit';
@@ -67,13 +95,43 @@ type DriverWithOwner = Driver & {
 type EditableDriverFields = {
   name: string;
   email: string;
+  phoneNumber: string;
   location: string;
   vehicleType: string;
   availability: string;
+  // Trailer types stored as comma-separated string in the form; parsed to
+  // string[] on save.
+  trailerTypes: string;
+  // CDL
   cdlLicense: string;
+  cdlState: string;
+  cdlClass: string;
   cdlExpiry: string;
+  cdlLicenseUrl: string;
+  cdlDocumentUrl: string;
+  endorsements: string;
+  // Medical
   medicalCardExpiry: string;
+  medicalCardUrl: string;
+  // Insurance
   insuranceExpiry: string;
+  insuranceUrl: string;
+  insurerName: string;
+  insurancePolicyNumber: string;
+  // MVR
+  motorVehicleRecordNumber: string;
+  mvrUrl: string;
+  // Background & screenings
+  backgroundCheckDate: string;
+  backgroundCheckUrl: string;
+  preEmploymentScreeningDate: string;
+  preEmploymentScreeningUrl: string;
+  drugAndAlcoholScreeningDate: string;
+  drugAndAlcoholScreeningUrl: string;
+  // Compliance / profile
+  clearinghouseStatus: string;
+  dqfStatus: string;
+  profileStatus: string;
   isActive: boolean;
 };
 
@@ -97,18 +155,49 @@ export default function AdminDriversPage() {
   const [editForm, setEditForm] = useState<EditableDriverFields>({
     name: '',
     email: '',
+    phoneNumber: '',
     location: '',
     vehicleType: '',
     availability: '',
+    trailerTypes: '',
     cdlLicense: '',
+    cdlState: '',
+    cdlClass: '',
     cdlExpiry: '',
+    cdlLicenseUrl: '',
+    cdlDocumentUrl: '',
+    endorsements: '',
     medicalCardExpiry: '',
+    medicalCardUrl: '',
     insuranceExpiry: '',
+    insuranceUrl: '',
+    insurerName: '',
+    insurancePolicyNumber: '',
+    motorVehicleRecordNumber: '',
+    mvrUrl: '',
+    backgroundCheckDate: '',
+    backgroundCheckUrl: '',
+    preEmploymentScreeningDate: '',
+    preEmploymentScreeningUrl: '',
+    drugAndAlcoholScreeningDate: '',
+    drugAndAlcoholScreeningUrl: '',
+    clearinghouseStatus: '',
+    dqfStatus: '',
+    profileStatus: '',
     isActive: true,
   });
 
   const canEdit = hasPermission('drivers:edit');
   const canDelete = hasPermission('drivers:delete');
+
+  // DEV-170: Add-Driver dialog. Auto-opens when /admin/drivers is loaded
+  // with ?addFor={ownerOperatorId} (deep link from /admin/onboard).
+  const searchParams = useSearchParams();
+  const addForParam = searchParams?.get('addFor') || '';
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  useEffect(() => {
+    if (addForParam) setAddDialogOpen(true);
+  }, [addForParam]);
 
   const fetchDrivers = async () => {
     if (!firestore) return;
@@ -154,6 +243,12 @@ export default function AdminDriversPage() {
 
   useEffect(() => { fetchDrivers(); }, [firestore]);
 
+  // Prefill the search box from `?q=` so global-search deep links land here.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q) setSearchQuery(q);
+  }, []);
+
   useEffect(() => {
     let filtered = drivers;
     if (searchQuery.trim() !== '') {
@@ -172,16 +267,44 @@ export default function AdminDriversPage() {
   }, [searchQuery, complianceFilter, drivers]);
 
   const handleOpenEdit = (driver: DriverWithOwner) => {
+    const endorsementsValue = Array.isArray(driver.endorsements)
+      ? driver.endorsements.join(', ')
+      : driver.endorsements || '';
+    const trailerTypesValue = Array.isArray(driver.trailerTypes)
+      ? driver.trailerTypes.join(', ')
+      : '';
     setEditForm({
       name: driver.name || '',
       email: driver.email || '',
+      phoneNumber: driver.phoneNumber || driver.phone || '',
       location: driver.location || '',
       vehicleType: driver.vehicleType || '',
       availability: driver.availability || 'Off-duty',
+      trailerTypes: trailerTypesValue,
       cdlLicense: driver.cdlLicense || '',
+      cdlState: driver.cdlState || '',
+      cdlClass: driver.cdlClass || '',
       cdlExpiry: driver.cdlExpiry || '',
+      cdlLicenseUrl: driver.cdlLicenseUrl || '',
+      cdlDocumentUrl: driver.cdlDocumentUrl || '',
+      endorsements: endorsementsValue,
       medicalCardExpiry: driver.medicalCardExpiry || '',
+      medicalCardUrl: driver.medicalCardUrl || '',
       insuranceExpiry: driver.insuranceExpiry || '',
+      insuranceUrl: driver.insuranceUrl || '',
+      insurerName: driver.insurerName || '',
+      insurancePolicyNumber: driver.insurancePolicyNumber || '',
+      motorVehicleRecordNumber: driver.motorVehicleRecordNumber || '',
+      mvrUrl: driver.mvrUrl || '',
+      backgroundCheckDate: driver.backgroundCheckDate || '',
+      backgroundCheckUrl: driver.backgroundCheckUrl || '',
+      preEmploymentScreeningDate: driver.preEmploymentScreeningDate || '',
+      preEmploymentScreeningUrl: driver.preEmploymentScreeningUrl || '',
+      drugAndAlcoholScreeningDate: driver.drugAndAlcoholScreeningDate || '',
+      drugAndAlcoholScreeningUrl: driver.drugAndAlcoholScreeningUrl || '',
+      clearinghouseStatus: driver.clearinghouseStatus || '',
+      dqfStatus: driver.dqfStatus || '',
+      profileStatus: driver.profileStatus || '',
       isActive: driver.isActive !== false,
     });
     setEditingDriver(driver);
@@ -193,12 +316,24 @@ export default function AdminDriversPage() {
     setIsProcessing(true);
     try {
       const driverRef = doc(firestore, `owner_operators/${editingDriver.ownerId}/drivers`, editingDriver.id);
-      await updateDoc(driverRef, {
-        ...editForm,
+      const { trailerTypes, ...rest } = editForm;
+      const payload: Record<string, any> = {
+        ...rest,
         updatedAt: new Date().toISOString(),
         updatedBy: adminUser.uid,
         updatedByAdmin: true,
-      });
+      };
+      // trailerTypes is held as a comma-separated string in the form; split
+      // back into the string[] the driver doc expects.
+      if (trailerTypes.trim()) {
+        payload.trailerTypes = trailerTypes
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else {
+        payload.trailerTypes = [];
+      }
+      await updateDoc(driverRef, payload);
 
       await logAuditAction(firestore, {
         action: 'driver_updated',
@@ -380,6 +515,11 @@ export default function AdminDriversPage() {
           <Button variant="outline" onClick={handleExport} disabled={filteredDrivers.length === 0}>
             <Download className="h-4 w-4 mr-2" />Export
           </Button>
+          {canEdit && (
+            <Button onClick={() => setAddDialogOpen(true)}>
+              <PlusCircle className="h-4 w-4 mr-2" />Add Driver
+            </Button>
+          )}
           <Button variant="outline" onClick={fetchDrivers} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />Refresh
           </Button>
@@ -571,7 +711,7 @@ export default function AdminDriversPage() {
                     <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                     <SelectContent>
                       {TRAILER_TYPES.map(type => (
-                        <SelectItem key={type} value={type}>{type}</SelectItem>
+                        <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -590,26 +730,176 @@ export default function AdminDriversPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-cdl">CDL License</Label>
+                  <Label htmlFor="edit-cdl">CDL License<FieldDot {...evaluateRequiredField(editForm.cdlLicense, 'CDL License')} /></Label>
                   <Input id="edit-cdl" value={editForm.cdlLicense} onChange={(e) => setEditForm(f => ({ ...f, cdlLicense: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-cdl-expiry">CDL Expiry</Label>
+                  <Label htmlFor="edit-cdl-expiry">CDL Expiry<FieldDot {...evaluateExpiry(editForm.cdlExpiry, 'CDL Expiry')} /></Label>
                   <Input id="edit-cdl-expiry" type="date" value={editForm.cdlExpiry} onChange={(e) => setEditForm(f => ({ ...f, cdlExpiry: e.target.value }))} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-medical">Medical Card Expiry</Label>
+                  <Label htmlFor="edit-medical">Medical Card Expiry<FieldDot {...evaluateExpiry(editForm.medicalCardExpiry, 'Medical Card')} /></Label>
                   <Input id="edit-medical" type="date" value={editForm.medicalCardExpiry} onChange={(e) => setEditForm(f => ({ ...f, medicalCardExpiry: e.target.value }))} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-insurance">Insurance Expiry</Label>
+                  <Label htmlFor="edit-insurance">Insurance Expiry<FieldDot {...evaluateExpiry(editForm.insuranceExpiry, 'Insurance')} /></Label>
                   <Input id="edit-insurance" type="date" value={editForm.insuranceExpiry} onChange={(e) => setEditForm(f => ({ ...f, insuranceExpiry: e.target.value }))} />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Status</Label>
+                <Label htmlFor="edit-phone-number">Phone</Label>
+                <Input id="edit-phone-number" type="tel" value={editForm.phoneNumber} onChange={(e) => setEditForm(f => ({ ...f, phoneNumber: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-trailer-types">Trailer Types <span className="text-xs text-muted-foreground">(comma-separated)</span></Label>
+                <Input id="edit-trailer-types" value={editForm.trailerTypes} onChange={(e) => setEditForm(f => ({ ...f, trailerTypes: e.target.value }))} placeholder="e.g. dry-van, reefer, flatbed" />
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">CDL Details</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-cdl-state">CDL State</Label>
+                    <Input id="edit-cdl-state" value={editForm.cdlState} onChange={(e) => setEditForm(f => ({ ...f, cdlState: e.target.value }))} placeholder="e.g. FL" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-cdl-class">CDL Class</Label>
+                    <Input id="edit-cdl-class" value={editForm.cdlClass} onChange={(e) => setEditForm(f => ({ ...f, cdlClass: e.target.value }))} placeholder="A, B, or C" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-endorsements">Endorsements</Label>
+                  <Input id="edit-endorsements" value={editForm.endorsements} onChange={(e) => setEditForm(f => ({ ...f, endorsements: e.target.value }))} placeholder="e.g. H, N, T" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-cdl-license-url">CDL License URL</Label>
+                    <Input id="edit-cdl-license-url" type="url" value={editForm.cdlLicenseUrl} onChange={(e) => setEditForm(f => ({ ...f, cdlLicenseUrl: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-cdl-document-url">CDL Document URL</Label>
+                    <Input id="edit-cdl-document-url" type="url" value={editForm.cdlDocumentUrl} onChange={(e) => setEditForm(f => ({ ...f, cdlDocumentUrl: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Medical &amp; Insurance</p>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-medical-url">Medical Card URL</Label>
+                  <Input id="edit-medical-url" type="url" value={editForm.medicalCardUrl} onChange={(e) => setEditForm(f => ({ ...f, medicalCardUrl: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-insurer">Insurer Name</Label>
+                    <Input id="edit-insurer" value={editForm.insurerName} onChange={(e) => setEditForm(f => ({ ...f, insurerName: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-policy">Policy Number</Label>
+                    <Input id="edit-policy" value={editForm.insurancePolicyNumber} onChange={(e) => setEditForm(f => ({ ...f, insurancePolicyNumber: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-insurance-url">Insurance URL</Label>
+                  <Input id="edit-insurance-url" type="url" value={editForm.insuranceUrl} onChange={(e) => setEditForm(f => ({ ...f, insuranceUrl: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">MVR &amp; Screenings</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-mvr-number">MVR Number<FieldDot {...evaluateRequiredField(editForm.motorVehicleRecordNumber, 'MVR Number')} /></Label>
+                    <Input id="edit-mvr-number" value={editForm.motorVehicleRecordNumber} onChange={(e) => setEditForm(f => ({ ...f, motorVehicleRecordNumber: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-mvr-url">MVR URL</Label>
+                    <Input id="edit-mvr-url" type="url" value={editForm.mvrUrl} onChange={(e) => setEditForm(f => ({ ...f, mvrUrl: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-bg-date">Background Check Date<FieldDot {...evaluateScreening(editForm.backgroundCheckDate, 'Background Check')} /></Label>
+                    <Input id="edit-bg-date" type="date" value={editForm.backgroundCheckDate} onChange={(e) => setEditForm(f => ({ ...f, backgroundCheckDate: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-bg-url">Background Check URL</Label>
+                    <Input id="edit-bg-url" type="url" value={editForm.backgroundCheckUrl} onChange={(e) => setEditForm(f => ({ ...f, backgroundCheckUrl: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-pes-date">Pre-Employment Date<FieldDot {...evaluateRequiredField(editForm.preEmploymentScreeningDate, 'Pre-Employment Screening')} /></Label>
+                    <Input id="edit-pes-date" type="date" value={editForm.preEmploymentScreeningDate} onChange={(e) => setEditForm(f => ({ ...f, preEmploymentScreeningDate: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-pes-url">Pre-Employment URL</Label>
+                    <Input id="edit-pes-url" type="url" value={editForm.preEmploymentScreeningUrl} onChange={(e) => setEditForm(f => ({ ...f, preEmploymentScreeningUrl: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-da-date">Drug &amp; Alcohol Date<FieldDot {...evaluateScreening(editForm.drugAndAlcoholScreeningDate, 'Drug & Alcohol Screening')} /></Label>
+                    <Input id="edit-da-date" type="date" value={editForm.drugAndAlcoholScreeningDate} onChange={(e) => setEditForm(f => ({ ...f, drugAndAlcoholScreeningDate: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-da-url">Drug &amp; Alcohol URL</Label>
+                    <Input id="edit-da-url" type="url" value={editForm.drugAndAlcoholScreeningUrl} onChange={(e) => setEditForm(f => ({ ...f, drugAndAlcoholScreeningUrl: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Compliance Status</p>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-clearinghouse">Clearinghouse</Label>
+                    <Select value={editForm.clearinghouseStatus || '__unset'} onValueChange={(val) => setEditForm(f => ({ ...f, clearinghouseStatus: val === '__unset' ? '' : val }))}>
+                      <SelectTrigger id="edit-clearinghouse"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— Not set —</SelectItem>
+                        <SelectItem value="compliant">Compliant</SelectItem>
+                        <SelectItem value="pending_query">Pending query</SelectItem>
+                        <SelectItem value="prohibited">Prohibited</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-dqf">DQF Status</Label>
+                    <Select value={editForm.dqfStatus || '__unset'} onValueChange={(val) => setEditForm(f => ({ ...f, dqfStatus: val === '__unset' ? '' : val }))}>
+                      <SelectTrigger id="edit-dqf"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— Not set —</SelectItem>
+                        <SelectItem value="not_required">Not required</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="submitted">Submitted</SelectItem>
+                        <SelectItem value="approved">Approved</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-profile-status">Profile Status</Label>
+                    <Select value={editForm.profileStatus || '__unset'} onValueChange={(val) => setEditForm(f => ({ ...f, profileStatus: val === '__unset' ? '' : val }))}>
+                      <SelectTrigger id="edit-profile-status"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— Not set —</SelectItem>
+                        <SelectItem value="incomplete">Incomplete</SelectItem>
+                        <SelectItem value="pending_confirmation">Pending confirmation</SelectItem>
+                        <SelectItem value="confirmed">Confirmed</SelectItem>
+                        <SelectItem value="complete">Complete</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                        <SelectItem value="self_driver">Self driver</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Active</Label>
                 <Select value={editForm.isActive ? 'active' : 'inactive'} onValueChange={(val) => setEditForm(f => ({ ...f, isActive: val === 'active' }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -665,6 +955,14 @@ export default function AdminDriversPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* DEV-170: Add Driver dialog */}
+      <AddDriverDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        onSuccess={fetchDrivers}
+        initialOwnerOperatorId={addForParam}
+      />
     </div>
   );
 }

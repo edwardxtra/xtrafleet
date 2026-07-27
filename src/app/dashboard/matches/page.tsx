@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Driver, Load } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
@@ -25,12 +27,15 @@ import {
   Briefcase,
   Award,
   X,
+  Loader2,
 } from "lucide-react";
 import { useUser, useFirestore } from "@/firebase";
 import { collection, query, where, collectionGroup, doc, getDoc, onSnapshot } from "firebase/firestore";
 import {
   findMatchingDrivers,
+  findMatchingDriversAsync,
   findMatchingLoads,
+  findIneligibleDrivers,
   getMatchQualityLabel,
   getMatchReasons,
   type MatchScore,
@@ -48,6 +53,7 @@ import {
 } from "@/components/ui/sheet";
 import { ComplianceScorecard, ScoringFormulaExplainer } from "@/components/compliance-scorecard";
 import { getComplianceStatus, type ComplianceStatus } from "@/lib/compliance";
+import { hasCurrent, type AttestationEntry, type AttestationType } from "@/lib/attestations";
 
 type DriverWithOwner = Driver & { ownerId: string };
 type LoadWithOwner = Load & { ownerId: string };
@@ -83,11 +89,47 @@ export default function MatchesPage() {
   const { user } = useUser();
   const firestore = useFirestore();
 
-  // Subscribe to MY pending loads
+  // Gate: the match marketplace (and the match-request modals reachable only
+  // from it) require the owner's profile-level compliance attestations to be
+  // current — the DEV-154 "soft compliance layer" trigger for viewing the
+  // marketplace and requesting matches. Mirrors the load-post gate.
+  // States: 'checking' until the owner doc fetch resolves, then 'blocked' if
+  // profileInsurance or profileAuthority is missing, otherwise 'ok'.
+  const [gateState, setGateState] = useState<'checking' | 'blocked' | 'ok'>('checking');
+  const [missingProfileAttestations, setMissingProfileAttestations] = useState<AttestationType[]>([]);
+
+  useEffect(() => {
+    async function checkProfileAttestations() {
+      if (!user || !firestore) return;
+      try {
+        const snap = await getDoc(doc(firestore, 'owner_operators', user.uid));
+        const data = snap.exists() ? (snap.data() as { attestations?: AttestationEntry[] }) : {};
+        const required: AttestationType[] = ['profileInsurance', 'profileAuthority'];
+        const missing = required.filter(t => !hasCurrent(data.attestations, t));
+        setMissingProfileAttestations(missing);
+        setGateState(missing.length > 0 ? 'blocked' : 'ok');
+      } catch (err) {
+        console.warn(`${LOG_PREFIX} failed to verify profile attestations`, err);
+        // Fail-open: don't lock the user out on a fetch error. Server-side
+        // gates (Firestore rules / API checks) remain authoritative.
+        setGateState('ok');
+      }
+    }
+    checkProfileAttestations();
+  }, [user, firestore]);
+
+  // Subscribe to MY pending loads.
+  // "Pending" is the legacy status string; the current /api/loads POST
+  // writes "live" by default and bumps to "match_pending" once a match
+  // request goes out. Both new statuses plus the legacy one should
+  // populate this panel so newly-posted loads show up immediately.
   useEffect(() => {
     if (!firestore || !user?.uid) return;
     const unsubscribe = onSnapshot(
-      query(collection(firestore, `owner_operators/${user.uid}/loads`), where("status", "==", "Pending")),
+      query(
+        collection(firestore, `owner_operators/${user.uid}/loads`),
+        where("status", "in", ["Pending", "live", "match_pending"]),
+      ),
       (snapshot) => {
         const loads = snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Load));
         setMyPendingLoads(loads);
@@ -99,16 +141,19 @@ export default function MatchesPage() {
     return () => unsubscribe();
   }, [firestore, user?.uid]);
 
-  // Subscribe to ALL pending loads
+  // Subscribe to ALL pending loads. Mirrors the my-pending status set
+  // ("Pending" legacy + "live" + "match_pending" current) so newly-posted
+  // loads from other owners are also matchable.
   useEffect(() => {
     if (!firestore || !user?.uid) return;
+    const AVAILABLE_STATUSES = new Set(['Pending', 'live', 'match_pending']);
     const unsubscribe = onSnapshot(
       collectionGroup(firestore, "loads"),
       (snapshot) => {
         const loads: LoadWithOwner[] = [];
         snapshot.docs.forEach((docSnap) => {
           const data = docSnap.data() as Load;
-          if (data.status !== "Pending") return;
+          if (!AVAILABLE_STATUSES.has(data.status as string)) return;
           const ownerId = docSnap.ref.path.split("/")[1];
           loads.push({ ...data, id: docSnap.id, ownerId });
         });
@@ -172,7 +217,10 @@ export default function MatchesPage() {
   const myDrivers = allDrivers.filter((d) => {
     if (d.ownerId !== user?.uid) return false;
     const status = getComplianceStatus(d);
-    return d.isActive !== false && d.availability === "Available" && status === "Green";
+    // Yellow drivers (a document expiring soon but still valid) are legal to
+    // operate now and should be offerable as matches — only exclude Red
+    // (expired / missing required docs), matching the marketplace eligibility.
+    return d.isActive !== false && d.availability === "Available" && status !== "Red";
   });
 
   const otherPendingLoads = allPendingLoads.filter((l) => l.ownerId !== user?.uid);
@@ -217,13 +265,69 @@ export default function MatchesPage() {
     setSelectionMode(null);
   };
 
-  const driverMatches =
+  // Pool of drivers eligible for the selected load (excluding own fleet
+  // + inactive). Same input feeds both findMatchingDrivers (ranking) and
+  // findIneligibleDrivers (diagnostic panel).
+  const driverPoolForLoad =
     selectedLoad && selectionMode === "load" && allDrivers.length > 0
+      ? allDrivers.filter((d) => d.ownerId !== user?.uid && d.isActive !== false)
+      : [];
+
+  // PR 2: switched from sync findMatchingDrivers to async variant so we
+  // benefit from the Radar-backed /api/geocode endpoint. The async path
+  // resolves driver + load coordinates via Radar (with a 30-day Firestore
+  // cache) rather than the 80-city hard-coded dictionary. We render the
+  // sync result first as an instant best-effort, then upgrade it once the
+  // async resolution lands so the page never feels empty during fetch.
+  const driverMatchesSync =
+    selectedLoad && selectionMode === "load" && driverPoolForLoad.length > 0
       ? findMatchingDrivers(
           selectedLoad,
-          allDrivers.filter((d) => d.ownerId !== user?.uid && d.isActive !== false),
+          driverPoolForLoad,
           { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10 }
         )
+      : [];
+
+  const [driverMatchesAsync, setDriverMatchesAsync] = useState<MatchScore[] | null>(null);
+  const [matchesResolving, setMatchesResolving] = useState(false);
+
+  useEffect(() => {
+    if (!selectedLoad || selectionMode !== "load" || driverPoolForLoad.length === 0) {
+      setDriverMatchesAsync(null);
+      return;
+    }
+    let cancelled = false;
+    setMatchesResolving(true);
+    findMatchingDriversAsync(
+      selectedLoad,
+      driverPoolForLoad,
+      { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10 }
+    )
+      .then((resolved) => {
+        if (cancelled) return;
+        setDriverMatchesAsync(resolved);
+      })
+      .catch((err) => {
+        console.warn(`${LOG_PREFIX} findMatchingDriversAsync error`, err);
+      })
+      .finally(() => {
+        if (!cancelled) setMatchesResolving(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLoad?.id, selectionMode, driverPoolForLoad.length]);
+
+  const driverMatches = driverMatchesAsync ?? driverMatchesSync;
+
+  // PR 1 transparency: drivers that were filtered out of the ranking
+  // because of hard-eligibility checks (availability / expired docs).
+  // Equipment is now a SOFT scoring penalty, not a hard filter, so wrong-
+  // equipment drivers appear in driverMatches with a low score, not here.
+  const ineligibleDriversForLoad =
+    selectedLoad && selectionMode === "load" && driverPoolForLoad.length > 0
+      ? findIneligibleDrivers(driverPoolForLoad, { onlyGreenCompliance: true, onlyAvailable: true })
       : [];
 
   const loadMatches =
@@ -239,6 +343,39 @@ export default function MatchesPage() {
       default: return "";
     }
   };
+
+  if (gateState === 'checking') {
+    return (
+      <div className="flex items-center justify-center min-h-[40vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (gateState === 'blocked') {
+    return (
+      <div className="max-w-2xl">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-2xl font-headline">Complete Your Profile First</CardTitle>
+            <CardDescription>Finding matches requires your company-level compliance attestations to be on file.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Missing profile attestation{missingProfileAttestations.length === 1 ? '' : 's'}: <strong>{missingProfileAttestations.join(', ')}</strong>. Capture them on your profile page, then come back to find matches.
+              </AlertDescription>
+            </Alert>
+            <div className="flex gap-2">
+              <Link href="/dashboard/profile"><Button>Go to Profile</Button></Link>
+              <Link href="/dashboard"><Button variant="outline">Cancel</Button></Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -353,7 +490,7 @@ export default function MatchesPage() {
             </CardTitle>
             <CardDescription className="truncate text-xs md:text-sm">
               {selectionMode === "load" && selectedLoad
-                ? `Top drivers for your load to ${selectedLoad.destination}`
+                ? `Best of ${driverMatches.length} eligible driver${driverMatches.length === 1 ? "" : "s"} for ${selectedLoad.destination}${ineligibleDriversForLoad.length > 0 ? ` (${ineligibleDriversForLoad.length} filtered out — see below)` : ""}${matchesResolving ? " · refining…" : ""}`
                 : selectionMode === "driver" && selectedMyDriver
                   ? `Top loads for ${selectedMyDriver.name}`
                   : "Select your load or driver from My Assets"}
@@ -372,10 +509,22 @@ export default function MatchesPage() {
                         const companyName = match.driver.ownerId ? ownerNames[match.driver.ownerId] : null;
                         const hasWarning = !!match.breakdown.qualificationWarning;
                         return (
-                          <Card key={match.driver.id} className={`shadow-none overflow-hidden ${match.isBestMatch ? "ring-2 ring-primary" : ""}`}>
+                          <Card key={match.driver.id} className={`shadow-none overflow-hidden ${match.isBestMatch ? "ring-2 ring-primary" : ""} ${match.breakdown.feasibility?.feasible === false ? "opacity-70" : ""}`}>
                             {match.isBestMatch && (
                               <div className="bg-primary text-primary-foreground px-3 py-1.5 flex items-center gap-2 text-sm font-medium">
                                 <Trophy className="h-4 w-4" />Best Match
+                              </div>
+                            )}
+                            {match.breakdown.feasibility?.feasible === false && (
+                              <div className="bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-b border-red-200 dark:border-red-900 px-3 py-1.5 flex items-center gap-2 text-xs font-medium">
+                                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                                Cannot make pickup in time{match.breakdown.feasibility.reason ? ` — ${match.breakdown.feasibility.reason}` : ""}
+                              </div>
+                            )}
+                            {match.breakdown.feasibility?.feasible === true && match.breakdown.feasibility.tightSchedule && (
+                              <div className="bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-b border-amber-200 dark:border-amber-900 px-3 py-1.5 flex items-center gap-2 text-xs font-medium">
+                                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                                Tight pickup window{match.breakdown.feasibility.reason ? ` — ${match.breakdown.feasibility.reason}` : ""}
                               </div>
                             )}
                             <CardHeader className="pb-2">
@@ -467,12 +616,54 @@ export default function MatchesPage() {
                           </Card>
                         );
                       })}
+
+                      {ineligibleDriversForLoad.length > 0 && (
+                        <div className="mt-6 border rounded-lg p-3 md:p-4 bg-muted/30">
+                          <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                            <Users className="h-4 w-4 text-muted-foreground" />
+                            Drivers filtered out
+                            <span className="text-xs font-normal text-muted-foreground">
+                              ({ineligibleDriversForLoad.length})
+                            </span>
+                          </h4>
+                          <p className="text-xs text-muted-foreground mb-3">
+                            These drivers in the pool were excluded by hard-eligibility checks (availability or expired documents). Equipment is no longer a hard filter — wrong-equipment drivers appear in the ranked list above with a low score.
+                          </p>
+                          <ul className="space-y-1.5">
+                            {ineligibleDriversForLoad.slice(0, 10).map(({ driver, reason }) => (
+                              <li key={driver.id || driver.name} className="text-xs flex items-start gap-2">
+                                <span className="font-medium">{driver.name}</span>
+                                <span className="text-muted-foreground">— {reason}</span>
+                              </li>
+                            ))}
+                            {ineligibleDriversForLoad.length > 10 && (
+                              <li className="text-xs text-muted-foreground italic">
+                                …and {ineligibleDriversForLoad.length - 10} more.
+                              </li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-64 text-center p-4 border-2 border-dashed rounded-lg">
                       <Users className="h-12 w-12 text-muted-foreground" />
                       <h3 className="mt-4 text-base font-semibold font-headline">No Matching Drivers</h3>
-                      <p className="mt-2 text-sm text-muted-foreground">No available drivers match this load.</p>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {ineligibleDriversForLoad.length > 0
+                          ? `${ineligibleDriversForLoad.length} driver${ineligibleDriversForLoad.length === 1 ? " was" : "s were"} filtered out — see reasons below.`
+                          : "No available drivers in the pool."}
+                      </p>
+                      {ineligibleDriversForLoad.length > 0 && (
+                        <ul className="mt-4 text-left text-xs space-y-1.5 max-w-md w-full">
+                          {ineligibleDriversForLoad.slice(0, 10).map(({ driver, reason }) => (
+                            <li key={driver.id || driver.name} className="flex items-start gap-2">
+                              <span className="font-medium">{driver.name}</span>
+                              <span className="text-muted-foreground">— {reason}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   )
                 ) : selectionMode === "driver" && selectedMyDriver ? (

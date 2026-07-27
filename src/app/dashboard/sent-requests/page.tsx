@@ -44,6 +44,7 @@ import { useRouter } from "next/navigation";
 import { generateTLA } from "@/lib/tla";
 import { notify } from "@/lib/notifications";
 import { createConversation } from "@/lib/messaging-utils";
+import { acceptMatch } from "@/lib/match-actions";
 
 const statusConfig = {
   pending: { label: "Awaiting Response", variant: "outline" as const, icon: Clock, color: "text-orange-600" },
@@ -114,117 +115,27 @@ export default function SentRequestsPage() {
     setCounterModalOpen(true);
   };
 
-  // Accept counter offer
+  // Accept counter offer — formation + compliance gate run server-side.
   const handleAcceptCounter = async () => {
     if (!firestore || !user || !selectedMatch) return;
     setIsAccepting(true);
 
     try {
-      // Fetch lessor (driver owner) info
-      const lessorDoc = await getDoc(doc(firestore, `owner_operators/${selectedMatch.driverOwnerId}`));
-      const lessorInfo = lessorDoc.exists() ? { id: lessorDoc.id, ...lessorDoc.data() } : null;
-
-      // Fetch lessee (load owner - current user) info
-      const lesseeDoc = await getDoc(doc(firestore, `owner_operators/${selectedMatch.loadOwnerId}`));
-      const lesseeInfo = lesseeDoc.exists() ? { id: lesseeDoc.id, ...lesseeDoc.data() } : null;
-
-      // Fetch driver info
-      const driverDoc = await getDoc(doc(firestore, `owner_operators/${selectedMatch.driverOwnerId}/drivers/${selectedMatch.driverId}`));
-      const driverInfo = driverDoc.exists() ? { id: driverDoc.id, ...driverDoc.data() } : null;
-
-      if (!lessorInfo || !lesseeInfo || !driverInfo) {
-        throw new Error('Required information not found');
-      }
-
-      // Check if load is still available
-      const loadDoc = await getDoc(doc(firestore, `owner_operators/${selectedMatch.loadOwnerId}/loads/${selectedMatch.loadId}`));
-      if (!loadDoc.exists()) {
-        throw new Error('Load not found');
-      }
-      const loadData = loadDoc.data();
-      if (loadData.status !== 'Pending') {
-        throw new Error(`This load has already been matched (status: ${loadData.status}).`);
-      }
-
-      // Use counter terms for TLA
-      const matchWithCounterTerms = {
-        ...selectedMatch,
-        originalTerms: selectedMatch.counterTerms || selectedMatch.originalTerms
-      };
-
-      // Generate TLA with counter terms
-      const tlaData = generateTLA({
-        match: matchWithCounterTerms,
-        lessorInfo: lessorInfo as any,
-        lesseeInfo: lesseeInfo as any,
-        driverInfo: driverInfo as any,
-      });
-
-      // Save TLA
-      const tlaRef = await addDoc(collection(firestore, "tlas"), tlaData);
-
-      // Create conversation
-      try {
-        await createConversation(
-          firestore,
-          selectedMatch.driverOwnerId,
-          selectedMatch.loadOwnerId,
-          selectedMatch.loadId,
-          tlaRef.id
-        );
-      } catch (convError) {
-        console.warn('Failed to create conversation:', convError);
-      }
-
-      // Update match status
-      await updateDoc(doc(firestore, `matches/${selectedMatch.id}`), {
-        status: 'tla_pending',
-        counterAcceptedAt: new Date().toISOString(),
-        tlaId: tlaRef.id,
-        finalTerms: selectedMatch.counterTerms,
-      });
-
-      // Update load status
-      await updateDoc(doc(firestore, `owner_operators/${selectedMatch.loadOwnerId}/loads/${selectedMatch.loadId}`), {
-        status: 'Matched',
-        matchedAt: new Date().toISOString(),
-        tlaId: tlaRef.id,
-      });
-
-      // Notify driver owner
-      const driverOwnerEmail = (lessorInfo as any).contactEmail || '';
-      if (driverOwnerEmail) {
-        notify.matchAccepted({
-          loadOwnerEmail: driverOwnerEmail,
-          loadOwnerName: (lessorInfo as any).legalName || '',
-          driverName: selectedMatch.driverSnapshot.name,
-          loadOrigin: selectedMatch.loadSnapshot.origin,
-          loadDestination: selectedMatch.loadSnapshot.destination,
-          rate: selectedMatch.counterTerms?.rate || selectedMatch.originalTerms.rate,
-          tlaId: tlaRef.id,
-        }).catch(err => console.error('Failed to send notification:', err));
-      }
-
-      // Create in-app notification for driver owner
-      await addDoc(collection(firestore, "notifications"), {
-        userId: selectedMatch.driverOwnerId,
-        type: "counter_accepted",
-        title: "Counter Offer Accepted!",
-        message: `Your counter offer for ${selectedMatch.loadSnapshot.origin} → ${selectedMatch.loadSnapshot.destination} was accepted!`,
-        link: "/dashboard/messages",
-        linkText: "Go to Messages",
-        createdAt: new Date().toISOString(),
-        read: false,
-      });
+      const { tlaId, complianceWarning, complianceMessage } = await acceptMatch(
+        firestore,
+        selectedMatch.id
+      );
 
       showSuccess("Counter offer accepted! TLA created.");
+      if (complianceWarning && complianceMessage) {
+        showInfo(complianceMessage);
+      }
       showInfo("You can now message the driver owner.");
       setCounterModalOpen(false);
 
       setTimeout(() => {
-        router.push(`/dashboard/tla/${tlaRef.id}`);
+        router.push(`/dashboard/tla/${tlaId}`);
       }, 800);
-
     } catch (error: any) {
       console.error("Error accepting counter:", error);
       showError(error.message || "Failed to accept counter offer.");

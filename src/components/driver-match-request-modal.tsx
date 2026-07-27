@@ -29,6 +29,7 @@ import type { Driver, Load } from "@/lib/data";
 import type { LoadMatchScore } from "@/lib/matching";
 import { useUser, useFirestore } from "@/firebase";
 import { collection, addDoc, doc, getDoc } from "firebase/firestore";
+import { stripUndefined } from "@/lib/firestore-utils";
 import { showSuccess, showError } from "@/lib/toast-utils";
 import { notify } from "@/lib/notifications";
 import { getComplianceStatus } from "@/lib/compliance";
@@ -150,7 +151,8 @@ export function DriverMatchRequestModal({
           origin: load.origin,
           destination: load.destination,
           cargo: load.cargo,
-          weight: load.weight,
+          // Firestore rejects undefined; weight is optional on some loads.
+          weight: load.weight ?? 0,
         },
         driverSnapshot: {
           name: driver.name,
@@ -174,7 +176,7 @@ export function DriverMatchRequestModal({
       }
 
       // Save to Firestore
-      const matchRef = await addDoc(collection(firestore, "matches"), matchData);
+      const matchRef = await addDoc(collection(firestore, "matches"), stripUndefined(matchData));
 
       console.log("Driver-initiated match request created:", matchRef.id);
 
@@ -260,7 +262,10 @@ export function DriverMatchRequestModal({
               {load.origin} → {load.destination}
             </p>
             <p className="text-sm text-muted-foreground">
-              {load.cargo} • {load.weight.toLocaleString()} lbs
+              {load.cargo || load.loadType || 'Load'}
+              {load.weight != null && (
+                <> • {load.weight.toLocaleString()} lbs</>
+              )}
             </p>
             {loadOwnerName && (
               <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">

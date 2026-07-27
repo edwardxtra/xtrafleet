@@ -1,46 +1,47 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-// Inline SVG components for theme-adaptive coloring
+const LOGO_FULL_LIGHT = "/images/xtrafleet-logo.svg";
+const LOGO_FULL_DARK = "/images/xtrafleet-logo-dark.svg";
+const LOGO_ICON_LIGHT = "/images/xtrafleet-logomark.svg";
+const LOGO_ICON_DARK = "/images/xtrafleet-logomark-dark.svg";
+
+// Dark-surface treatment swaps the charcoal half of the X for white while
+// keeping the brand blue intact — standard reverse/knockout. We render the
+// alternate file via Tailwind dark: utilities. forceLight bypasses the
+// .dark-class check and always uses the dark-surface variant (used in light-
+// mode pages whose sidebar/nav surface is dark navy).
 function LogoFull({ className, forceLight }: { className?: string; forceLight?: boolean }) {
-  const textFill = forceLight ? "fill-white" : "fill-gray-900 dark:fill-white";
+  if (forceLight) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={LOGO_FULL_DARK} alt="XtraFleet" className={className} />
+    );
+  }
   return (
-    <svg
-      viewBox="0 0 1200 250"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-label="XtraFleet"
-    >
-      <g transform="translate(0, 10)">
-        {/* Blue top chevron - brand color */}
-        <path d="M115 110 L20 15 L55 15 L115 75 L175 15 L210 15 L115 110 Z" fill="#1E9BD7"/>
-        {/* Bottom chevron - adapts to theme */}
-        <path d="M115 130 L20 225 L55 225 L115 165 L175 225 L210 225 L115 130 Z" className={textFill}/>
-      </g>
-      {/* "traFleet" text - adapts to theme */}
-      <text x="220" y="170" fontFamily="Arial, Helvetica, sans-serif" fontSize="140" fontWeight="700" className={textFill} letterSpacing="-3">
-        traFleet
-      </text>
-    </svg>
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={LOGO_FULL_LIGHT} alt="XtraFleet" className={cn(className, "dark:hidden")} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={LOGO_FULL_DARK} alt="XtraFleet" className={cn(className, "hidden dark:block")} />
+    </>
   );
 }
 
 function LogoIcon({ className, forceLight }: { className?: string; forceLight?: boolean }) {
-  const textFill = forceLight ? "fill-white" : "fill-gray-900 dark:fill-white";
+  if (forceLight) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={LOGO_ICON_DARK} alt="XtraFleet" className={className} />
+    );
+  }
   return (
-    <svg
-      viewBox="0 0 800 800"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-label="XtraFleet"
-    >
-      {/* Blue top chevron - brand color */}
-      <path d="M400 380 L100 80 L180 80 L400 300 L620 80 L700 80 L400 380 Z" fill="#1E9BD7"/>
-      {/* Bottom chevron - adapts to theme */}
-      <path d="M400 420 L100 720 L180 720 L400 500 L620 720 L700 720 L400 420 Z" className={textFill}/>
-    </svg>
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={LOGO_ICON_LIGHT} alt="XtraFleet" className={cn(className, "dark:hidden")} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={LOGO_ICON_DARK} alt="XtraFleet" className={cn(className, "hidden dark:block")} />
+    </>
   );
 }
 
@@ -65,7 +66,7 @@ export function Logo({
       {variant === "full" ? (
         <LogoFull className="h-10 w-auto" forceLight={forceLight} />
       ) : (
-        <LogoIcon className="h-10 w-10" forceLight={forceLight} />
+        <LogoIcon className="h-10 w-auto" forceLight={forceLight} />
       )}
     </div>
   );

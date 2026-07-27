@@ -18,7 +18,7 @@ function emailTemplate(content: string): string {
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
         <div style="background-color: white; border-radius: 8px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
           <div style="text-align: center; margin-bottom: 32px;">
-            <img src="${APP_URL}/images/xtrafleet-logo-no-tagline.svg" alt="XtraFleet" style="height: 40px; width: auto;" />
+            <img src="${APP_URL}/images/xtrafleet-logo.svg" alt="XtraFleet" style="height: 40px; width: auto;" />
           </div>
           ${content}
         </div>
@@ -113,6 +113,65 @@ export async function sendOwnerProfileCompleteEmail(email: string, companyName: 
     </div>
     
     <p style="color: #6b7280; font-size: 14px;">Need help getting started? Check out our <a href="${APP_URL}/help" style="color: #1E9BD7;">Getting Started Guide</a>.</p>
+  `);
+
+  return sendEmail(email, subject, html);
+}
+
+// ==================== PASSWORD RESET (admin-triggered) ====================
+
+export async function sendPasswordResetEmail(
+  email: string,
+  recipientName: string,
+  resetUrl: string
+) {
+  const subject = 'Reset your XtraFleet password';
+  const html = emailTemplate(`
+    <h2 style="color: #1a1a1a; font-size: 20px; margin-bottom: 16px;">Reset your password</h2>
+
+    <p>Hi ${recipientName || 'there'},</p>
+
+    <p>A password reset was requested for your XtraFleet account. Click the button below to choose a new password:</p>
+
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="${resetUrl}" style="${buttonStyle()}">
+        Reset Password
+      </a>
+    </div>
+
+    <p style="color: #6b7280; font-size: 14px;">This link is unique to you and expires in about an hour. If you didn't request this, you can safely ignore this email — your password won't change.</p>
+  `);
+
+  return sendEmail(email, subject, html);
+}
+
+// ==================== ACTIVATION EMAIL (white-glove pre-activation) ====================
+
+export async function sendActivationEmail(
+  email: string,
+  recipientName: string,
+  activationUrl: string,
+  matchSummary?: string
+) {
+  const subject = 'Your XtraFleet account is ready — set your password';
+  const html = emailTemplate(`
+    <h2 style="color: #1a1a1a; font-size: 20px; margin-bottom: 16px;">Welcome to XtraFleet, ${recipientName}!</h2>
+
+    <p>Your XtraFleet account has been set up for you${matchSummary ? ' &mdash; and you already have a load match waiting' : ''}.</p>
+
+    ${matchSummary ? `<div style="background-color: #f0f9ff; border-left: 4px solid #1E9BD7; padding: 12px 16px; margin: 20px 0; border-radius: 4px;">
+      <p style="margin: 0; color: #1a1a1a;"><strong>Your match:</strong> ${matchSummary}</p>
+    </div>` : ''}
+
+    <p>To access your account${matchSummary ? ' and review your match' : ''}, set a password:</p>
+
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="${activationUrl}" style="${buttonStyle()}">
+        Set Your Password
+      </a>
+    </div>
+
+    <p style="color: #6b7280; font-size: 14px;">This link is unique to you and expires in 14 days. If you didn't expect this email, you can safely ignore it.</p>
   `);
 
   return sendEmail(email, subject, html);

@@ -29,6 +29,9 @@ import { showSuccess, showError } from '@/lib/toast-utils';
 import { parseError } from '@/lib/error-utils';
 import { format, parseISO } from 'date-fns';
 import type { FMCSACarrier } from '@/lib/fmcsa';
+import { ATTESTATIONS, hasCurrent, findAttestationVoid, type AttestationEntry, type AttestationType, type AttestationVoid } from '@/lib/attestations';
+import { AttestationRecaptureSheet } from '@/components/attestation-recapture-sheet';
+import { AlertCircle } from 'lucide-react';
 
 interface COIInfo {
   fileUrl?: string;
@@ -43,8 +46,6 @@ interface COIInfo {
 
 interface OnboardingStatus {
   profileComplete?: boolean;
-  complianceAttested?: boolean;
-  complianceAttestedAt?: string;
   fmcsaDesignated?: boolean | string;
   fmcsaDesignatedAt?: string;
   completedAt?: string | null;
@@ -54,12 +55,6 @@ interface FmcsaClearinghouse {
   alreadyDesignated?: boolean;
   acknowledgment?: boolean;
   submittedAt?: string;
-}
-
-interface ComplianceAttestations {
-  employmentCompliance?: { accepted: boolean; acceptedAt: string };
-  verificationAuth?: { accepted: boolean; acceptedAt: string };
-  noRelianceDisclaimer?: { accepted: boolean; acceptedAt: string };
 }
 
 interface OwnerProfile {
@@ -81,34 +76,29 @@ interface OwnerProfile {
   onboardingStatus?: OnboardingStatus;
   profileCompletedAt?: string;
   clearinghouseCompletedAt?: string;
-  complianceAttestations?: ComplianceAttestations;
   fmcsaClearinghouse?: FmcsaClearinghouse;
   fmcsaVerified?: boolean;
   fmcsaData?: FMCSACarrier;
+  // DEV-154 unified attestations array (replaces the old complianceAttestations
+  // shape and the consents.{userAgreement,esignAgreement} fields).
+  attestations?: AttestationEntry[];
 }
 
-const ATTESTATION_LABELS: Record<string, { title: string; description: string }> = {
-  employmentCompliance: {
-    title: 'Employment & Compliance Responsibility',
-    description: 'We acknowledge that our company retains full responsibility for employment decisions, compliance determinations, and regulatory obligations related to our drivers.',
-  },
-  verificationAuth: {
-    title: 'Verification Use Authorization',
-    description: 'We authorize XtraFleet to facilitate limited, transaction-based eligibility verification (e.g., license status, endorsements, Clearinghouse eligibility) on our behalf, subject to driver consent.',
-  },
-  noRelianceDisclaimer: {
-    title: 'No Reliance Disclaimer',
-    description: 'We understand that verification results provided through XtraFleet are eligibility signals only and do not replace our independent compliance or safety obligations.',
-  },
-};
 
 const DOT_MIN_DIGITS = 5;
+const SAFER_SNAPSHOT_URL = 'https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=';
 
-type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'verified_inactive' | 'error';
+type VerificationState = 'idle' | 'typing' | 'loading' | 'verified' | 'verified_safer_discrepancy' | 'verified_inactive' | 'error';
 interface FMCSAVerification {
   state: VerificationState;
   carrier?: FMCSACarrier;
   errorMessage?: string;
+}
+
+function stateForCarrier(c: FMCSACarrier): VerificationState {
+  if (!c.allowedToOperate) return 'verified_inactive';
+  if (c.saferDiscrepancy) return 'verified_safer_discrepancy';
+  return 'verified';
 }
 
 export default function ProfilePage() {
@@ -127,6 +117,8 @@ export default function ProfilePage() {
 
   const [coiInsurerName, setCoiInsurerName] = useState('');
   const [coiPolicyNumber, setCoiPolicyNumber] = useState('');
+  const [profileAttestationsSheetOpen, setProfileAttestationsSheetOpen] = useState(false);
+  const [attestationRefreshTick, setAttestationRefreshTick] = useState(0);
   const [coiExpiryDate, setCoiExpiryDate] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -136,6 +128,7 @@ export default function ProfilePage() {
 
   const [attestationsExpanded, setAttestationsExpanded] = useState(false);
   const [clearinghouseExpanded, setClearinghouseExpanded] = useState(false);
+  const [liInsuranceExpanded, setLiInsuranceExpanded] = useState(false);
 
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -159,9 +152,24 @@ export default function ProfilePage() {
         const ownerDoc = await getDoc(doc(db, 'owner_operators', user.uid));
         if (ownerDoc.exists()) {
           const data = ownerDoc.data() as OwnerProfile;
-          // Migrate legacy hqAddress into split fields if needed
-          if (!data.hqStreet && data.hqAddress) {
-            data.hqStreet = data.hqAddress;
+          // Migrate a legacy single-line hqAddress into the split
+          // Street/City/State/ZIP fields when none are set. Best-effort parse of
+          // "Street[, Suite], City, ST ZIP" so the profile shows each box rather
+          // than dumping the whole address into Street.
+          if (!data.hqStreet && !data.hqCity && !data.hqState && !data.hqZip && data.hqAddress) {
+            const parts = data.hqAddress.split(',').map((p) => p.trim()).filter(Boolean);
+            const stateZip = parts.length >= 3
+              ? parts[parts.length - 1].match(/^([A-Za-z]{2})\s*(\d{5}(?:-\d{4})?)?$/)
+              : null;
+            if (stateZip) {
+              data.hqState = stateZip[1].toUpperCase();
+              if (stateZip[2]) data.hqZip = stateZip[2];
+              data.hqCity = parts[parts.length - 2];
+              data.hqStreet = parts.slice(0, parts.length - 2).join(', ');
+            } else {
+              // Can't confidently parse — keep the whole value in Street.
+              data.hqStreet = data.hqAddress;
+            }
           }
           setProfile(data);
           setEditedProfile(data);
@@ -171,7 +179,7 @@ export default function ProfilePage() {
             setCoiExpiryDate(data.coi.expiryDate || '');
           }
           if (data.fmcsaVerified && data.fmcsaData) {
-            setFmcsa({ state: 'verified', carrier: data.fmcsaData });
+            setFmcsa({ state: stateForCarrier(data.fmcsaData), carrier: data.fmcsaData });
           }
         }
       } catch (error) {
@@ -182,12 +190,41 @@ export default function ProfilePage() {
       }
     }
     if (user && db) loadProfile();
-  }, [user, db]);
+  }, [user, db, attestationRefreshTick]);
 
-  const fmcsaLocked = profile?.fmcsaVerified === true;
+  // Read lock state from the edited profile so the "Change DOT" action
+  // (which sets editedProfile.fmcsaVerified = false) immediately unlocks
+  // the UI without waiting for a Firestore round-trip.
+  const fmcsaLocked = editedProfile?.fmcsaVerified === true;
 
-  const verifyDOT = useCallback(async (dotNumber: string) => {
-    if (fmcsaLocked) return;
+  // Unified carrier view: prefer the most recent fresh lookup, fall back to
+  // the saved FMCSA snapshot from Firestore.
+  const fmcsaCarrier = fmcsa.carrier ?? profile?.fmcsaData;
+  // #6: active liability (BIPD) insurance on file with FMCSA means the carrier
+  // doesn't need to upload a COI — hide the upload and don't require it.
+  const hasFmcsaInsurance = !!fmcsaCarrier?.liInsuranceSummary?.hasBIPD;
+  // True once we have a completed lookup (fresh or hydrated from saved data).
+  // Used to decide when to show "not on file with FMCSA" empty states vs
+  // hiding fields before the user has run a lookup yet.
+  const fmcsaLookupComplete =
+    fmcsa.state === 'verified' ||
+    fmcsa.state === 'verified_safer_discrepancy' ||
+    fmcsa.state === 'verified_inactive' ||
+    fmcsaLocked;
+
+  // #7: pre-fill operating states from the carrier's FMCSA home state when none
+  // are set yet. Optional — the user can add or remove states freely.
+  useEffect(() => {
+    const hq = fmcsaCarrier?.hqState?.toUpperCase();
+    const match = hq ? US_STATES.find((s) => s.value === hq)?.value : undefined;
+    if (!match) return;
+    setEditedProfile((prev) =>
+      prev && !prev.operatingStates?.length ? { ...prev, operatingStates: [match] } : prev,
+    );
+  }, [fmcsaCarrier?.hqState]);
+
+  const verifyDOT = useCallback(async (dotNumber: string, opts: { force?: boolean } = {}) => {
+    if (fmcsaLocked && !opts.force) return;
     const cleaned = dotNumber.replace(/\D/g, '');
     if (cleaned.length < DOT_MIN_DIGITS) { setFmcsa({ state: 'idle' }); return; }
 
@@ -204,27 +241,70 @@ export default function ProfilePage() {
       }
       const { carrier } = await res.json() as { carrier: FMCSACarrier };
 
+      // Fresh lookup: DOT may have changed from a previous verification, so
+      // overwrite all dependent fields with the new carrier's values — empty
+      // strings included — to prevent stale values from persisting.
+      // Re-verify of a locked record: DOT/MC/Legal Name are immutable; only
+      // refresh phone and address from the fresh snapshot.
       setEditedProfile(prev => {
         if (!prev) return prev;
+        if (opts.force) {
+          return {
+            ...prev,
+            phone: carrier.phone || prev.phone,
+            hqStreet: carrier.hqAddress || prev.hqStreet,
+            hqCity: carrier.hqCity || prev.hqCity,
+            hqState: carrier.hqState || prev.hqState,
+            hqZip: carrier.hqZip || prev.hqZip,
+          };
+        }
         return {
           ...prev,
-          legalName: carrier.legalName || prev.legalName,
-          hqStreet: carrier.hqAddress || prev.hqStreet,
-          hqCity: carrier.hqCity || prev.hqCity,
-          hqState: carrier.hqState || prev.hqState,
-          hqZip: carrier.hqZip || prev.hqZip,
+          legalName: carrier.legalName || '',
+          mcNumber: carrier.mcNumber || '',
+          phone: carrier.phone || '',
+          hqStreet: carrier.hqAddress || '',
+          hqCity: carrier.hqCity || '',
+          hqState: carrier.hqState || '',
+          hqZip: carrier.hqZip || '',
         };
       });
 
-      if (carrier.allowedToOperate) {
-        setFmcsa({ state: 'verified', carrier });
-      } else {
-        setFmcsa({ state: 'verified_inactive', carrier });
-      }
+      setFmcsa({ state: stateForCarrier(carrier), carrier });
     } catch {
       setFmcsa({ state: 'error', errorMessage: 'Could not reach FMCSA. Check your connection.' });
     }
   }, [fmcsaLocked, auth]);
+
+  const reVerify = useCallback(() => {
+    const dot = editedProfile?.dotNumber || profile?.dotNumber;
+    if (!dot) return;
+    verifyDOT(dot, { force: true });
+  }, [editedProfile?.dotNumber, profile?.dotNumber, verifyDOT]);
+
+  // Change DOT: clear FMCSA verification locally so DOT/MC/Legal Name become
+  // editable. The user must re-verify before saving re-locks the record.
+  // The change is only persisted to Firestore on save.
+  const unlockFMCSA = useCallback(() => {
+    const ok = window.confirm(
+      'Change DOT number?\n\nYour FMCSA verification will be cleared. You\'ll need to enter a new DOT and re-verify before saving.'
+    );
+    if (!ok) return;
+    setFmcsa({ state: 'idle' });
+    setEditedProfile(prev => prev ? { ...prev, fmcsaVerified: false } : prev);
+  }, []);
+
+  // Copy the primary L&I policy (BIPD/Primary when available) into the user's
+  // COI fields. Does not touch the expiry date — L&I has no real expiry field
+  // (only cancl_effective_date for cancelled policies), so the user must
+  // still set it themselves from their certificate.
+  const fillCoiFromFmcsa = useCallback(() => {
+    const summary = fmcsa.carrier?.liInsuranceSummary ?? profile?.fmcsaData?.liInsuranceSummary;
+    if (!summary) return;
+    if (summary.primaryInsurer) setCoiInsurerName(summary.primaryInsurer);
+    if (summary.primaryPolicyNumber) setCoiPolicyNumber(summary.primaryPolicyNumber);
+    showSuccess('Filled from FMCSA L&I — set expiry date and upload your certificate to complete.');
+  }, [fmcsa.carrier, profile?.fmcsaData]);
 
   const handleDOTChange = useCallback((value: string) => {
     if (fmcsaLocked) return;
@@ -234,7 +314,7 @@ export default function ProfilePage() {
     if (numbersOnly.length === 0) { setFmcsa({ state: 'idle' }); return; }
     if (numbersOnly.length < DOT_MIN_DIGITS) { setFmcsa({ state: 'idle' }); return; }
     setFmcsa(prev =>
-      prev.state !== 'loading' && prev.state !== 'verified' && prev.state !== 'verified_inactive'
+      prev.state !== 'loading' && prev.state !== 'verified' && prev.state !== 'verified_inactive' && prev.state !== 'verified_safer_discrepancy'
         ? { state: 'typing' } : prev
     );
     dotDebounceRef.current = setTimeout(() => verifyDOT(numbersOnly), 800);
@@ -330,7 +410,10 @@ export default function ProfilePage() {
     try {
       const hasCoiData = !!(editedProfile.coi?.fileUrl || (coiInsurerName && coiPolicyNumber && coiExpiryDate));
       const hasAddress = !!(editedProfile.hqStreet && editedProfile.hqCity && editedProfile.hqState);
-      const isComplete = !!(editedProfile.legalName && editedProfile.dotNumber && editedProfile.mcNumber && hasAddress && editedProfile.operatingStates?.length && hasCoiData);
+      // #6: COI is only required when FMCSA has no active insurance on file.
+      const coiSatisfied = hasFmcsaInsurance || hasCoiData;
+      // #7: operating states are optional (pre-filled from FMCSA, editable).
+      const isComplete = !!(editedProfile.legalName && editedProfile.dotNumber && editedProfile.mcNumber && hasAddress && coiSatisfied);
 
       // Compose legacy hqAddress for any consumers still reading it
       const hqAddress = [editedProfile.hqStreet, editedProfile.hqCity, editedProfile.hqState, editedProfile.hqZip]
@@ -355,13 +438,28 @@ export default function ProfilePage() {
         updatedAt: new Date().toISOString(),
       };
 
-      if (fmcsa.state === 'verified' && fmcsa.carrier && !profile?.fmcsaVerified) {
-        updateData.fmcsaVerified = true;
+      const isVerifiedState =
+        fmcsa.state === 'verified' ||
+        fmcsa.state === 'verified_safer_discrepancy' ||
+        fmcsa.state === 'verified_inactive';
+      // QCMobile is authoritative: both fully-verified and SAFER-discrepancy
+      // carriers are legally active and should lock. verified_inactive does
+      // NOT lock — carrier isn't authorized to operate yet.
+      const canLock =
+        fmcsa.state === 'verified' || fmcsa.state === 'verified_safer_discrepancy';
+      const userUnlocked = profile?.fmcsaVerified === true && editedProfile.fmcsaVerified === false;
+
+      if (isVerifiedState && fmcsa.carrier) {
         updateData.fmcsaData = fmcsa.carrier;
-        updateData.fmcsaVerifiedAt = new Date().toISOString();
       }
-      if (fmcsa.state === 'verified_inactive' && fmcsa.carrier) {
-        updateData.fmcsaData = fmcsa.carrier;
+      // Final fmcsaVerified for Firestore. A successful verify always locks
+      // (even after an explicit unlock, since they've just re-verified).
+      // Explicit unlock with no successful re-verify yet → persist false.
+      if (canLock && fmcsa.carrier) {
+        updateData.fmcsaVerified = true;
+        updateData.fmcsaVerifiedAt = new Date().toISOString();
+      } else if (userUnlocked) {
+        updateData.fmcsaVerified = false;
       }
       if (isComplete && !profile?.profileCompletedAt) {
         updateData.profileCompletedAt = new Date().toISOString();
@@ -375,7 +473,9 @@ export default function ProfilePage() {
         coi: { ...editedProfile.coi, insurerName: coiInsurerName, policyNumber: coiPolicyNumber, expiryDate: coiExpiryDate },
         onboardingStatus: { ...editedProfile.onboardingStatus, profileComplete: isComplete },
         profileCompletedAt: isComplete && !profile?.profileCompletedAt ? new Date().toISOString() : profile?.profileCompletedAt,
-        ...(fmcsa.state === 'verified' && fmcsa.carrier && !profile?.fmcsaVerified ? { fmcsaVerified: true, fmcsaData: fmcsa.carrier } : {}),
+        ...(isVerifiedState && fmcsa.carrier ? { fmcsaData: fmcsa.carrier } : {}),
+        ...(canLock && fmcsa.carrier ? { fmcsaVerified: true } : {}),
+        ...(!canLock && userUnlocked ? { fmcsaVerified: false } : {}),
       };
       setProfile(newProfile);
 
@@ -385,9 +485,10 @@ export default function ProfilePage() {
         if (!editedProfile.dotNumber) missing.push('DOT #');
         if (!editedProfile.mcNumber) missing.push('MC #');
         if (!hasAddress) missing.push('HQ Address');
-        if (!editedProfile.operatingStates?.length) missing.push('Operating States');
-        if (!hasCoiData) missing.push('Certificate of Insurance');
+        if (!coiSatisfied) missing.push('Certificate of Insurance');
         showSuccess(`Profile saved. Still missing: ${missing.join(', ')}`);
+      } else if (fmcsa.state === 'verified_safer_discrepancy' && canLock && fmcsa.carrier) {
+        showSuccess('Profile verified and saved. Note: SAFER still shows this DOT as inactive — view your SAFER record or dispute via DataQs.');
       } else {
         showSuccess('Profile saved successfully!');
       }
@@ -402,7 +503,8 @@ export default function ProfilePage() {
     || coiInsurerName !== (profile?.coi?.insurerName || '')
     || coiPolicyNumber !== (profile?.coi?.policyNumber || '')
     || coiExpiryDate !== (profile?.coi?.expiryDate || '')
-    || (fmcsa.state === 'verified' && !profile?.fmcsaVerified);
+    || (fmcsa.state === 'verified' && !profile?.fmcsaVerified)
+    || (!!fmcsa.carrier && JSON.stringify(fmcsa.carrier) !== JSON.stringify(profile?.fmcsaData));
 
   const formatTimestamp = (ts?: string) => {
     if (!ts) return null;
@@ -425,6 +527,37 @@ export default function ProfilePage() {
         <p className="text-muted-foreground">View and manage your company information, insurance, and compliance status.</p>
       </div>
 
+      {(() => {
+        const candidates: AttestationType[] = ['profileInsurance', 'profileAuthority'];
+        const missing = candidates.filter(t => !hasCurrent(profile?.attestations, t));
+        if (missing.length === 0) return null;
+        return (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <span>
+                Profile attestations missing: <strong>{missing.join(', ')}</strong>. These gate access to posting loads and confirming matches &mdash; capture them now.
+              </span>
+              <Button size="sm" onClick={() => setProfileAttestationsSheetOpen(true)}>
+                Capture profile attestations
+              </Button>
+            </AlertDescription>
+          </Alert>
+        );
+      })()}
+
+      <AttestationRecaptureSheet
+        candidateTypes={['profileInsurance', 'profileAuthority']}
+        missingTypes={(['profileInsurance', 'profileAuthority'] as AttestationType[]).filter(
+          t => !hasCurrent(profile?.attestations, t),
+        )}
+        title="Capture Profile Attestations"
+        description="These statements apply to the company / owner level. They gate marketplace access (load posting, match confirmation)."
+        open={profileAttestationsSheetOpen}
+        onOpenChange={setProfileAttestationsSheetOpen}
+        onCaptured={() => setAttestationRefreshTick(t => t + 1)}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5" /> Company Information</CardTitle>
@@ -432,54 +565,104 @@ export default function ProfilePage() {
         </CardHeader>
         <CardContent className="space-y-4">
 
-          {/* Already verified + locked */}
-          {fmcsaLocked && profile.fmcsaData && (
+          {/* Verified — active */}
+          {fmcsa.state === 'verified' && fmcsa.carrier && (
             <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                <div className="text-sm">
-                  <p className="font-medium text-green-800 dark:text-green-300">FMCSA Verified</p>
-                  <p className="text-green-700 dark:text-green-400">
-                    {profile.fmcsaData.legalName}
-                    {profile.fmcsaData.safetyRating && profile.fmcsaData.safetyRating !== 'Not Rated' && <span className="ml-2 text-xs">· Safety: {profile.fmcsaData.safetyRating}</span>}
-                    <span className="ml-2 text-xs">· Authority: Active</span>
-                    {profile.fmcsaData.insuranceOnFile && <span className="ml-2 text-xs">· Insurance on file</span>}
-                  </p>
-                  <p className="text-xs text-green-600 dark:text-green-500 mt-1 flex items-center gap-1">
-                    <Lock className="h-3 w-3" /> DOT #, MC #, and Legal Name are locked after FMCSA verification. Contact support to make changes.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Live lookup — active */}
-          {!fmcsaLocked && fmcsa.state === 'verified' && fmcsa.carrier && (
-            <div className="rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                <div className="text-sm">
-                  <p className="font-medium text-green-800 dark:text-green-300">FMCSA Verified — save to lock</p>
+                <div className="text-sm flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-green-800 dark:text-green-300">
+                      {fmcsaLocked ? 'FMCSA Verified' : 'FMCSA Verified — save to lock'}
+                    </p>
+                    {fmcsaLocked && (
+                      <div className="flex items-center gap-1.5">
+                        <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
+                          <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={unlockFMCSA} disabled={showSpinner} className="h-7 text-xs text-muted-foreground">
+                          Change DOT
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                   <p className="text-green-700 dark:text-green-400">
                     {fmcsa.carrier.legalName}
                     {fmcsa.carrier.safetyRating && fmcsa.carrier.safetyRating !== 'Not Rated' && <span className="ml-2 text-xs">· Safety: {fmcsa.carrier.safetyRating}</span>}
-                    <span className="ml-2 text-xs">· Authority: Active</span>
+                    <span className="ml-2 text-xs">· Authority: {fmcsa.carrier.authorityStatus || 'Active'}</span>
+                    {fmcsa.carrier.insuranceOnFile && <span className="ml-2 text-xs">· Insurance on file</span>}
+                  </p>
+                  {fmcsaLocked && (
+                    <p className="text-xs text-green-600 dark:text-green-500 mt-1 flex items-center gap-1">
+                      <Lock className="h-3 w-3" /> DOT #, MC #, and Legal Name are locked after FMCSA verification. Contact support to make changes.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Verified — SAFER discrepancy (QCMobile active, SAFER inactive) */}
+          {fmcsa.state === 'verified_safer_discrepancy' && fmcsa.carrier && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                <div className="text-sm flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-amber-800 dark:text-amber-300">SAFER shows this DOT as INACTIVE</p>
+                    {fmcsaLocked && (
+                      <div className="flex items-center gap-1.5">
+                        <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
+                          <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={unlockFMCSA} disabled={showSpinner} className="h-7 text-xs text-muted-foreground">
+                          Change DOT
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-amber-700 dark:text-amber-400">
+                    {fmcsa.carrier.legalName} is authorized to operate per QCMobile, but the SAFER database shows this DOT as inactive.
+                    This usually means authority was recently reinstated and SAFER hasn&apos;t synced yet.{' '}
+                    <a href={`${SAFER_SNAPSHOT_URL}${encodeURIComponent(fmcsa.carrier.dotNumber)}`} target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200 inline-flex items-center gap-1">
+                      View your SAFER record <ExternalLink className="h-3 w-3" />
+                    </a>
+                    {' '}or{' '}
+                    <a href="https://www.fmcsa.dot.gov/registration/dataqs" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200">
+                      dispute via FMCSA DataQs
+                    </a>.
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Live lookup — inactive authority */}
-          {!fmcsaLocked && fmcsa.state === 'verified_inactive' && fmcsa.carrier && (
+          {/* Verified — authority inactive */}
+          {fmcsa.state === 'verified_inactive' && fmcsa.carrier && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                <div className="text-sm">
-                  <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
+                <div className="text-sm flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-amber-800 dark:text-amber-300">FMCSA Found — Authority Inactive</p>
+                    {fmcsaLocked && (
+                      <div className="flex items-center gap-1.5">
+                        <Button type="button" variant="outline" size="sm" onClick={reVerify} disabled={showSpinner} className="h-7 text-xs">
+                          <RefreshCw className={`h-3 w-3 mr-1 ${showSpinner ? 'animate-spin' : ''}`} /> Re-verify
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={unlockFMCSA} disabled={showSpinner} className="h-7 text-xs text-muted-foreground">
+                          Change DOT
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                   <p className="text-amber-700 dark:text-amber-400">
                     {fmcsa.carrier.legalName} was found in FMCSA records but is not currently authorized to operate.
-                    Your profile information has been pre-filled. To be fully verified on XtraFleet, please update your operating authority at{' '}
+                    Your profile information has been pre-filled.{' '}
+                    <a href={`${SAFER_SNAPSHOT_URL}${encodeURIComponent(fmcsa.carrier.dotNumber)}`} target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200 inline-flex items-center gap-1">
+                      View your SAFER record <ExternalLink className="h-3 w-3" />
+                    </a>
+                    {' '}and update your operating authority at{' '}
                     <a href="https://www.fmcsa.dot.gov" target="_blank" rel="noopener noreferrer" className="underline font-medium hover:text-amber-900 dark:hover:text-amber-200">fmcsa.dot.gov</a>.
                   </p>
                 </div>
@@ -488,7 +671,7 @@ export default function ProfilePage() {
           )}
 
           {/* Error */}
-          {!fmcsaLocked && fmcsa.state === 'error' && (
+          {fmcsa.state === 'error' && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
@@ -507,10 +690,10 @@ export default function ProfilePage() {
               <div className="relative">
                 <Input id="dotNumber" value={editedProfile?.dotNumber || ''} onChange={(e) => handleDOTChange(e.target.value)} placeholder="e.g., 1234567" inputMode="numeric" disabled={!isOnline || fmcsaLocked} className={`pr-9 ${fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''}`} />
                 <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
-                  {!fmcsaLocked && showSpinner && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                  {(fmcsaLocked || fmcsa.state === 'verified') && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-                  {!fmcsaLocked && fmcsa.state === 'verified_inactive' && <AlertTriangle className="h-4 w-4 text-amber-500" />}
-                  {!fmcsaLocked && fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
+                  {showSpinner && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  {!showSpinner && fmcsa.state === 'verified' && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                  {!showSpinner && (fmcsa.state === 'verified_inactive' || fmcsa.state === 'verified_safer_discrepancy') && <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                  {!showSpinner && fmcsa.state === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-1">Enter your USDOT number — fields below auto-fill from FMCSA</p>
@@ -518,6 +701,9 @@ export default function ProfilePage() {
             <div>
               <Label htmlFor="mcNumber">MC Number {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
               <Input id="mcNumber" value={editedProfile?.mcNumber || ''} onChange={(e) => !fmcsaLocked && handleChange('mcNumber', e.target.value)} placeholder="MC-123456" disabled={!isOnline || fmcsaLocked} className={fmcsaLocked ? 'bg-muted cursor-not-allowed' : ''} />
+              {fmcsaLookupComplete && !editedProfile?.mcNumber && (
+                <p className="text-xs text-muted-foreground mt-1">No MC number on file with FMCSA.</p>
+              )}
             </div>
             <div>
               <Label htmlFor="legalName">Legal Name {fmcsaLocked && <Lock className="inline h-3 w-3 ml-1 text-muted-foreground" />}</Label>
@@ -623,6 +809,106 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
+      {/* Insurance on File with FMCSA (from Socrata L&I dataset, read-only) */}
+      {(() => {
+        const li = (fmcsa.carrier?.liInsurance ?? profile?.fmcsaData?.liInsurance) || [];
+        const summary = fmcsa.carrier?.liInsuranceSummary ?? profile?.fmcsaData?.liInsuranceSummary;
+        // Hide the card only before a lookup has ever run. Once we know FMCSA
+        // has nothing on file, show the card with an explicit empty state so
+        // the user doesn't wonder whether the lookup silently failed.
+        if (!fmcsaLookupComplete) return null;
+        const hasData = li.length > 0;
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" /> Insurance on File with FMCSA
+              </CardTitle>
+              <CardDescription>
+                Reported to FMCSA&apos;s Licensing & Insurance program. This is separate from the COI you upload below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-start justify-between gap-2">
+                <div className="text-sm flex-1">
+                  {hasData && summary ? (
+                    <>
+                      <p className="font-medium">
+                        {summary.primaryInsurer || 'Policy on file'}
+                      </p>
+                      <p className="text-muted-foreground text-xs mt-0.5">
+                        {summary.primaryPolicyNumber && <>Policy {summary.primaryPolicyNumber} · </>}
+                        {summary.primaryEffectiveDate && <>Effective {summary.primaryEffectiveDate} · </>}
+                        {summary.primaryMaxCoverage && <>Coverage ${summary.primaryMaxCoverage}k · </>}
+                        {summary.policyCount} {summary.policyCount === 1 ? 'policy' : 'policies'} on file
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 flex gap-3">
+                        {summary.hasBIPD && <span className="inline-flex items-center gap-1"><Check className="h-3 w-3 text-green-600" /> BIPD</span>}
+                        {summary.hasCargo && <span className="inline-flex items-center gap-1"><Check className="h-3 w-3 text-green-600" /> Cargo</span>}
+                        {summary.hasSurety && <span className="inline-flex items-center gap-1"><Check className="h-3 w-3 text-green-600" /> Surety</span>}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No active insurance policies found in FMCSA L&I records.</p>
+                  )}
+                </div>
+                {hasData && (
+                  <button
+                    type="button"
+                    onClick={() => setLiInsuranceExpanded(v => !v)}
+                    className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                    aria-label={liInsuranceExpanded ? 'Collapse insurance details' : 'Expand insurance details'}
+                  >
+                    {liInsuranceExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
+
+              {hasData && liInsuranceExpanded && (
+                <div className="mt-4 space-y-2">
+                  {li.map((p, idx) => (
+                    <div key={`${p.docketNumber}-${p.formCode}-${p.policyNumber}-${idx}`} className="rounded-lg border bg-muted/30 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="text-sm">
+                          <p className="font-medium">{p.insurer}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {p.insuranceType} · Form {p.formCode} · {p.docketNumber}
+                          </p>
+                        </div>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {p.maxCoverage ? `$${p.maxCoverage}k` : ''}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Policy {p.policyNumber || '—'}
+                        {p.effectiveDate && <> · Effective {p.effectiveDate}</>}
+                        {p.cancellationDate && <> · Cancelled {p.cancellationDate}</>}
+                      </p>
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground italic mt-2">
+                    Source: FMCSA Licensing &amp; Insurance (data.transportation.gov). Updates can lag actual policy changes by several days.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {hasFmcsaInsurance ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Certificate of Insurance (COI)</CardTitle>
+          <CardDescription>Active insurance verified via FMCSA — no COI upload needed.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Alert><CheckCircle2 className="h-4 w-4" /><AlertDescription>
+            We found active liability insurance on file with FMCSA{fmcsaCarrier?.liInsuranceSummary?.primaryInsurer ? ` (insurer: ${fmcsaCarrier.liInsuranceSummary.primaryInsurer})` : ''}. You don&apos;t need to upload a Certificate of Insurance.
+          </AlertDescription></Alert>
+        </CardContent>
+      </Card>
+      ) : (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Certificate of Insurance (COI)</CardTitle>
@@ -656,7 +942,14 @@ export default function ProfilePage() {
           )}
           <Separator />
           <div>
-            <h4 className="text-sm font-medium mb-3">Policy Details</h4>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-medium">Policy Details</h4>
+              {(fmcsaCarrier?.liInsuranceSummary?.primaryInsurer || fmcsaCarrier?.liInsuranceSummary?.primaryPolicyNumber) && (
+                <Button type="button" variant="outline" size="sm" onClick={fillCoiFromFmcsa} disabled={!isOnline} className="h-7 text-xs">
+                  <RefreshCw className="h-3 w-3 mr-1" /> Fill from FMCSA
+                </Button>
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div><Label htmlFor="coiInsurer">Insurance Company Name</Label><Input id="coiInsurer" value={coiInsurerName} onChange={(e) => setCoiInsurerName(e.target.value)} placeholder="e.g., Progressive Commercial" disabled={!isOnline} /></div>
               <div><Label htmlFor="coiPolicy">Policy Number</Label><Input id="coiPolicy" value={coiPolicyNumber} onChange={(e) => setCoiPolicyNumber(e.target.value)} placeholder="e.g., COM-12345678" disabled={!isOnline} /></div>
@@ -665,6 +958,7 @@ export default function ProfilePage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -683,19 +977,68 @@ export default function ProfilePage() {
           <div>
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-sm">Compliance Attestations</span>
-                {profile.onboardingStatus?.complianceAttestedAt && (<p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><Clock className="h-3 w-3" /> Completed: {formatTimestamp(profile.onboardingStatus.complianceAttestedAt)}</p>)}
+                <span className="text-sm">Attestations on File</span>
+                {profile.attestations && profile.attestations.length > 0 && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                    <Clock className="h-3 w-3" />
+                    {profile.attestations.length} on file
+                    {profile.attestations[profile.attestations.length - 1]?.acceptedAt && (
+                      <> · last {formatTimestamp(profile.attestations[profile.attestations.length - 1].acceptedAt)}</>
+                    )}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
-                {profile.onboardingStatus?.complianceAttested ? (<><Badge variant="default" className="bg-green-600">Attested</Badge><button type="button" onClick={() => setAttestationsExpanded(!attestationsExpanded)} className="text-muted-foreground hover:text-foreground transition-colors">{attestationsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button></>) : (<Button asChild size="sm" variant="outline"><Link href="/onboarding/compliance">Complete <ArrowRight className="h-3 w-3 ml-1" /></Link></Button>)}
+                {profile.attestations && profile.attestations.length > 0 ? (
+                  <>
+                    <Badge variant="default" className="bg-green-600">{profile.attestations.length}</Badge>
+                    <button type="button" onClick={() => setAttestationsExpanded(!attestationsExpanded)} className="text-muted-foreground hover:text-foreground transition-colors">
+                      {attestationsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs text-muted-foreground">None recorded</span>
+                )}
               </div>
             </div>
-            {attestationsExpanded && profile.onboardingStatus?.complianceAttested && (
+            {attestationsExpanded && profile.attestations && profile.attestations.length > 0 && (
               <div className="mt-3 space-y-2 pl-1">
-                {Object.entries(ATTESTATION_LABELS).map(([key, { title, description }]) => {
-                  const attestation = profile.complianceAttestations?.[key as keyof ComplianceAttestations];
+                {profile.attestations.map((entry, idx) => {
+                  const def = ATTESTATIONS[entry.type];
+                  const stale = def && entry.version < def.v;
+                  const voids = (profile as unknown as { attestationVoids?: AttestationVoid[] }).attestationVoids;
+                  const voided = findAttestationVoid(voids, entry);
                   return (
-                    <div key={key} className="rounded-lg border bg-muted/30 p-3"><div className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" /><div><p className="text-sm font-medium">{title}</p><p className="text-xs text-muted-foreground mt-0.5">{description}</p>{attestation?.acceptedAt && (<p className="text-xs text-muted-foreground mt-1">Accepted: {formatTimestamp(attestation.acceptedAt)}</p>)}</div></div></div>
+                    <div
+                      key={`${entry.type}-${entry.acceptedAt}-${idx}`}
+                      className={`rounded-lg border p-3 ${voided ? 'bg-red-50/40 dark:bg-red-950/10 border-red-200 dark:border-red-900' : 'bg-muted/30'}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className={`h-4 w-4 mt-0.5 shrink-0 ${voided ? 'text-red-500' : stale ? 'text-amber-500' : 'text-green-600'}`} />
+                        <div className="flex-1">
+                          <p className={`text-sm font-medium ${voided ? 'line-through text-muted-foreground' : ''}`}>
+                            {def?.label || entry.type}
+                            <span className="ml-2 text-xs text-muted-foreground font-normal no-underline">
+                              v{entry.version}{stale && ` (current: v${def.v})`}
+                            </span>
+                            {voided && (
+                              <span className="ml-2 inline-flex items-center rounded-md bg-red-100 dark:bg-red-950/30 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300 no-underline">Voided</span>
+                            )}
+                          </p>
+                          <p className={`text-xs text-muted-foreground mt-0.5 ${voided ? 'line-through' : ''}`}>{entry.text}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Accepted: {formatTimestamp(entry.acceptedAt)}
+                            {entry.context?.matchId && <> · match {entry.context.matchId}</>}
+                            {entry.context?.driverId && <> · driver {entry.context.driverId}</>}
+                          </p>
+                          {voided && (
+                            <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+                              Voided by admin {formatTimestamp(voided.voidedAt)} — {voided.voidedReason}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   );
                 })}
               </div>

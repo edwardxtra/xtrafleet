@@ -29,20 +29,88 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
     }
 
-    const adminDb = getAdminDb();
+    // DEV-84: getAdminDb is async — used to be called without `await`, which
+    // meant `adminDb` was a Promise and every `adminDb.collection(...)` call
+    // would throw at runtime. The webhook was effectively a no-op for every
+    // event handler below. Fixing here.
+    const adminDb = await getAdminDb();
 
     // Handle events
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object;
         const metadata = session.metadata;
-        
+
         if (metadata?.type === 'match_fee' && metadata?.tlaId) {
-          await adminDb.collection('tlas').doc(metadata.tlaId).update({
-            matchFeePaid: true,
-            matchFeePaymentId: session.payment_intent,
-            matchFeePaidAt: new Date().toISOString(),
-          });
+          // DEV-84: complete the match-fee payment lifecycle.
+          //
+          // The session-completed handler used to ONLY flip the TLA flag and
+          // never wrote to the `payments` collection — which meant the refund
+          // route (DEV-165) and `/admin/billing` had no source of truth.
+          // Now we also write a payments doc and an audit entry, with both
+          // sides idempotent so Stripe's retries don't double-record.
+          const paymentIntentId = String(session.payment_intent || '');
+          const tlaId = metadata.tlaId;
+          const matchId = metadata.matchId || '';
+          const loadOwnerId = metadata.loadOwnerId || '';
+          const nowIso = new Date().toISOString();
+
+          // (1) Write the payments doc using the PaymentIntent id as the doc
+          //     id — guarantees natural idempotency for Stripe retries.
+          if (paymentIntentId) {
+            const paymentRef = adminDb.collection('payments').doc(paymentIntentId);
+            const existingPayment = await paymentRef.get();
+            if (!existingPayment.exists) {
+              await paymentRef.set({
+                id: paymentIntentId,
+                type: 'match_fee',
+                amount: typeof session.amount_total === 'number'
+                  ? session.amount_total
+                  : 2500,
+                currency: session.currency || 'usd',
+                status: 'succeeded',
+                tlaId,
+                matchId,
+                ownerOperatorId: loadOwnerId,
+                stripeSessionId: session.id,
+                stripePaymentIntentId: paymentIntentId,
+                stripeCustomerId: session.customer || null,
+                description: `Match fee for TLA ${tlaId}`,
+                paidAt: nowIso,
+                createdAt: nowIso,
+              });
+            }
+          }
+
+          // (2) Flip the TLA flag — but only if it's not already paid so a
+          //     redelivered event doesn't overwrite the original paidAt.
+          const tlaRef = adminDb.collection('tlas').doc(tlaId);
+          const tlaSnap = await tlaRef.get();
+          const alreadyPaid =
+            tlaSnap.exists && (tlaSnap.data() as { matchFeePaid?: boolean })?.matchFeePaid === true;
+          if (!alreadyPaid) {
+            await tlaRef.update({
+              matchFeePaid: true,
+              matchFeePaymentId: paymentIntentId,
+              matchFeePaidAt: nowIso,
+            });
+
+            // (3) Audit-log the first observation of the payment only.
+            await adminDb.collection('audit_logs').add({
+              action: 'match_fee_paid',
+              userId: loadOwnerId,
+              targetType: 'tla',
+              targetId: tlaId,
+              targetName: `TLA ${tlaId}`,
+              details: {
+                paymentIntentId,
+                matchId,
+                amount: session.amount_total ?? 2500,
+              },
+              timestamp: nowIso,
+              createdAt: nowIso,
+            });
+          }
         }
         
         if (session.mode === 'subscription' && metadata?.userId && session.subscription) {

@@ -1,4 +1,5 @@
 import { Firestore, collection, addDoc, doc, getDoc } from "firebase/firestore";
+import { stripUndefined } from "@/lib/firestore-utils";
 
 export interface ConversationData {
   participants: string[];
@@ -81,17 +82,21 @@ export async function createConversation(
         cargo: loadData.cargo,
       },
       tlaId,
-      lastMessage: "Conversation started",
+      lastMessage: "You've been matched — start coordinating this trip.",
       lastMessageAt: new Date().toISOString(),
+      // Seed a single unread for both parties so the Messages nav badge lights
+      // up when a match forms (the "new match, go message" signal). Opening the
+      // conversation resets the reader's count to 0. We can't post a real system
+      // message here because Firestore rules require the sender be a participant.
       unreadCount: {
-        [driverOwnerId]: 0,
-        [loadOwnerId]: 0,
+        [driverOwnerId]: 1,
+        [loadOwnerId]: 1,
       },
       createdAt: new Date().toISOString(),
     };
 
     console.log("📤 Creating conversation document...");
-    const conversationRef = await addDoc(collection(firestore, "conversations"), conversationData);
+    const conversationRef = await addDoc(collection(firestore, "conversations"), stripUndefined(conversationData));
     console.log("✅ Conversation created with ID:", conversationRef.id);
 
     // SKIP the initial system message - it was causing permission errors

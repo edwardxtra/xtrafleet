@@ -34,6 +34,9 @@ export default function AdminAuditPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [actionFilter, setActionFilter] = useState<string>('all');
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const [actorFilter, setActorFilter] = useState<string>('all');
 
   const fetchLogs = async () => {
     if (!firestore) return;
@@ -77,8 +80,30 @@ export default function AdminAuditPage() {
       filtered = filtered.filter(log => log.action === actionFilter);
     }
 
+    if (actorFilter !== 'all') {
+      filtered = filtered.filter(log => log.adminId === actorFilter);
+    }
+
+    if (fromDate) {
+      const fromMs = new Date(fromDate).getTime();
+      filtered = filtered.filter(log => !log.createdAt || new Date(log.createdAt).getTime() >= fromMs);
+    }
+    if (toDate) {
+      // End of selected day, inclusive.
+      const toMs = new Date(toDate).getTime() + 24 * 60 * 60 * 1000 - 1;
+      filtered = filtered.filter(log => !log.createdAt || new Date(log.createdAt).getTime() <= toMs);
+    }
+
     setFilteredLogs(filtered);
-  }, [searchQuery, actionFilter, logs]);
+  }, [searchQuery, actionFilter, actorFilter, fromDate, toDate, logs]);
+
+  const acttingAdmins = Array.from(
+    new Map(
+      logs
+        .filter(l => l.adminId)
+        .map(l => [l.adminId as string, { id: l.adminId as string, email: l.adminEmail || l.adminId }])
+    ).values()
+  ).sort((a, b) => a.email.localeCompare(b.email));
 
   const handleExport = () => {
     const headers = ['Timestamp', 'Action', 'Admin', 'Target Type', 'Target', 'Reason'];
@@ -139,8 +164,8 @@ export default function AdminAuditPage() {
               <CardTitle className="font-headline">Activity Log</CardTitle>
               <CardDescription>{filteredLogs.length} entries</CardDescription>
             </div>
-            <div className="flex items-center gap-2 w-full md:w-auto">
-              <div className="relative flex-1 md:w-64">
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <div className="relative flex-1 md:w-56">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search logs..."
@@ -149,16 +174,52 @@ export default function AdminAuditPage() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
+              <Input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="w-36"
+                aria-label="From date"
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <Input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="w-36"
+                aria-label="To date"
+              />
+              <Select value={actorFilter} onValueChange={setActorFilter}>
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="Acting admin" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All admins</SelectItem>
+                  {acttingAdmins.map(a => (
+                    <SelectItem key={a.id} value={a.id}>{a.email}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select value={actionFilter} onValueChange={setActionFilter}>
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-44">
                   <SelectValue placeholder="Action" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Actions</SelectItem>
                   <SelectItem value="user_suspended">User Suspended</SelectItem>
                   <SelectItem value="user_reactivated">User Reactivated</SelectItem>
-                  <SelectItem value="tla_voided">TLA Voided</SelectItem>
+                  <SelectItem value="user_updated">User Updated</SelectItem>
+                  <SelectItem value="user_activation_resent">Activation Email Sent</SelectItem>
+                  <SelectItem value="password_reset_sent">Password Reset Sent</SelectItem>
+                  <SelectItem value="driver_updated">Driver Updated</SelectItem>
+                  <SelectItem value="load_updated">Load Updated</SelectItem>
+                  <SelectItem value="match_updated">Match Updated</SelectItem>
                   <SelectItem value="match_cancelled">Match Cancelled</SelectItem>
+                  <SelectItem value="tla_voided">TLA Voided</SelectItem>
+                  <SelectItem value="tla_updated">TLA Updated</SelectItem>
+                  <SelectItem value="billing_refunded">Payment Refunded</SelectItem>
+                  <SelectItem value="attestation_voided">Attestation Voided</SelectItem>
+                  <SelectItem value="message_deleted">Message Deleted</SelectItem>
                   <SelectItem value="data_exported">Data Exported</SelectItem>
                 </SelectContent>
               </Select>

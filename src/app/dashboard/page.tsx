@@ -37,7 +37,6 @@ import { ActiveAgreementsWidget } from '@/components/active-agreements-widget';
 import { NotificationsBanner } from '@/components/notifications-banner';
 import { useOnlineStatus } from '@/hooks/use-online-status';
 import { QuickActionsWidget } from '@/components/quick-actions-widget';
-import { TrendIndicator } from '@/components/ui/trend-indicator';
 import { OnboardingChecklist } from '@/components/onboarding-checklist';
 import { GuidedTour, type TourStep } from '@/components/guided-tour';
 import { 
@@ -306,14 +305,11 @@ export default function Dashboard() {
             <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="flex items-end justify-between">
-              <div>
-                <div className="text-2xl font-bold">$0.00</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  No revenue this month
-                </p>
-              </div>
-              <TrendIndicator value={0} label="vs last month" />
+            <div>
+              <div className="text-2xl font-bold">$0.00</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                No revenue this month
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -328,19 +324,11 @@ export default function Dashboard() {
             {driversError ? (
               <span className="text-red-500 text-sm">Error loading data</span>
             ) : (
-              <div className="flex items-end justify-between">
-                <div>
-                  <div className="text-2xl font-bold">+{availableDriversCount}</div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Ready for dispatch
-                  </p>
-                </div>
-                {availableDriversCount > 0 && (
-                  <TrendIndicator 
-                    value={availableDriversCount >= 5 ? 12 : availableDriversCount >= 2 ? 25 : 0} 
-                    label="vs last month" 
-                  />
-                )}
+              <div>
+                <div className="text-2xl font-bold">{availableDriversCount}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Ready for dispatch
+                </p>
               </div>
             )}
           </CardContent>
@@ -354,19 +342,11 @@ export default function Dashboard() {
             {loadsError ? (
               <span className="text-red-500 text-sm">Error loading data</span>
             ) : (
-              <div className="flex items-end justify-between">
-                <div>
-                  <div className="text-2xl font-bold">+{pendingLoadsCount}</div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Waiting for drivers
-                  </p>
-                </div>
-                {pendingLoadsCount > 0 && (
-                  <TrendIndicator 
-                    value={pendingLoadsCount >= 5 ? -8 : pendingLoadsCount >= 2 ? 15 : 0} 
-                    label="vs last month" 
-                  />
-                )}
+              <div>
+                <div className="text-2xl font-bold">{pendingLoadsCount}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Waiting for drivers
+                </p>
               </div>
             )}
           </CardContent>
@@ -377,19 +357,11 @@ export default function Dashboard() {
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="flex items-end justify-between">
-              <div>
-                <div className="text-2xl font-bold">+{matchesThisMonth}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {matchesThisMonth === 0 ? 'No matches yet' : `${matchesThisMonth} match${matchesThisMonth > 1 ? 'es' : ''} created`}
-                </p>
-              </div>
-              {matchesThisMonth > 0 && (
-                <TrendIndicator 
-                  value={matchesThisMonth >= 10 ? 45 : matchesThisMonth >= 5 ? 20 : 0} 
-                  label="vs last month" 
-                />
-              )}
+            <div>
+              <div className="text-2xl font-bold">{matchesThisMonth}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {matchesThisMonth === 0 ? 'No matches yet' : `${matchesThisMonth} match${matchesThisMonth > 1 ? 'es' : ''} created`}
+              </p>
             </div>
           </CardContent>
         </Card>

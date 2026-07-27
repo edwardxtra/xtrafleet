@@ -22,6 +22,7 @@ export { FieldValue, Timestamp };
 
 const APP_NAME = 'xtrafleet-admin';
 let adminApp: App | null = null;
+let firestoreSettingsApplied = false;
 
 /**
  * Initialize Firebase Admin SDK
@@ -38,6 +39,25 @@ async function initializeFirebaseAdmin(): Promise<App> {
     return adminApp;
   } catch (e) {
     // App doesn't exist yet, continue to initialize
+  }
+
+  // Option 0: Emulator mode (E2E / local).
+  // When the Firebase emulator host env vars are set, the Admin SDK talks
+  // to the local Auth + Firestore emulators and does NOT need real service-
+  // account credentials — a bare projectId is enough. createCustomToken,
+  // verifyIdToken, verifySessionCookie, etc. all work against the emulator
+  // with unsigned tokens. This branch only triggers when the emulator host
+  // vars are present, so QA / prod (which use FIREBASE_SERVICE_ACCOUNT) are
+  // completely unaffected.
+  if (process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+    const projectId =
+      process.env.GCLOUD_PROJECT ||
+      process.env.GOOGLE_CLOUD_PROJECT ||
+      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+      'xtrafleet-e2e';
+    console.log(`[Firebase Admin] Initializing in EMULATOR mode for project ${projectId}`);
+    adminApp = admin.initializeApp({ projectId }, APP_NAME);
+    return adminApp;
   }
 
   // Option 1: Try full service account JSON (recommended)
@@ -90,10 +110,25 @@ async function initializeFirebaseAdmin(): Promise<App> {
  */
 export async function getFirebaseAdmin() {
   const app = await initializeFirebaseAdmin();
-  
+
+  const db = app.firestore();
+
+  // Drop undefined field values instead of throwing on write. Firestore rejects
+  // `undefined` ("Unsupported field value: undefined"); optional fields left
+  // blank routinely produce it. Must be set once, before the first Firestore
+  // operation — guard with a flag (repeat calls to settings() throw).
+  if (!firestoreSettingsApplied) {
+    try {
+      db.settings({ ignoreUndefinedProperties: true });
+    } catch {
+      // Already configured (e.g. hot-reload reusing the app) — safe to ignore.
+    }
+    firestoreSettingsApplied = true;
+  }
+
   return {
     auth: app.auth(),
-    db: app.firestore(),
+    db,
     storage: app.storage(),
   };
 }

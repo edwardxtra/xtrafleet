@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useUser, useAuth, useFirestore } from "@/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import {
   SidebarProvider, Sidebar, SidebarTrigger, SidebarInset, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter, useSidebar,
 } from "@/components/ui/sidebar";
@@ -18,13 +18,14 @@ import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { HelpWidget } from "@/components/help-widget";
 import { OnboardingBanner } from "@/components/onboarding-banner";
-import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Loader2, FileText, HelpCircle, Shield, MessageSquare, User, ChevronDown, ArrowLeftRight } from "lucide-react";
+import { Home, Users, Truck, Settings, LifeBuoy, BarChart, LogOut, Loader2, FileText, Shield, MessageSquare, User, ChevronDown, ArrowLeftRight, CreditCard } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
+import { usePendingRequestsCount } from "@/hooks/use-pending-requests-count";
+import { ImpersonationBanner } from "@/components/impersonation-banner";
 
 interface OnboardingStatus {
   profileComplete?: boolean;
-  complianceAttested?: boolean;
   fmcsaDesignated?: boolean | string;
   completedAt?: string | null;
 }
@@ -48,6 +49,7 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
   const { setOpenMobile, isMobile } = useSidebar();
   const handleSignOutClick = () => { if (isMobile) setOpenMobile(false); onSignOutClick(); };
   const unreadCount = useUnreadMessagesCount();
+  const pendingRequestsCount = usePendingRequestsCount();
   return (
     <>
       <SidebarContent>
@@ -56,7 +58,7 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
           <SidebarMenuItem data-tour="sidebar-drivers"><SidebarNavLink href="/dashboard/drivers" tooltip="Drivers"><Users /><span>Drivers</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem data-tour="sidebar-loads"><SidebarNavLink href="/dashboard/loads" tooltip="Loads"><Truck /><span>Loads</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem data-tour="sidebar-matches"><SidebarNavLink href="/dashboard/matches" tooltip="Find Matches"><BarChart /><span>Find Matches</span></SidebarNavLink></SidebarMenuItem>
-          <SidebarMenuItem><SidebarNavLink href="/dashboard/requests" tooltip="Requests"><ArrowLeftRight /><span>Requests</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/requests" tooltip="Requests" badge={pendingRequestsCount}><ArrowLeftRight /><span>Requests</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem><SidebarNavLink href="/dashboard/messages" tooltip="Messages" badge={unreadCount}><MessageSquare /><span>Messages</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem><SidebarNavLink href="/dashboard/agreements" tooltip="Agreements"><FileText /><span>Agreements</span></SidebarNavLink></SidebarMenuItem>
         </SidebarMenu>
@@ -66,8 +68,8 @@ function SidebarNav({ onSignOutClick, isAdmin }: { onSignOutClick: () => void; i
         <SidebarMenu>
           <SidebarMenuItem><SidebarNavLink href="/dashboard/profile" tooltip="Profile"><User /><span>Profile</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem><SidebarNavLink href="/dashboard/settings" tooltip="Settings"><Settings /><span>Settings</span></SidebarNavLink></SidebarMenuItem>
-          <SidebarMenuItem><SidebarNavLink href="/dashboard/billing" tooltip="Billing"><LifeBuoy /><span>Billing & Support</span></SidebarNavLink></SidebarMenuItem>
-          <SidebarMenuItem><SidebarNavLink href="/dashboard/contact" tooltip="Contact Us"><HelpCircle /><span>Contact Us</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/billing" tooltip="Billing"><CreditCard /><span>Billing & Support</span></SidebarNavLink></SidebarMenuItem>
+          <SidebarMenuItem><SidebarNavLink href="/dashboard/contact" tooltip="Contact Us"><LifeBuoy /><span>Contact Us</span></SidebarNavLink></SidebarMenuItem>
           <SidebarMenuItem><SidebarMenuButton onClick={handleSignOutClick} tooltip="Logout"><LogOut /><span>Logout</span></SidebarMenuButton></SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
@@ -116,6 +118,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (user && db) checkRoleAndOnboarding();
   }, [user, db, router]);
 
+  // Keep onboarding status (and admin flag) live so the setup banner clears
+  // immediately when the profile is completed on another page — no hard refresh.
+  useEffect(() => {
+    if (!user || !db) return;
+    const unsub = onSnapshot(
+      doc(db, 'owner_operators', user.uid),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setIsAdmin(data.isAdmin === true);
+          setOnboardingStatus(data.onboardingStatus);
+        }
+      },
+      (error) => console.error('Error subscribing to onboarding status:', error),
+    );
+    return () => unsub();
+  }, [user, db]);
+
   const handleSignOut = async () => {
     try { setIsLoggingOut(true); await auth.signOut(); router.push('/login'); } catch (error) { console.error("Failed to sign out:", error); setIsLoggingOut(false); }
   };
@@ -124,6 +144,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <SidebarProvider>
+      <ImpersonationBanner />
       <Sidebar>
         <SidebarHeader><Logo linkTo="/" forceLight /></SidebarHeader>
         <SidebarNav onSignOutClick={() => setShowLogoutDialog(true)} isAdmin={isAdmin} />

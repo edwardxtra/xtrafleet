@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleApiError, handleApiSuccess } from '@/lib/api-error-handler';
 import { withCors } from '@/lib/api-cors';
+import { authenticateRequest } from '@/lib/api-auth';
 import {
   sendOwnerRegistrationEmail,
   sendDriverRegistrationCompleteEmail,
@@ -16,6 +17,18 @@ import {
 } from '@/lib/email';
 
 async function handlePost(request: NextRequest) {
+  // Require an authenticated caller. All legitimate callers fire from
+  // logged-in dashboard/TLA flows (same-origin fetch sends the fb-id-token
+  // cookie automatically), so this does not change client behavior — it only
+  // closes the open email-relay hole that allowed anonymous abuse.
+  try {
+    await authenticateRequest(request);
+  } catch {
+    return handleApiError('auth', new Error('Unauthorized'), {
+      endpoint: 'POST /api/notifications',
+    });
+  }
+
   try {
     const { type, data } = await request.json();
 

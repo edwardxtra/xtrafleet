@@ -10,13 +10,23 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "grant-admin:qa": "GOOGLE_CLOUD_PROJECT=xtrafleet-qa npx tsx scripts/grant-admin.ts",
+    "grant-admin:prod": "GOOGLE_CLOUD_PROJECT=studio-5112915880-e9ca2 npx tsx scripts/grant-admin.ts",
     "predeploy": "./scripts/pre-deploy.sh",
     "deploy": "./scripts/deploy.sh",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
     "deploy:all": "npm run build && firebase deploy",
     "dev:clean": "lsof -ti:9002 | xargs kill -9 2>/dev/null; pkill -f \"next dev\" 2>/dev/null; sleep 2; next dev --port 9002",
     "dev:kill": "lsof -ti:9002 | xargs kill -9 2>/dev/null || true",
-    "dev:fresh": "npm run dev:kill && sleep 2 && npm run dev"
+    "dev:fresh": "npm run dev:kill && sleep 2 && npm run dev",
+    "emulators": "firebase experiments:enable webframeworks && firebase emulators:start --only=auth,firestore --project xtrafleet-e2e",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:rules": "firebase emulators:exec --only=firestore --project xtrafleet-rules-test \"vitest run --config vitest.rules.config.ts\"",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@genkit-ai/googleai": "^1.14.1",
@@ -76,13 +86,18 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "@playwright/test": "^1.48.0",
     "@types/node": "^20",
     "@types/papaparse": "^5.3.14",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18",
+    "@vitest/coverage-v8": "^4.1.7",
+    "firebase-tools": "^13.23.0",
     "genkit-cli": "^1.14.1",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^2.1.9"
   }
 }
