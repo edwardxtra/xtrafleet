@@ -73,10 +73,12 @@ test.describe('T1 — Owner signup', () => {
     await expect(page).not.toHaveURL(/\/login/);
   });
 
-  test('an unauthenticated visitor is redirected from /dashboard to /login', async ({ page }) => {
+  test('an unauthenticated visitor is redirected from /dashboard to the landing page', async ({ page }) => {
     // Fresh browser context — no fb-id-token cookie. The dashboard middleware
-    // must bounce an unauthenticated request to /login.
+    // now bounces an unauthenticated request to the landing page (/) rather than
+    // a bare /login form, so shared/deep app links show the marketing homepage.
     await page.goto('/dashboard');
-    await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
+    await expect(page).not.toHaveURL(/\/(login|dashboard)/);
   });
 });
