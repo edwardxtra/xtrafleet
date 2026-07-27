@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useUser, useAuth, useFirestore } from "@/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import {
   SidebarProvider, Sidebar, SidebarTrigger, SidebarInset, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter, useSidebar,
 } from "@/components/ui/sidebar";
@@ -115,6 +115,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
     if (user && db) checkRoleAndOnboarding();
   }, [user, db, router]);
+
+  // Keep onboarding status (and admin flag) live so the setup banner clears
+  // immediately when the profile is completed on another page — no hard refresh.
+  useEffect(() => {
+    if (!user || !db) return;
+    const unsub = onSnapshot(
+      doc(db, 'owner_operators', user.uid),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setIsAdmin(data.isAdmin === true);
+          setOnboardingStatus(data.onboardingStatus);
+        }
+      },
+      (error) => console.error('Error subscribing to onboarding status:', error),
+    );
+    return () => unsub();
+  }, [user, db]);
 
   const handleSignOut = async () => {
     try { setIsLoggingOut(true); await auth.signOut(); router.push('/login'); } catch (error) { console.error("Failed to sign out:", error); setIsLoggingOut(false); }
