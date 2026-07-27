@@ -128,7 +128,6 @@ export default function Home() {
       <footer className="py-6 px-6 md:px-10 border-t bg-muted">
         <div className="container mx-auto text-center text-muted-foreground text-sm">
           &copy; {new Date().getFullYear()} XtraFleet. All rights reserved.
-          <span className="ml-2 opacity-50">• v1.0.1 • Deployed {new Date().toLocaleDateString()}</span>
         </div>
       </footer>
     </div>

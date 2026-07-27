@@ -82,4 +82,12 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Native date/time pickers: render the calendar icon + popup in dark mode
+     so they're visible against a dark background. */
+  .dark input[type="date"],
+  .dark input[type="datetime-local"],
+  .dark input[type="time"],
+  .dark input[type="month"] {
+    color-scheme: dark;
+  }
 }

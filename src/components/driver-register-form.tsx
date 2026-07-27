@@ -168,7 +168,7 @@ export function DriverRegisterForm({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
-          <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">\u2728 Quick Setup</p>
+          <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">✨ Quick Setup</p>
           <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
             Create your account in under 2 minutes. You'll complete your CDL and compliance information after logging in.
           </p>
