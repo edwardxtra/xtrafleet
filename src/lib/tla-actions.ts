@@ -83,9 +83,11 @@ export async function signTLA(params: SignTLAParams): Promise<TLA | null> {
           };
         }
 
-        // Save location details if provided
+        // Save location details if provided. JSON round-trip strips undefined
+        // values Firestore rejects — optional fields like pickup.instructions or
+        // the contact name/phone are left blank on the sign form.
         if (locations) {
-          updateData.locations = locations;
+          updateData.locations = JSON.parse(JSON.stringify(locations));
         }
       }
 
