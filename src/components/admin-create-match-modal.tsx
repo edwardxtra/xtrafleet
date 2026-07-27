@@ -39,6 +39,7 @@ import {
 } from "firebase/firestore";
 import { acceptMatch } from "@/lib/match-actions";
 import { calculateMatchScore, getTotalScore } from "@/lib/matching";
+import { stripUndefined } from "@/lib/firestore-utils";
 import { showSuccess, showError } from "@/lib/toast-utils";
 
 type LoadWithOwner = Load & { ownerId: string; ownerName?: string };
@@ -251,7 +252,7 @@ export function AdminCreateMatchModal({
       if (selectedLoad.price) matchData.loadSnapshot.price = selectedLoad.price;
       if (selectedDriver.rating) matchData.driverSnapshot.rating = selectedDriver.rating;
 
-      const matchRef = await addDoc(collection(firestore, "matches"), matchData);
+      const matchRef = await addDoc(collection(firestore, "matches"), stripUndefined(matchData));
       matchId = matchRef.id;
 
       // 2. Form the match on behalf of the driver owner. This fires the

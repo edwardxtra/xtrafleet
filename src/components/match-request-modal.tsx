@@ -30,6 +30,7 @@ import type { Load } from "@/lib/data";
 import type { MatchScore } from "@/lib/matching";
 import { useUser, useFirestore } from "@/firebase";
 import { collection, addDoc, doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
+import { stripUndefined } from "@/lib/firestore-utils";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { showSuccess, showError } from "@/lib/toast-utils";
@@ -196,7 +197,7 @@ export function MatchRequestModal({
       }
 
       // Save to Firestore
-      const matchRef = await addDoc(collection(firestore, "matches"), matchData);
+      const matchRef = await addDoc(collection(firestore, "matches"), stripUndefined(matchData));
 
       console.log("Match request created:", matchRef.id);
 

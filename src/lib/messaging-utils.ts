@@ -1,4 +1,5 @@
 import { Firestore, collection, addDoc, doc, getDoc } from "firebase/firestore";
+import { stripUndefined } from "@/lib/firestore-utils";
 
 export interface ConversationData {
   participants: string[];
@@ -91,7 +92,7 @@ export async function createConversation(
     };
 
     console.log("📤 Creating conversation document...");
-    const conversationRef = await addDoc(collection(firestore, "conversations"), conversationData);
+    const conversationRef = await addDoc(collection(firestore, "conversations"), stripUndefined(conversationData));
     console.log("✅ Conversation created with ID:", conversationRef.id);
 
     // SKIP the initial system message - it was causing permission errors
