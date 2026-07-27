@@ -217,7 +217,10 @@ export default function MatchesPage() {
   const myDrivers = allDrivers.filter((d) => {
     if (d.ownerId !== user?.uid) return false;
     const status = getComplianceStatus(d);
-    return d.isActive !== false && d.availability === "Available" && status === "Green";
+    // Yellow drivers (a document expiring soon but still valid) are legal to
+    // operate now and should be offerable as matches — only exclude Red
+    // (expired / missing required docs), matching the marketplace eligibility.
+    return d.isActive !== false && d.availability === "Available" && status !== "Red";
   });
 
   const otherPendingLoads = allPendingLoads.filter((l) => l.ownerId !== user?.uid);
