@@ -55,7 +55,7 @@ export default function OnboardingAddLoadPage() {
   const [routePreview, setRoutePreview] = useState<RoutePreview | null>(null);
   const [routeError, setRouteError] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState({
+  const initialLoadForm = {
     origin: '',
     destination: '',
     loadType: '',
@@ -67,7 +67,11 @@ export default function OnboardingAddLoadPage() {
     endorsementsRequired: [] as string[],
     additionalDetails: '',
     verificationConsent: false,
-  });
+  };
+  const [formData, setFormData] = useState(initialLoadForm);
+  // #3: let owners post several loads during onboarding (parity with the
+  // multi-driver invite step) via "Post & Add Another".
+  const [postedCount, setPostedCount] = useState(0);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -144,10 +148,9 @@ export default function OnboardingAddLoadPage() {
     return null;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const postLoad = async (): Promise<boolean> => {
     const error = validateForm();
-    if (error) { showError(error); return; }
+    if (error) { showError(error); return false; }
 
     setIsSubmitting(true);
     try {
@@ -178,12 +181,31 @@ export default function OnboardingAddLoadPage() {
         const d = await response.json();
         throw new Error(d.error || 'Failed to create load');
       }
-      showSuccess('Load posted! Taking you to your dashboard.');
-      router.push('/dashboard');
+      return true;
     } catch (err: any) {
       showError(err instanceof Error ? err.message : 'Failed to post load');
+      return false;
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (await postLoad()) {
+      showSuccess('Load posted! Taking you to your dashboard.');
+      router.push('/dashboard');
+    }
+  };
+
+  const handleAddAnother = async () => {
+    if (await postLoad()) {
+      setPostedCount((c) => c + 1);
+      setFormData(initialLoadForm);
+      setRoutePreview(null);
+      setRouteError(null);
+      showSuccess('Load posted! Add another below.');
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -338,11 +360,19 @@ export default function OnboardingAddLoadPage() {
           </CardContent>
 
           <CardFooter className="flex-col gap-3">
+            {postedCount > 0 && (
+              <p className="text-sm text-green-600 text-center w-full">
+                {postedCount} load{postedCount === 1 ? '' : 's'} posted so far.
+              </p>
+            )}
             <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
               {isSubmitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Posting Load...</> : 'Post Load & Go to Dashboard'}
             </Button>
+            <Button type="button" variant="outline" className="w-full" onClick={handleAddAnother} disabled={isSubmitting}>
+              Post &amp; Add Another Load
+            </Button>
             <Button type="button" variant="link" className="text-muted-foreground" onClick={handleSkip} disabled={isSubmitting}>
-              Skip for now
+              {postedCount > 0 ? 'Done — go to dashboard' : 'Skip for now'}
             </Button>
           </CardFooter>
         </form>

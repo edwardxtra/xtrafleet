@@ -152,9 +152,24 @@ export default function ProfilePage() {
         const ownerDoc = await getDoc(doc(db, 'owner_operators', user.uid));
         if (ownerDoc.exists()) {
           const data = ownerDoc.data() as OwnerProfile;
-          // Migrate legacy hqAddress into split fields if needed
-          if (!data.hqStreet && data.hqAddress) {
-            data.hqStreet = data.hqAddress;
+          // Migrate a legacy single-line hqAddress into the split
+          // Street/City/State/ZIP fields when none are set. Best-effort parse of
+          // "Street[, Suite], City, ST ZIP" so the profile shows each box rather
+          // than dumping the whole address into Street.
+          if (!data.hqStreet && !data.hqCity && !data.hqState && !data.hqZip && data.hqAddress) {
+            const parts = data.hqAddress.split(',').map((p) => p.trim()).filter(Boolean);
+            const stateZip = parts.length >= 3
+              ? parts[parts.length - 1].match(/^([A-Za-z]{2})\s*(\d{5}(?:-\d{4})?)?$/)
+              : null;
+            if (stateZip) {
+              data.hqState = stateZip[1].toUpperCase();
+              if (stateZip[2]) data.hqZip = stateZip[2];
+              data.hqCity = parts[parts.length - 2];
+              data.hqStreet = parts.slice(0, parts.length - 2).join(', ');
+            } else {
+              // Can't confidently parse — keep the whole value in Street.
+              data.hqStreet = data.hqAddress;
+            }
           }
           setProfile(data);
           setEditedProfile(data);
