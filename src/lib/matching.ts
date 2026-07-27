@@ -233,6 +233,19 @@ const FALLBACK_COORDINATES: Record<string, { lat: number; lng: number }> = {
   boston: { lat: 42.3601, lng: -71.0589 }, worcester: { lat: 42.2626, lng: -71.8023 },
   "springfield ma": { lat: 42.1015, lng: -72.5898 }, ma: { lat: 42.0, lng: -71.5 },
   massachusetts: { lat: 42.0, lng: -71.5 },
+  // New England backstop — common freight cities near the Boston corridor.
+  lawrence: { lat: 42.707, lng: -71.1631 }, lowell: { lat: 42.6334, lng: -71.3162 },
+  cambridge: { lat: 42.3736, lng: -71.1097 }, quincy: { lat: 42.2529, lng: -71.0023 },
+  springfield: { lat: 42.1015, lng: -72.5898 },
+  providence: { lat: 41.824, lng: -71.4128 }, ri: { lat: 41.7, lng: -71.5 },
+  "rhode island": { lat: 41.7, lng: -71.5 },
+  hartford: { lat: 41.7658, lng: -72.6734 }, "new haven": { lat: 41.3083, lng: -72.9279 },
+  bridgeport: { lat: 41.1792, lng: -73.1894 }, ct: { lat: 41.6, lng: -72.7 },
+  connecticut: { lat: 41.6, lng: -72.7 },
+  "manchester nh": { lat: 42.9956, lng: -71.4548 }, nashua: { lat: 42.7654, lng: -71.4676 },
+  nh: { lat: 43.7, lng: -71.6 }, "new hampshire": { lat: 43.7, lng: -71.6 },
+  "portland me": { lat: 43.6591, lng: -70.2568 }, me: { lat: 45.3, lng: -69.2 },
+  maine: { lat: 45.3, lng: -69.2 },
   phoenix: { lat: 33.4484, lng: -112.074 }, az: { lat: 34.0, lng: -111.5 },
   arizona: { lat: 34.0, lng: -111.5 },
   "las vegas": { lat: 36.1699, lng: -115.1398 }, nv: { lat: 39.0, lng: -117.0 },
@@ -311,20 +324,37 @@ async function geocodeLocation(location: string): Promise<{ lat: number; lng: nu
   }
 }
 
-function getCoordinatesSync(location: string): { lat: number; lng: number } | null {
+// Resolve a "City, ST" / "City, State" / bare-city / street-address string to
+// coordinates from the fallback table. Matching is EXACT on whole tokens — the
+// old `n.includes(key) || key.includes(n)` substring scan mis-resolved any name
+// containing a short key as a substring (e.g. "Lawrence" contains "la" →
+// Los Angeles, "Atlanta" contains "la" → Los Angeles), which silently placed a
+// nearby driver ~2,600 mi away and tanked the location score.
+export function getCoordinatesSync(location: string): { lat: number; lng: number } | null {
   if (!location) return null;
   const n = location.toLowerCase().trim();
+
+  // 1. Exact match on the whole normalized string (e.g. "springfield ma").
   if (FALLBACK_COORDINATES[n]) return FALLBACK_COORDINATES[n];
-  for (const [key, coords] of Object.entries(FALLBACK_COORDINATES)) {
-    if (n.includes(key) || key.includes(n)) return coords;
+
+  const parts = n.split(",").map((p) => p.trim()).filter(Boolean);
+  const state = parts.length > 1 ? parts[parts.length - 1] : "";
+
+  // 2. "<part> <state>" combined keys disambiguate same-named cities across
+  //    states ("springfield ma" vs "springfield il", "portland me" vs "portland").
+  if (state) {
+    for (const part of parts.slice(0, -1)) {
+      const cityState = `${part} ${state}`;
+      if (FALLBACK_COORDINATES[cityState]) return FALLBACK_COORDINATES[cityState];
+    }
   }
-  const city = n.split(",")[0].trim();
-  if (FALLBACK_COORDINATES[city]) return FALLBACK_COORDINATES[city];
-  const parts = n.split(",");
-  if (parts.length > 1) {
-    const st = parts[parts.length - 1].trim();
-    if (FALLBACK_COORDINATES[st]) return FALLBACK_COORDINATES[st];
+
+  // 3. Exact match on any comma-part as a city (handles street addresses like
+  //    "123 Main St, Boston, MA" → "boston"). Exact only — never a substring.
+  for (const part of parts) {
+    if (FALLBACK_COORDINATES[part]) return FALLBACK_COORDINATES[part];
   }
+
   return null;
 }
 
