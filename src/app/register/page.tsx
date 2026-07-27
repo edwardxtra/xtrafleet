@@ -57,6 +57,10 @@ function RegisterContent() {
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
     const companyName = formData.get('companyName') as string;
+    // #4: capture the company-profile attestations up front so the user is
+    // onboarded on signup (no post-registration side modal). Required in the form.
+    const profileInsurance = formData.get('profileInsurance') === 'on';
+    const profileAuthority = formData.get('profileAuthority') === 'on';
 
     if (!email || !password || !companyName) {
       setError("Company name, email, and password are required.");
@@ -92,7 +96,7 @@ function RegisterContent() {
       const registerRes = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, companyName }),
+        body: JSON.stringify({ email, password, companyName, profileInsurance, profileAuthority }),
       });
       const registerData = await registerRes.json().catch(() => ({}));
 
@@ -248,6 +252,18 @@ function RegisterContent() {
                   <Checkbox id="signupAuthorized" name="signupAuthorized" required disabled={loading} className="mt-1" />
                   <Label htmlFor="signupAuthorized" className="text-sm leading-relaxed cursor-pointer">
                     {ATTESTATIONS.signupAuthorized.text}
+                  </Label>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Checkbox id="profileInsurance" name="profileInsurance" required disabled={loading} className="mt-1" />
+                  <Label htmlFor="profileInsurance" className="text-sm leading-relaxed cursor-pointer">
+                    {ATTESTATIONS.profileInsurance.text}
+                  </Label>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Checkbox id="profileAuthority" name="profileAuthority" required disabled={loading} className="mt-1" />
+                  <Label htmlFor="profileAuthority" className="text-sm leading-relaxed cursor-pointer">
+                    {ATTESTATIONS.profileAuthority.text}
                   </Label>
                 </div>
               </div>

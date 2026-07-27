@@ -64,7 +64,9 @@ export const STRONG_PASSWORD = 'TestPassword!1';
  *   - "Company Name *"  label  → companyName input
  *   - "Business Email *" label → email input
  *   - "Password *" label       → password input
- *   - signupAuthorized checkbox (Radix; accessible name = the attestation text)
+ *   - Three required attestation checkboxes (Radix; accessible name = the
+ *     attestation text): "authorized to act", "insurance coverage", and
+ *     "DOT authority". All three must be checked or the browser blocks submit.
  *   - "Create Company Account" submit button
  */
 export async function signUpOwner(page: Page, opts?: { email?: string; companyName?: string }) {
@@ -76,6 +78,8 @@ export async function signUpOwner(page: Page, opts?: { email?: string; companyNa
   await page.getByLabel(/business email/i).fill(email);
   await page.getByLabel(/password/i).fill(STRONG_PASSWORD);
   await page.getByRole('checkbox', { name: /authorized to act/i }).click();
+  await page.getByRole('checkbox', { name: /insurance coverage/i }).click();
+  await page.getByRole('checkbox', { name: /DOT authority/i }).click();
   await page.getByRole('button', { name: /create company account/i }).click();
 
   // Post-signup flow: POST /api/register → signInWithEmailAndPassword →
