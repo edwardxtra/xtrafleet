@@ -53,18 +53,24 @@ export async function POST(request: NextRequest) {
     // In XtraFleet TLAs:
     // - LESSEE = Load owner/hiring carrier (the one posting loads) - PAYS THE FEE
     // - LESSOR = Driver provider (owns the driver/equipment)
-    const isLessee = tlaData?.lessee?.ownerId === userId;
+    // The TLA lessee is keyed by `ownerOperatorId` (see generateTLA / use-tla-roles),
+    // NOT `ownerId` — the old field name here made this always false, 403-ing
+    // every legitimate load owner.
+    const isLessee = tlaData?.lessee?.ownerOperatorId === userId;
 
     // ALSO check if the lessee company name matches the user's owner_operator company
-    // This is a fallback in case ownerId isn't set properly
+    // This is a fallback in case ownerOperatorId isn't set properly. The TLA
+    // lessee carries `legalName` (not `companyName`), so compare against that.
     if (!isLessee) {
       const ownerDoc = await db.collection('owner_operators').doc(userId).get();
       if (ownerDoc.exists) {
         const ownerData = ownerDoc.data();
 
         // Check if company names match (case-insensitive)
-        const companyMatch = ownerData?.companyName && tlaData?.lessee?.companyName &&
-          ownerData.companyName.toLowerCase() === tlaData.lessee.companyName.toLowerCase();
+        const ownerCompany = ownerData?.companyName || ownerData?.legalName;
+        const lesseeCompany = tlaData?.lessee?.legalName || tlaData?.lessee?.companyName;
+        const companyMatch = ownerCompany && lesseeCompany &&
+          ownerCompany.toLowerCase() === lesseeCompany.toLowerCase();
 
         if (!companyMatch) {
           console.error('[Match Payment] Unauthorized attempt', { userId, tlaId });

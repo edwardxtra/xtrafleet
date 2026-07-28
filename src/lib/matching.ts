@@ -556,22 +556,20 @@ function computePickupFeasibility(
   }
 
   const nowMs = Date.now();
-  const hoursUntilPickup = (deadlineMs - nowMs) / (1000 * 60 * 60);
+  // Matching is advisory ranking, not hard dispatch. The pickup deadline is
+  // end-of-day of the pickup date, so a same-day pickup (or a stale/test load
+  // with today's or a past date) would otherwise collapse every candidate to
+  // "cannot make pickup" and strip all Best-Match highlighting. Floor the
+  // available window to a grace period so regional drivers still rank for
+  // near-term pickups; genuinely far drivers still fall out via the
+  // travel-hours check below.
+  const SAME_DAY_GRACE_HOURS = 24;
+  const rawHoursUntilPickup = (deadlineMs - nowMs) / (1000 * 60 * 60);
+  const hoursUntilPickup = Math.max(rawHoursUntilPickup, SAME_DAY_GRACE_HOURS);
   const miles = calculateDistance(driverCoords.lat, driverCoords.lng, loadCoords.lat, loadCoords.lng);
   const baseHours = miles / AVG_HIGHWAY_MPH;
   const sleepBuffer = miles > HOS_SLEEP_THRESHOLD_MI ? HOS_SLEEP_BUFFER_HOURS : 0;
   const estimatedTravelHours = baseHours + sleepBuffer;
-
-  if (hoursUntilPickup <= 0) {
-    return {
-      feasible: false,
-      tightSchedule: false,
-      estimatedMiles: Math.round(miles),
-      estimatedTravelHours: Math.round(estimatedTravelHours * 10) / 10,
-      hoursUntilPickup: Math.round(hoursUntilPickup * 10) / 10,
-      reason: 'Pickup date has already passed',
-    };
-  }
 
   if (estimatedTravelHours > hoursUntilPickup) {
     return {

@@ -12,7 +12,12 @@
       "mcp__Atlassian__lookupJiraAccountId",
       "mcp__Atlassian__atlassianUserInfo",
       "mcp__Atlassian__getAccessibleAtlassianResources",
-      "mcp__Atlassian__search"
+      "mcp__Atlassian__search",
+      "mcp__Atlassian__createJiraIssue",
+      "mcp__Atlassian__editJiraIssue",
+      "mcp__Atlassian__addCommentToJiraIssue",
+      "mcp__Atlassian__transitionJiraIssue",
+      "mcp__Atlassian__createIssueLink"
     ]
   }
 }

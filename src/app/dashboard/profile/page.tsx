@@ -413,7 +413,10 @@ export default function ProfilePage() {
       // #6: COI is only required when FMCSA has no active insurance on file.
       const coiSatisfied = hasFmcsaInsurance || hasCoiData;
       // #7: operating states are optional (pre-filled from FMCSA, editable).
-      const isComplete = !!(editedProfile.legalName && editedProfile.dotNumber && editedProfile.mcNumber && hasAddress && coiSatisfied);
+      // MC (docket) number is optional — DOT-only carriers (intrastate/private/
+      // exempt) have no MC number; requiring it made them permanently
+      // "incomplete." DOT + address + COI is the real completion bar.
+      const isComplete = !!(editedProfile.legalName && editedProfile.dotNumber && hasAddress && coiSatisfied);
 
       // Compose legacy hqAddress for any consumers still reading it
       const hqAddress = [editedProfile.hqStreet, editedProfile.hqCity, editedProfile.hqState, editedProfile.hqZip]
