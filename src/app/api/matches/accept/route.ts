@@ -18,10 +18,24 @@ import { runComplianceGate } from '@/lib/compliance-gate';
 import { generateTLA } from '@/lib/tla';
 import type { Match, OwnerOperator, Driver } from '@/lib/data';
 import { hasPermission, getDefaultRoleForLegacyAdmin, type AdminRole } from '@/lib/admin-roles';
+import { buildAttestationEntry, type AttestationType } from '@/lib/attestations';
 
 function json(body: Record<string, unknown>, status: number) {
   return NextResponse.json(body, { status });
 }
+
+// The blocking match-confirmation attestations the normal flow captures in the
+// borrower request modal and the lender response modal. The admin white-glove
+// path bypasses both modals, so we record them server-side here (DEV-194).
+const BORROWER_MATCH_ATTESTATIONS: AttestationType[] = [
+  'matchBorrowerClearinghouse',
+  'matchBorrowerResponsibility',
+  'matchBorrowerInsurance',
+];
+const LENDER_MATCH_ATTESTATIONS: AttestationType[] = [
+  'matchLenderQualified',
+  'matchLenderAuthority',
+];
 
 async function handlePost(request: NextRequest) {
   // 1. Authenticate.
@@ -221,6 +235,50 @@ async function handlePost(request: NextRequest) {
       .update({ status: 'Matched', matchedAt: now, tlaId: tlaRef.id });
 
     await db.collection('audit_logs').add({ ...auditBase, action: 'match_formed', tlaId: tlaRef.id });
+
+    // 10b. DEV-194: the admin white-glove path (actingOnBehalfOf) forms the
+    //      match without going through the borrower request modal or the lender
+    //      response modal, so neither party's blocking match-confirmation
+    //      attestations were captured — admin-brokered TLAs ended up with no
+    //      attestation trail a normal match has. Record both sides here,
+    //      attributed to the acting admin with an onBehalfOf context, so the
+    //      compliance record is complete. Non-blocking: the match + TLA are
+    //      already committed; a failure here must not fail the formation.
+    if (actingOnBehalfOf) {
+      const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || undefined;
+      try {
+        await Promise.all([
+          db
+            .collection('owner_operators')
+            .doc(match.loadOwnerId)
+            .update({
+              attestations: FieldValue.arrayUnion(
+                ...BORROWER_MATCH_ATTESTATIONS.map((type) =>
+                  buildAttestationEntry(type, user.uid, {
+                    ip,
+                    context: { matchId, tlaId: tlaRef.id, onBehalfOf: match.loadOwnerId },
+                  })
+                )
+              ),
+            }),
+          db
+            .collection('owner_operators')
+            .doc(match.driverOwnerId)
+            .update({
+              attestations: FieldValue.arrayUnion(
+                ...LENDER_MATCH_ATTESTATIONS.map((type) =>
+                  buildAttestationEntry(type, user.uid, {
+                    ip,
+                    context: { matchId, tlaId: tlaRef.id, onBehalfOf: match.driverOwnerId },
+                  })
+                )
+              ),
+            }),
+        ]);
+      } catch (err) {
+        console.error('[matches/accept] Failed to record admin-brokered match attestations:', err);
+      }
+    }
 
     // 11. Build the follow-up payload for non-critical client-side steps
     //     (conversation, email, in-app notification).
