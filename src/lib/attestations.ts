@@ -218,6 +218,13 @@ export interface AttestationContext {
   driverInvitationEmail?: string;
   /** TLA doc id, when per-TLA. */
   tlaId?: string;
+  /**
+   * When an admin captures this attestation on behalf of a party during
+   * white-glove formation, the ownerOperatorId of that party. `acceptedBy`
+   * then holds the admin's uid, so the two together record "admin X attested
+   * on behalf of party Y." Absent for self-captured attestations.
+   */
+  onBehalfOf?: string;
 }
 
 export interface AttestationEntry {

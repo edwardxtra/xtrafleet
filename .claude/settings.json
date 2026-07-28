@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Atlassian__getJiraIssue",
+      "mcp__Atlassian__searchJiraIssuesUsingJql",
+      "mcp__Atlassian__getVisibleJiraProjects",
+      "mcp__Atlassian__getTransitionsForJiraIssue",
+      "mcp__Atlassian__getJiraIssueRemoteIssueLinks",
+      "mcp__Atlassian__getJiraProjectIssueTypesMetadata",
+      "mcp__Atlassian__getJiraIssueTypeMetaWithFields",
+      "mcp__Atlassian__getIssueLinkTypes",
+      "mcp__Atlassian__lookupJiraAccountId",
+      "mcp__Atlassian__atlassianUserInfo",
+      "mcp__Atlassian__getAccessibleAtlassianResources",
+      "mcp__Atlassian__search",
+      "mcp__Atlassian__createJiraIssue",
+      "mcp__Atlassian__editJiraIssue",
+      "mcp__Atlassian__addCommentToJiraIssue",
+      "mcp__Atlassian__transitionJiraIssue",
+      "mcp__Atlassian__createIssueLink"
+    ]
+  }
+}

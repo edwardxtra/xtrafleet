@@ -66,7 +66,12 @@ async function handlePost(req: NextRequest) {
       endorsements: data.endorsements || null,
       ownerId: ownerUser.uid,
       isSelfDriver: true,
-      availability: 'Off-duty',
+      // Owner-operators who add themselves are usually the primary driver of
+      // their own truck. Defaulting to 'Off-duty' hid them from all matching
+      // (matching drops availability !== 'Available') with no explanation, so
+      // a self-added owner-driver never appeared for loads. Default Available
+      // to match the invited-driver path; they can flip to Off-duty anytime.
+      availability: 'Available',
       isActive: true,
       profileComplete: false,
       profileStatus: 'self_driver',

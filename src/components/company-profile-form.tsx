@@ -196,7 +196,11 @@ export function CompanyProfileForm() {
     const hasAddress = !!(values.hqStreet && values.hqCity && values.hqState);
     const missingFields: string[] = [];
     if (!values.dotNumber) missingFields.push('DOT #');
-    if (!values.mcNumber) missingFields.push('MC #');
+    // MC (docket) number is intentionally NOT required for completion:
+    // intrastate, private, and many exempt/ag carriers operate under a USDOT
+    // number with no MC number at all. Requiring it trapped legitimate
+    // owner-operators who can never provide one. DOT + verified authority is
+    // the real gate.
     if (!hasAddress) missingFields.push('HQ Address');
     if (!values.operatingStates?.length) missingFields.push('Operating States');
     if (!hasCoiData) missingFields.push('Certificate of Insurance');
@@ -225,7 +229,8 @@ export function CompanyProfileForm() {
       formData.append('coiData', JSON.stringify(coiData));
       formData.append('fmcsaVerified', String(fmcsa.state === 'verified'));
       if (fmcsa.carrier) formData.append('fmcsaData', JSON.stringify(fmcsa.carrier));
-      const isComplete = !!(values.dotNumber && values.mcNumber && hasAddress && values.operatingStates?.length && hasCoiData);
+      // MC number is optional (DOT-only carriers exist); do not gate completion on it.
+      const isComplete = !!(values.dotNumber && hasAddress && values.operatingStates?.length && hasCoiData);
       formData.append('isProfileComplete', String(isComplete));
       try {
         await createCompanyProfile(formData);
