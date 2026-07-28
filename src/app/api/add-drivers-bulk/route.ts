@@ -135,9 +135,18 @@ async function handlePost(req: NextRequest) {
         if (driver.medicalCertExpiry) invitationDoc.medicalCertExpiry = driver.medicalCertExpiry;
         await db.collection('driver_invitations').doc(token).set(invitationDoc);
 
+        const inviteLink = `${baseUrl}/driver-register?token=${token}`;
+        let emailSent = false;
+        let emailError: string | undefined;
+
         if (resend) {
-          const inviteLink = `${baseUrl}/driver-register?token=${token}`;
-          await resend.emails.send({
+          // Resend returns { data, error } instead of throwing on API-level
+          // failures (unverified domain, invalid recipient, quota). The old
+          // code discarded the result, so a bounced/blocked email still
+          // counted as "invitation sent" and the driver never heard anything.
+          // Check the error, and either way keep the invitation valid and
+          // return the link so the owner can share it manually.
+          const { error } = await resend.emails.send({
             from: 'XtraFleet <noreply@xtrafleet.com>',
             to: [driver.email],
             subject: `Join ${companyName} on XtraFleet`,
@@ -150,14 +159,25 @@ async function handlePost(req: NextRequest) {
               <p style="color: #666; font-size: 14px;">This invitation expires in 7 days.</p>
               </body></html>`,
           });
+          if (error) {
+            emailError = error.message || 'Email delivery failed';
+            console.error('[Bulk Invite] Email failed for', driver.email, error);
+          } else {
+            emailSent = true;
+          }
         }
 
-        return { email: driver.email, status: 'success' };
+        return { email: driver.email, status: 'success', emailSent, emailError, inviteLink };
       })
     );
 
-    const successful = results.filter(r => r.status === 'fulfilled').length;
+    const created = results
+      .filter((r): r is PromiseFulfilledResult<{ email: string; status: string; emailSent: boolean; emailError?: string; inviteLink: string }> => r.status === 'fulfilled')
+      .map(r => r.value);
+    const successful = created.length;
     const failed = results.filter(r => r.status === 'rejected');
+    const emailed = created.filter(d => d.emailSent).length;
+    const notEmailed = created.filter(d => !d.emailSent);
 
     if (failed.length > 0) {
       console.error('[Bulk Invite] Some invitations failed:', failed);
@@ -175,10 +195,19 @@ async function handlePost(req: NextRequest) {
       }
     }
 
-    return handleApiSuccess({ 
+    const message = notEmailed.length > 0
+      ? `${successful} invitation${successful !== 1 ? 's' : ''} created. ${emailed} emailed; ${notEmailed.length} could not be emailed — share the invite link${notEmailed.length !== 1 ? 's' : ''} manually.`
+      : `${successful} invitation${successful !== 1 ? 's' : ''} sent successfully!`;
+
+    return handleApiSuccess({
       successful,
       failed: failed.length,
-      message: `${successful} invitation${successful !== 1 ? 's' : ''} sent successfully!`
+      emailed,
+      // Per-driver results carry the invite link + email status so the client
+      // can surface links for any that couldn't be emailed (or when Resend
+      // isn't configured) instead of silently claiming success.
+      results: created,
+      message,
     }, 201);
 
   } catch (error) {

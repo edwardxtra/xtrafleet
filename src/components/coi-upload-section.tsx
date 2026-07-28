@@ -103,15 +103,25 @@ export function COIUploadSection({ onCoiChange, initialData }: COIUploadSectionP
     }
   }, [user, storage, onCoiChange, insurerName, policyNumber, expiryDate]);
 
-  const handleManualChange = useCallback(() => {
-    onCoiChange({
-      fileUrl: uploadedFile?.url,
-      fileName: uploadedFile?.name,
-      insurerName,
-      policyNumber,
-      expiryDate,
-    });
-  }, [onCoiChange, uploadedFile, insurerName, policyNumber, expiryDate]);
+  // Propagate manual COI fields to the parent. The freshly-changed value is
+  // passed in `patch` because React state (insurerName/policyNumber/expiryDate)
+  // has NOT re-rendered yet at onChange time. The previous approach —
+  // setTimeout(handleManualChange, 0) — closed over stale state and propagated
+  // the value from *before* the keystroke, so a fully-typed COI was reported
+  // one character short and counted as "missing," blocking profile completion.
+  const propagateCoi = useCallback(
+    (patch: { insurerName?: string; policyNumber?: string; expiryDate?: string }) => {
+      onCoiChange({
+        fileUrl: uploadedFile?.url,
+        fileName: uploadedFile?.name,
+        insurerName,
+        policyNumber,
+        expiryDate,
+        ...patch,
+      });
+    },
+    [onCoiChange, uploadedFile, insurerName, policyNumber, expiryDate],
+  );
 
   const removeFile = () => {
     setUploadedFile(null);
@@ -212,8 +222,9 @@ export function COIUploadSection({ onCoiChange, initialData }: COIUploadSectionP
                 placeholder="e.g., Progressive Commercial"
                 value={insurerName}
                 onChange={(e) => {
-                  setInsurerName(e.target.value);
-                  setTimeout(handleManualChange, 0);
+                  const v = e.target.value;
+                  setInsurerName(v);
+                  propagateCoi({ insurerName: v });
                 }}
               />
             </div>
@@ -225,8 +236,9 @@ export function COIUploadSection({ onCoiChange, initialData }: COIUploadSectionP
                   placeholder="e.g., COM-12345678"
                   value={policyNumber}
                   onChange={(e) => {
-                    setPolicyNumber(e.target.value);
-                    setTimeout(handleManualChange, 0);
+                    const v = e.target.value;
+                    setPolicyNumber(v);
+                    propagateCoi({ policyNumber: v });
                   }}
                 />
               </div>
@@ -237,8 +249,9 @@ export function COIUploadSection({ onCoiChange, initialData }: COIUploadSectionP
                   type="date"
                   value={expiryDate}
                   onChange={(e) => {
-                    setExpiryDate(e.target.value);
-                    setTimeout(handleManualChange, 0);
+                    const v = e.target.value;
+                    setExpiryDate(v);
+                    propagateCoi({ expiryDate: v });
                   }}
                 />
               </div>

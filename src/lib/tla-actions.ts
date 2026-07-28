@@ -6,6 +6,7 @@ import { calculateTripDuration, formatTripDuration } from "@/lib/tla-utils";
 import { captureSignatureAudit } from "@/lib/audit-utils";
 import { createConversation } from "@/lib/messaging-utils";
 import { buildAttestationEntry } from "@/lib/attestations";
+import { MATCH_FEE_WAIVED } from "@/lib/billing-config";
 
 export interface SignTLAParams {
   firestore: Firestore;
@@ -235,7 +236,12 @@ export async function startTrip(params: TripActionParams): Promise<TLA | null> {
   // TLAMatchFeeCard surfaces the payment CTA to the load owner the moment
   // the TLA is fully signed — this guard catches any path that tries to
   // jump straight to start without paying.
-  if (tla.matchFeePaid !== true) {
+  //
+  // During the launch free-trial period the fee is waived and the payment
+  // cards are removed from the TLA page, so this gate is skipped — otherwise
+  // no trip could ever start (matchFeePaid is never set without a payment).
+  // See src/lib/billing-config.ts to re-enable billing.
+  if (!MATCH_FEE_WAIVED && tla.matchFeePaid !== true) {
     showError("Trip cannot start: match fee has not been paid yet.");
     return null;
   }
