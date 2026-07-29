@@ -42,7 +42,7 @@ export default function Home() {
 
       <main className="flex-1">
         {/* Hero Section with American Truck Background */}
-        <section className="relative h-[70vh] md:h-[80vh] flex items-center justify-center text-center text-white px-4 overflow-hidden">
+        <section className="relative min-h-[70vh] md:min-h-[80vh] flex items-center justify-center text-center text-white px-4 py-16 md:py-20 overflow-hidden">
           {/* Background Image - Classic American Peterbilt Truck */}
           <div
             className="absolute inset-0 bg-cover bg-center bg-no-repeat"

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, useRef, useEffect, FormEvent } from 'react';
 import {
   Card,
   CardContent,
@@ -16,6 +16,7 @@ import { Loader2, UserPlus, Copy, CheckCircle2, Search, Users, Truck } from 'luc
 import Link from 'next/link';
 import { showSuccess, showError } from '@/lib/toast-utils';
 import { useAdminRole } from '../layout';
+import { useAuth } from '@/firebase';
 
 interface OnboardResult {
   ownerOperatorId: string;
@@ -52,6 +53,10 @@ const EMPTY_FORM: FormState = {
   zip: '',
 };
 
+// Auto-lookup fires once the DOT has at least this many digits, matching the
+// normal profile form's debounced lookup.
+const DOT_MIN_DIGITS = 4;
+
 export default function AdminOnboardPage() {
   const { hasPermission } = useAdminRole();
   const canOnboard = hasPermission('users:create');
@@ -61,27 +66,37 @@ export default function AdminOnboardPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<OnboardResult | null>(null);
+  const auth = useAuth();
+  const dotDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (dotDebounceRef.current) clearTimeout(dotDebounceRef.current); }, []);
 
   const update =
     (field: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) => {
       setForm((prev) => ({ ...prev, [field]: e.target.value }));
     };
 
-  const handleLookup = async () => {
-    const dot = form.dotNumber.trim();
+  // Core FMCSA lookup. Mirrors the normal profile form: sends a fresh Bearer
+  // token (the /api/fmcsa-lookup route requires auth — relying on the cookie
+  // alone silently 401s when the session cookie is stale). `silent` suppresses
+  // error toasts for the debounced auto-lookup so partial typing doesn't spam.
+  const runLookup = async (rawDot: string, { silent = false }: { silent?: boolean } = {}) => {
+    const dot = rawDot.replace(/\D/g, '');
     if (!dot) {
-      showError('Enter a DOT number first.');
+      if (!silent) showError('Enter a DOT number first.');
       return;
     }
     setLookingUp(true);
     setError(null);
     try {
-      const res = await fetch(`/api/fmcsa-lookup?dot=${encodeURIComponent(dot)}`);
+      const token = await auth?.currentUser?.getIdToken();
+      const res = await fetch(`/api/fmcsa-lookup?dot=${encodeURIComponent(dot)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.carrier) {
         const message = data?.error || 'FMCSA lookup failed.';
         setError(message);
-        showError(message);
+        if (!silent) showError(message);
         return;
       }
       const c = data.carrier as {
@@ -94,27 +109,41 @@ export default function AdminOnboardPage() {
         hqZip?: string;
         phone?: string;
       };
-      // Don't overwrite anything the admin has already typed.
+      // Populate from FMCSA (authoritative); only keep a prior value when FMCSA
+      // returns nothing for that field. companyName is the admin's display
+      // choice, so preserve it if already set.
       setForm((prev) => ({
         ...prev,
         companyName: prev.companyName || c.dbaName || c.legalName || '',
-        legalName: prev.legalName || c.legalName || '',
-        mcNumber: prev.mcNumber || c.mcNumber || '',
-        address: prev.address || c.hqAddress || '',
-        city: prev.city || c.hqCity || '',
-        state: prev.state || c.hqState || '',
-        zip: prev.zip || c.hqZip || '',
-        phone: prev.phone || c.phone || '',
+        legalName: c.legalName || prev.legalName,
+        mcNumber: c.mcNumber || prev.mcNumber,
+        address: c.hqAddress || prev.address,
+        city: c.hqCity || prev.city,
+        state: c.hqState || prev.state,
+        zip: c.hqZip || prev.zip,
+        phone: c.phone || prev.phone,
       }));
       showSuccess(`FMCSA records loaded${c.legalName ? ` for ${c.legalName}` : ''}.`);
     } catch (err) {
       console.error('FMCSA lookup error:', err);
       const message = 'Could not reach FMCSA. Try again.';
       setError(message);
-      showError(message);
+      if (!silent) showError(message);
     } finally {
       setLookingUp(false);
     }
+  };
+
+  const handleLookup = () => runLookup(form.dotNumber);
+
+  // Auto-lookup on DOT entry (debounced), matching the normal onboard flow so
+  // the admin doesn't have to click a button to populate the company details.
+  const handleDotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const numbersOnly = e.target.value.replace(/\D/g, '');
+    setForm((prev) => ({ ...prev, dotNumber: numbersOnly }));
+    if (dotDebounceRef.current) clearTimeout(dotDebounceRef.current);
+    if (numbersOnly.length < DOT_MIN_DIGITS) return;
+    dotDebounceRef.current = setTimeout(() => runLookup(numbersOnly, { silent: true }), 800);
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -274,7 +303,7 @@ export default function AdminOnboardPage() {
                   <Input
                     id="dotNumber"
                     value={form.dotNumber}
-                    onChange={update('dotNumber')}
+                    onChange={handleDotChange}
                     required
                     disabled={submitting || lookingUp}
                     placeholder="e.g. 1234567"
