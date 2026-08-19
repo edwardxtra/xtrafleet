@@ -131,6 +131,28 @@ describe('owner_operators — pre-activated visibility (DEV-158)', () => {
     await seedOwner('bob');
     await assertSucceeds(getDoc(doc(asUser('bob'), 'owner_operators/alice')));
   });
+
+  // Admin-console user creation is server-only (POST /api/admin/users): even an
+  // admin cannot create someone else's owner_operator doc from the browser.
+  it('an admin cannot create an owner_operator for someone else', async () => {
+    await seedAdmin('admin1');
+    await assertFails(
+      setDoc(doc(asUser('admin1'), 'owner_operators/new-customer'), {
+        companyName: 'Eds Trucking',
+        contactEmail: 'e.dj@example.com',
+        accountStatus: 'pre-activated',
+      })
+    );
+  });
+
+  it('a user can still create their own owner_operator doc (self-registration)', async () => {
+    await assertSucceeds(
+      setDoc(doc(asUser('carol'), 'owner_operators/carol'), {
+        companyName: 'Carol Trucking',
+        contactEmail: 'carol@example.com',
+      })
+    );
+  });
 });
 
 // --- matches: party-or-admin update/delete (DEV-95) -----------------------

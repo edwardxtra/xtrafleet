@@ -45,7 +45,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { Search, MoreHorizontal, Users, Truck, Package, Eye, RefreshCw, Building2, Ban, CheckCircle, Download, Loader2, UserPlus, Edit2, Trash2, Send, KeyRound, UserCog } from 'lucide-react';
 import { signInWithCustomToken } from 'firebase/auth';
 import { useAuth } from '@/firebase';
@@ -234,28 +234,40 @@ export default function AdminUsersPage() {
 
     setIsProcessing(true);
     try {
-      // Generate a new document ID
-      const newUserId = `admin_created_${Date.now()}`;
-      const newUserRef = doc(firestore, 'owner_operators', newUserId);
-
-      await setDoc(newUserRef, {
-        ...createForm,
-        createdAt: new Date().toISOString(),
-        createdBy: adminUser.uid,
-        createdByAdmin: true,
+      // Created server-side: firestore.rules only lets a user create their own
+      // owner_operators doc, so an admin writing this from the browser is
+      // always denied ("Missing or insufficient permissions").
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyName: createForm.companyName,
+          legalName: createForm.legalName,
+          contactName: createForm.contactName,
+          contactEmail: createForm.contactEmail,
+          phone: createForm.phone,
+          dotNumber: createForm.dotNumber,
+          mcNumber: createForm.mcNumber,
+          address: createForm.address,
+          city: createForm.city,
+          state: createForm.state,
+          zipCode: createForm.zipCode,
+        }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to create user');
 
       await logAuditAction(firestore, {
         action: 'user_created',
         adminId: adminUser.uid,
         adminEmail: adminUser.email || '',
         targetType: 'user',
-        targetId: newUserId,
+        targetId: data.ownerOperatorId,
         targetName: createForm.companyName || createForm.contactEmail,
         reason: 'Created via admin console',
       });
 
-      showSuccess('User created successfully');
+      showSuccess('User created — send the activation email to invite them.');
       setCreateDialogOpen(false);
       setCreateForm({
         companyName: '',
@@ -1012,6 +1024,10 @@ export default function AdminUsersPage() {
                   <Label htmlFor="create-legal">Legal Name</Label>
                   <Input id="create-legal" value={createForm.legalName} onChange={(e) => setCreateForm(f => ({ ...f, legalName: e.target.value }))} />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create-contact">Contact Name</Label>
+                <Input id="create-contact" value={createForm.contactName} onChange={(e) => setCreateForm(f => ({ ...f, contactName: e.target.value }))} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
