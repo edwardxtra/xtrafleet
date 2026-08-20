@@ -55,9 +55,58 @@ service cloud.firestore {
         isAdmin()
       );
       allow list: if isSignedIn();
-      allow create: if isSignedIn() && isOwner(ownerOperatorId);
-      // SECURITY FIX: Only owner can update their own profile
-      allow update: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
+
+      // SECURITY FIX (privilege escalation): the account holder may write
+      // their own profile, but NOT the fields that decide privilege, account
+      // lifecycle or billing state. isAdmin()/isSuperAdmin() above read
+      // `isAdmin`/`adminRole` off THIS document, so an unrestricted self-write
+      // was a one-step path from any signed-in owner-operator to super_admin
+      // — and from there to the admin console and the impersonation endpoint.
+      // These fields are written server-side (the Admin SDK bypasses rules) or
+      // by a super_admin via /admin/settings, never by the holder themselves.
+      function protectedOwnerFields() {
+        return [
+          'isAdmin', 'adminRole', 'adminRoleUpdatedAt', 'adminRoleUpdatedBy',
+          'adminRevokedAt', 'adminRevokedBy',
+          'accountStatus', 'activatedAt', 'createdByAdmin',
+          'isSuspended', 'suspendedAt', 'suspendedBy', 'suspendedReason',
+          'reactivatedAt', 'reactivatedBy',
+          'subscriptionStatus', 'subscriptionPlan'
+        ];
+      }
+
+      // Same list minus subscriptionStatus, which a self-create may seed —
+      // see selfCreateIsClean().
+      function protectedOnCreateFields() {
+        return [
+          'isAdmin', 'adminRole', 'adminRoleUpdatedAt', 'adminRoleUpdatedBy',
+          'adminRevokedAt', 'adminRevokedBy',
+          'accountStatus', 'activatedAt', 'createdByAdmin',
+          'isSuspended', 'suspendedAt', 'suspendedBy', 'suspendedReason',
+          'reactivatedAt', 'reactivatedBy',
+          'subscriptionPlan'
+        ];
+      }
+
+      function selfUpdateIsClean() {
+        return !request.resource.data.diff(resource.data)
+                 .affectedKeys().hasAny(protectedOwnerFields());
+      }
+
+      // The incomplete-registration repair path in /login creates the holder's
+      // own doc with subscriptionStatus:'inactive'. That exact seed stays
+      // allowed; any other privileged value does not.
+      function selfCreateIsClean() {
+        return !request.resource.data.keys().hasAny(protectedOnCreateFields())
+               && (!('subscriptionStatus' in request.resource.data)
+                   || request.resource.data.subscriptionStatus == 'inactive');
+      }
+
+      allow create: if isSignedIn() && isOwner(ownerOperatorId) && selfCreateIsClean();
+      allow update: if isSignedIn() && (
+        (isOwner(ownerOperatorId) && selfUpdateIsClean()) ||
+        isSuperAdmin()
+      );
       allow delete: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
 
       match /drivers/{driverId} {
