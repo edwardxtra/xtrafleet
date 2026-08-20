@@ -78,8 +78,18 @@ async function handlePost(request: NextRequest, ownerOperatorId: string) {
         (err as { code?: string })?.code ||
         (err as { errorInfo?: { code?: string } })?.errorInfo?.code ||
         '';
-      if (code === 'auth/user-not-found') {
-        return json({ error: 'No Firebase Auth user exists for this account.' }, 404);
+      // generatePasswordResetLink surfaces a missing account as
+      // `auth/email-not-found` (Identity Toolkit's EMAIL_NOT_FOUND for
+      // /accounts:sendOobCode), NOT `auth/user-not-found` — matching only the
+      // latter turned every never-activated account into a 500.
+      if (code === 'auth/email-not-found' || code === 'auth/user-not-found') {
+        return json(
+          {
+            error:
+              'This account has never signed in, so there is no password to reset. Set its status to Pre-activated and use Send Activation Email to invite them.',
+          },
+          404
+        );
       }
       throw err;
     }
