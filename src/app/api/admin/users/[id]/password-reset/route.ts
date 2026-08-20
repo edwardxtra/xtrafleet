@@ -15,6 +15,10 @@ function json(body: Record<string, unknown>, status: number) {
   return NextResponse.json(body, { status });
 }
 
+const NO_SIGN_IN_ACCOUNT =
+  'This account has no sign-in credentials yet, so there is no password to reset. ' +
+  'Set its status to Pre-activated and use Send Activation Email to invite them.';
+
 async function handlePost(request: NextRequest, ownerOperatorId: string) {
   try {
     if (!ownerOperatorId) return json({ error: 'A user id is required.' }, 400);
@@ -69,7 +73,33 @@ async function handlePost(request: NextRequest, ownerOperatorId: string) {
       );
     }
 
-    // 4. Mint the reset link (Firebase Auth).
+    // 4. Confirm a Firebase Auth account actually exists.
+    //
+    // Checking up front rather than inferring from the failure, because
+    // Identity Toolkit does not reliably report a missing account to
+    // generatePasswordResetLink. With email-enumeration protection enabled it
+    // answers /accounts:sendOobCode with a success that simply carries no
+    // `oobLink`, and firebase-admin's response validator turns that into
+    //
+    //     INTERNAL ASSERT FAILED: Unable to create the email action link
+    //
+    // — an INTERNAL_ERROR with no distinguishing code, which no amount of
+    // error-code matching can separate from a genuine internal fault.
+    // getUserByEmail answers the question directly.
+    try {
+      await auth.getUserByEmail(oo.contactEmail);
+    } catch (err: unknown) {
+      const code =
+        (err as { code?: string })?.code ||
+        (err as { errorInfo?: { code?: string } })?.errorInfo?.code ||
+        '';
+      if (code === 'auth/user-not-found' || code === 'auth/email-not-found') {
+        return json({ error: NO_SIGN_IN_ACCOUNT }, 404);
+      }
+      throw err;
+    }
+
+    // 5. Mint the reset link (Firebase Auth).
     let resetLink: string;
     try {
       resetLink = await auth.generatePasswordResetLink(oo.contactEmail);
@@ -83,22 +113,25 @@ async function handlePost(request: NextRequest, ownerOperatorId: string) {
       // /accounts:sendOobCode), NOT `auth/user-not-found` — matching only the
       // latter turned every never-activated account into a 500.
       if (code === 'auth/email-not-found' || code === 'auth/user-not-found') {
-        return json(
-          {
-            error:
-              'This account has never signed in, so there is no password to reset. Set its status to Pre-activated and use Send Activation Email to invite them.',
-          },
-          404
-        );
+        return json({ error: NO_SIGN_IN_ACCOUNT }, 404);
+      }
+      // The account existed a moment ago, so a link-less response here is the
+      // enumeration-protection shape rather than a real internal fault. Report
+      // it as the same actionable message instead of a bare 500.
+      if (
+        err instanceof Error &&
+        err.message.includes('Unable to create the email action link')
+      ) {
+        return json({ error: NO_SIGN_IN_ACCOUNT }, 404);
       }
       throw err;
     }
 
-    // 5. Send via Resend (our template, not Firebase's default).
+    // 6. Send via Resend (our template, not Firebase's default).
     const recipientName = oo.contactName || oo.companyName || 'there';
     const sendResult = await sendPasswordResetEmail(oo.contactEmail, recipientName, resetLink);
 
-    // 6. Audit.
+    // 7. Audit.
     const now = new Date().toISOString();
     await db.collection('audit_logs').add({
       action: 'password_reset_sent',
