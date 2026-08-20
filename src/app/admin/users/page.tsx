@@ -167,6 +167,19 @@ export default function AdminUsersPage() {
   const canDelete = hasPermission('users:delete');
   const canSuspend = hasPermission('users:suspend');
 
+  // Firestore knows nothing about Firebase Auth, so an account that was never
+  // claimed looks identical to a working one here. The server tells us which
+  // emails actually have a sign-in identity; until it answers, `null` means
+  // "not known yet" so we don't flash a wrong badge.
+  const [emailsWithSignIn, setEmailsWithSignIn] = useState<Set<string> | null>(null);
+
+  const hasSignIn = (user: UserWithStats) => {
+    if (!emailsWithSignIn) return null;
+    const email = (user.contactEmail || '').trim().toLowerCase();
+    if (!email) return false;
+    return emailsWithSignIn.has(email);
+  };
+
   const fetchUsers = async () => {
     if (!firestore) return;
     setIsLoading(true);
@@ -193,6 +206,24 @@ export default function AdminUsersPage() {
 
       setUsers(usersData);
       setFilteredUsers(usersData);
+
+      // Best-effort: the list still renders if this fails, just without the
+      // no-sign-in distinction.
+      try {
+        const res = await fetch('/api/admin/users/auth-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            emails: usersData.map(u => u.contactEmail).filter(Boolean),
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setEmailsWithSignIn(new Set<string>(data.withAuth || []));
+        }
+      } catch (err) {
+        console.warn('[admin/users] auth-status lookup failed', err);
+      }
     } catch (error) {
       console.error('Error fetching users:', error);
     } finally {
@@ -582,10 +613,6 @@ export default function AdminUsersPage() {
 
   const handleSendActivation = async (user: UserWithStats) => {
     if (!firestore || !adminUser) return;
-    if (user.accountStatus !== 'pre-activated') {
-      showError('Only pre-activated accounts can receive an activation email.');
-      return;
-    }
     setIsProcessing(true);
     try {
       const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/send-activation`, {
@@ -659,8 +686,12 @@ export default function AdminUsersPage() {
 
   const handleSendPasswordReset = async (user: UserWithStats) => {
     if (!firestore || !adminUser) return;
-    if (user.accountStatus === 'pre-activated') {
-      showError('Pre-activated accounts have no password yet — use Send Activation Email.');
+    if (hasSignIn(user) === false) {
+      if (window.confirm(
+        `${user.contactEmail} has no sign-in credentials yet, so there is no password to reset.\n\nSend an activation email instead so they can set one?`
+      )) {
+        await handleSendActivation(user);
+      }
       return;
     }
     setIsProcessing(true);
@@ -670,7 +701,20 @@ export default function AdminUsersPage() {
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'Failed to send password reset.');
+      if (!res.ok) {
+        // No sign-in identity: a reset is impossible, but an activation email
+        // does what the admin actually wanted — let them send it from here
+        // instead of hand-editing the account's status first.
+        if (data?.canSendActivation) {
+          if (window.confirm(
+            `${data.error}\n\nSend an activation email to ${user.contactEmail} now?`
+          )) {
+            await handleSendActivation(user);
+          }
+          return;
+        }
+        throw new Error(data?.error || 'Failed to send password reset.');
+      }
       showSuccess(`Password reset email sent to ${user.contactEmail}.`);
     } catch (error: any) {
       showError(error.message || 'Failed to send password reset.');
@@ -729,9 +773,11 @@ export default function AdminUsersPage() {
         user.loadsCount,
         user.isSuspended
           ? 'Suspended'
-          : user.accountStatus === 'pre-activated'
-            ? 'Pre-activated'
-            : 'Active',
+          : hasSignIn(user) === false
+            ? 'Never signed in'
+            : user.accountStatus === 'pre-activated'
+              ? 'Pre-activated'
+              : 'Active',
       ].join(','))
     ].join('\n');
 
@@ -887,10 +933,13 @@ export default function AdminUsersPage() {
                     <TableCell>
                       {user.isSuspended ? (
                         <Badge variant="destructive"><Ban className="h-3 w-3 mr-1" />Suspended</Badge>
+                      ) : hasSignIn(user) === false ? (
+                        // No Firebase Auth identity: this account cannot sign
+                        // in and has no password to reset, whatever
+                        // accountStatus happens to say. Showing it as "Active"
+                        // hid that entirely and sent admins to a dead control.
+                        <Badge variant="outline" className="text-amber-600 border-amber-300"><Send className="h-3 w-3 mr-1" />Never signed in</Badge>
                       ) : user.accountStatus === 'pre-activated' ? (
-                        // Not yet claimed: no Firebase Auth user exists, so this
-                        // account cannot sign in and has no password to reset.
-                        // Showing it as "Active" hid that entirely.
                         <Badge variant="outline" className="text-amber-600 border-amber-300"><Send className="h-3 w-3 mr-1" />Pre-activated</Badge>
                       ) : (
                         <Badge variant="outline" className="text-green-600 border-green-300"><CheckCircle className="h-3 w-3 mr-1" />Active</Badge>
@@ -911,17 +960,24 @@ export default function AdminUsersPage() {
                               <Edit2 className="h-4 w-4 mr-2" />Edit User
                             </DropdownMenuItem>
                           )}
-                          {user.accountStatus === 'pre-activated' && hasPermission('users:create') && (
+                          {/* Offer the action that can actually succeed. An
+                              account with no Auth identity cannot have a
+                              password reset — it needs an activation link.
+                              While sign-in state is still loading (null) fall
+                              back to the stored status. */}
+                          {(hasSignIn(user) === false ||
+                            (hasSignIn(user) === null && user.accountStatus === 'pre-activated')) &&
+                            hasPermission('users:create') && (
                             <DropdownMenuItem onClick={() => handleSendActivation(user)} className="text-blue-600">
                               <Send className="h-4 w-4 mr-2" />Send Activation Email
                             </DropdownMenuItem>
                           )}
-                          {user.accountStatus !== 'pre-activated' && canEdit && (
+                          {hasSignIn(user) !== false && canEdit && (
                             <DropdownMenuItem onClick={() => handleSendPasswordReset(user)}>
                               <KeyRound className="h-4 w-4 mr-2" />Send Password Reset
                             </DropdownMenuItem>
                           )}
-                          {canImpersonate && !user.isAdmin && user.accountStatus !== 'pre-activated' && (
+                          {canImpersonate && !user.isAdmin && hasSignIn(user) !== false && (
                             <DropdownMenuItem onClick={() => handleImpersonate(user)} className="text-amber-700">
                               <UserCog className="h-4 w-4 mr-2" />Log in as user
                             </DropdownMenuItem>
