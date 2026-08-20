@@ -727,7 +727,11 @@ export default function AdminUsersPage() {
         `"${user.mcNumber || ''}"`,
         user.driversCount,
         user.loadsCount,
-        user.isSuspended ? 'Suspended' : 'Active',
+        user.isSuspended
+          ? 'Suspended'
+          : user.accountStatus === 'pre-activated'
+            ? 'Pre-activated'
+            : 'Active',
       ].join(','))
     ].join('\n');
 
@@ -883,6 +887,11 @@ export default function AdminUsersPage() {
                     <TableCell>
                       {user.isSuspended ? (
                         <Badge variant="destructive"><Ban className="h-3 w-3 mr-1" />Suspended</Badge>
+                      ) : user.accountStatus === 'pre-activated' ? (
+                        // Not yet claimed: no Firebase Auth user exists, so this
+                        // account cannot sign in and has no password to reset.
+                        // Showing it as "Active" hid that entirely.
+                        <Badge variant="outline" className="text-amber-600 border-amber-300"><Send className="h-3 w-3 mr-1" />Pre-activated</Badge>
                       ) : (
                         <Badge variant="outline" className="text-green-600 border-green-300"><CheckCircle className="h-3 w-3 mr-1" />Active</Badge>
                       )}
