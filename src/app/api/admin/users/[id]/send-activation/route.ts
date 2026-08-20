@@ -75,9 +75,29 @@ async function handlePost(
       contactName?: string;
       companyName?: string;
     };
-    if (oo.accountStatus !== 'pre-activated') {
+    // An activation link is for accounts with no sign-in identity yet —
+    // whether or not anyone got around to stamping accountStatus. Ask Auth
+    // rather than trusting the flag: pre-registered accounts that were edited
+    // to "active" still have no password, and the console used to refuse them
+    // here while also refusing them at password reset, leaving no way to
+    // invite the customer without hand-editing their status first.
+    let hasSignIn = false;
+    try {
+      await auth.getUserByEmail(oo.contactEmail);
+      hasSignIn = true;
+    } catch (err: unknown) {
+      const code =
+        (err as { code?: string })?.code ||
+        (err as { errorInfo?: { code?: string } })?.errorInfo?.code ||
+        '';
+      if (code !== 'auth/user-not-found') throw err;
+    }
+    if (hasSignIn) {
       return json(
-        { error: 'This account is not pre-activated — no activation link is needed.' },
+        {
+          error:
+            'This account can already sign in — send a password reset instead of an activation link.',
+        },
         409
       );
     }
@@ -120,6 +140,13 @@ async function handlePost(
         createdAt: now,
         expiresAt,
       });
+
+    // /api/activate refuses anything not marked pre-activated, so an account
+    // that reached here with a blank or "active" status would receive a link
+    // that fails on click. Stamp the state the link depends on.
+    if (oo.accountStatus !== 'pre-activated') {
+      await ooRef.update({ accountStatus: 'pre-activated' });
+    }
 
     const activationUrl = `${APP_URL}/activate?token=${rawToken}`;
 
