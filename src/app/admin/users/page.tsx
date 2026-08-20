@@ -45,7 +45,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useFirestore, useUser } from '@/firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { Search, MoreHorizontal, Users, Truck, Package, Eye, RefreshCw, Building2, Ban, CheckCircle, Download, Loader2, UserPlus, Edit2, Trash2, Send, KeyRound, UserCog } from 'lucide-react';
 import { signInWithCustomToken } from 'firebase/auth';
 import { useAuth } from '@/firebase';
@@ -305,20 +305,16 @@ export default function AdminUsersPage() {
 
     setIsProcessing(true);
     try {
-      const { coiDocumentUrl, coiDocumentUploadedAt, accountStatus, ...rest } = editForm;
-      const payload: Record<string, any> = {
-        ...rest,
-        updatedAt: new Date().toISOString(),
-        updatedBy: adminUser.uid,
-      };
-      // Nested insurance fields via dot-notation so other insurance.* fields
-      // (set by other flows) aren't clobbered.
-      if (coiDocumentUrl) payload['insurance.coiDocumentUrl'] = coiDocumentUrl;
-      if (coiDocumentUploadedAt) payload['insurance.coiDocumentUploadedAt'] = coiDocumentUploadedAt;
-      // accountStatus is optional in the form — only flip when the admin picked a value.
-      if (accountStatus) payload.accountStatus = accountStatus;
-
-      await updateDoc(doc(firestore, 'owner_operators', editingUser.id), payload);
+      // Server-side: firestore.rules only lets the doc's own owner or a
+      // super_admin write here, so a plain admin editing from the browser was
+      // always denied. The route applies the same field handling.
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(editingUser.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to update user');
 
       await logAuditAction(firestore, {
         action: 'user_updated',
@@ -351,19 +347,13 @@ export default function AdminUsersPage() {
 
     setIsProcessing(true);
     try {
-      const batch = writeBatch(firestore);
-
-      // Delete all subcollections (drivers, loads, messages, etc.)
-      const driversSnap = await getDocs(collection(firestore, `owner_operators/${deletingUser.id}/drivers`));
-      driversSnap.docs.forEach(d => batch.delete(d.ref));
-
-      const loadsSnap = await getDocs(collection(firestore, `owner_operators/${deletingUser.id}/loads`));
-      loadsSnap.docs.forEach(d => batch.delete(d.ref));
-
-      // Delete the main user document
-      batch.delete(doc(firestore, 'owner_operators', deletingUser.id));
-
-      await batch.commit();
+      // Server-side: also removes the users/{uid} role doc and the Firebase
+      // Auth account, which the client batch left behind.
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(deletingUser.id)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to delete user');
 
       await logAuditAction(firestore, {
         action: 'user_deleted',
@@ -373,7 +363,7 @@ export default function AdminUsersPage() {
         targetId: deletingUser.id,
         targetName: deletingUser.companyName || deletingUser.legalName || deletingUser.contactEmail,
         reason: 'Deleted via admin console',
-        details: { driversDeleted: driversSnap.size, loadsDeleted: loadsSnap.size },
+        details: { driversDeleted: data.driversDeleted ?? 0, loadsDeleted: data.loadsDeleted ?? 0 },
       });
 
       showSuccess('User and all associated data deleted');
@@ -391,12 +381,13 @@ export default function AdminUsersPage() {
 
     setIsProcessing(true);
     try {
-      await updateDoc(doc(firestore, 'owner_operators', suspendingUser.id), {
-        isSuspended: true,
-        suspendedReason: suspendReason,
-        suspendedAt: new Date().toISOString(),
-        suspendedBy: adminUser.uid,
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(suspendingUser.id)}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suspend: true, reason: suspendReason }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to suspend user');
 
       await logAuditAction(firestore, {
         action: 'user_suspended',
@@ -424,14 +415,13 @@ export default function AdminUsersPage() {
 
     setIsProcessing(true);
     try {
-      await updateDoc(doc(firestore, 'owner_operators', user.id), {
-        isSuspended: false,
-        suspendedReason: null,
-        suspendedAt: null,
-        suspendedBy: null,
-        reactivatedAt: new Date().toISOString(),
-        reactivatedBy: adminUser.uid,
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suspend: false }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to reactivate user');
 
       await logAuditAction(firestore, {
         action: 'user_reactivated',
@@ -480,17 +470,17 @@ export default function AdminUsersPage() {
     if (!firestore || !adminUser || selectedSuspendable.length === 0) return;
     setIsProcessing(true);
     try {
-      const now = new Date().toISOString();
-      const batch = writeBatch(firestore);
-      selectedSuspendable.forEach(u => {
-        batch.update(doc(firestore, 'owner_operators', u.id), {
-          isSuspended: true,
-          suspendedReason: bulkSuspendReason,
-          suspendedAt: now,
-          suspendedBy: adminUser.uid,
-        });
+      const res = await fetch('/api/admin/users/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'suspend',
+          userIds: selectedSuspendable.map(u => u.id),
+          reason: bulkSuspendReason,
+        }),
       });
-      await batch.commit();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to suspend users');
 
       await logAuditAction(firestore, {
         action: 'user_suspended',
@@ -519,19 +509,16 @@ export default function AdminUsersPage() {
     if (!firestore || !adminUser || selectedReactivatable.length === 0) return;
     setIsProcessing(true);
     try {
-      const now = new Date().toISOString();
-      const batch = writeBatch(firestore);
-      selectedReactivatable.forEach(u => {
-        batch.update(doc(firestore, 'owner_operators', u.id), {
-          isSuspended: false,
-          suspendedReason: null,
-          suspendedAt: null,
-          suspendedBy: null,
-          reactivatedAt: now,
-          reactivatedBy: adminUser.uid,
-        });
+      const res = await fetch('/api/admin/users/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reactivate',
+          userIds: selectedReactivatable.map(u => u.id),
+        }),
       });
-      await batch.commit();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to reactivate users');
 
       await logAuditAction(firestore, {
         action: 'user_reactivated',
@@ -559,19 +546,17 @@ export default function AdminUsersPage() {
     if (!firestore || !adminUser || selectedDeletable.length === 0) return;
     setIsProcessing(true);
     try {
-      let deleted = 0;
-      // One batch per user so we never exceed the 500-op write limit and a
-      // single user's subcollections are deleted atomically with their doc.
-      for (const u of selectedDeletable) {
-        const batch = writeBatch(firestore);
-        const driversSnap = await getDocs(collection(firestore, `owner_operators/${u.id}/drivers`));
-        driversSnap.docs.forEach(d => batch.delete(d.ref));
-        const loadsSnap = await getDocs(collection(firestore, `owner_operators/${u.id}/loads`));
-        loadsSnap.docs.forEach(d => batch.delete(d.ref));
-        batch.delete(doc(firestore, 'owner_operators', u.id));
-        await batch.commit();
-        deleted++;
-      }
+      const res = await fetch('/api/admin/users/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete',
+          userIds: selectedDeletable.map(u => u.id),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Failed to delete users');
+      const deleted = data.processed ?? 0;
 
       await logAuditAction(firestore, {
         action: 'user_deleted',
