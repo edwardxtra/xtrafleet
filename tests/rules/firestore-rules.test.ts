@@ -155,6 +155,163 @@ describe('owner_operators — pre-activated visibility (DEV-158)', () => {
   });
 });
 
+// --- owner_operators: privilege escalation guard --------------------------
+
+/**
+ * isAdmin()/isSuperAdmin() read `isAdmin`/`adminRole` off the caller's own
+ * owner_operators doc. Before this guard, `allow update: isOwner(...)` placed
+ * no restriction on WHICH fields a holder could write, so any signed-in
+ * owner-operator could promote themselves to super_admin in one write and
+ * then reach the admin console and the impersonation endpoint.
+ */
+describe('owner_operators — self-write privilege guard', () => {
+  it('a user CANNOT make themselves an admin', async () => {
+    await seedOwner('mallory');
+    await assertFails(
+      updateDoc(doc(asUser('mallory'), 'owner_operators/mallory'), { isAdmin: true })
+    );
+  });
+
+  it('a user CANNOT give themselves an adminRole', async () => {
+    await seedOwner('mallory');
+    await assertFails(
+      updateDoc(doc(asUser('mallory'), 'owner_operators/mallory'), {
+        adminRole: 'super_admin',
+      })
+    );
+  });
+
+  it('the full escalation chain is dead: no self-promote, so no admin read', async () => {
+    await seedOwner('mallory');
+    await seedOwner('victim', { accountStatus: 'pre-activated' });
+    await assertFails(
+      updateDoc(doc(asUser('mallory'), 'owner_operators/mallory'), {
+        isAdmin: true,
+        adminRole: 'super_admin',
+      })
+    );
+    // The promotion never landed, so the pre-activated doc stays unreadable.
+    await assertFails(getDoc(doc(asUser('mallory'), 'owner_operators/victim')));
+  });
+
+  it('a suspended user CANNOT un-suspend themselves', async () => {
+    await seedOwner('mallory', { isSuspended: true });
+    await assertFails(
+      updateDoc(doc(asUser('mallory'), 'owner_operators/mallory'), { isSuspended: false })
+    );
+  });
+
+  it('a user CANNOT grant themselves a subscription', async () => {
+    await seedOwner('mallory', { subscriptionStatus: 'inactive' });
+    await assertFails(
+      updateDoc(doc(asUser('mallory'), 'owner_operators/mallory'), {
+        subscriptionStatus: 'active',
+      })
+    );
+  });
+
+  it('a user CANNOT flip their own accountStatus', async () => {
+    await seedOwner('mallory', { accountStatus: 'pre-activated' });
+    await assertFails(
+      updateDoc(doc(asUser('mallory'), 'owner_operators/mallory'), {
+        accountStatus: 'active',
+      })
+    );
+  });
+
+  it('a user CANNOT create their own doc pre-loaded with isAdmin', async () => {
+    await assertFails(
+      setDoc(doc(asUser('mallory'), 'owner_operators/mallory'), {
+        companyName: 'Mallory Trucking',
+        contactEmail: 'mallory@example.com',
+        isAdmin: true,
+      })
+    );
+  });
+});
+
+// --- owner_operators: legitimate writes still work ------------------------
+
+describe('owner_operators — the guard does not break real flows', () => {
+  it('a user can still edit their own profile fields', async () => {
+    await seedOwner('carol');
+    await assertSucceeds(
+      updateDoc(doc(asUser('carol'), 'owner_operators/carol'), {
+        companyName: 'Carol Trucking LLC',
+        phone: '5551234567',
+        city: 'Tampa',
+      })
+    );
+  });
+
+  it('a user can still advance their own onboardingStatus', async () => {
+    await seedOwner('carol');
+    await assertSucceeds(
+      updateDoc(doc(asUser('carol'), 'owner_operators/carol'), {
+        'onboardingStatus.profileComplete': true,
+        'onboardingStatus.fmcsaDesignated': 'pending',
+      })
+    );
+  });
+
+  it('a user can still append an attestation to their own doc', async () => {
+    await seedOwner('carol', { attestations: [] });
+    await assertSucceeds(
+      updateDoc(doc(asUser('carol'), 'owner_operators/carol'), {
+        attestations: [{ type: 'profileInsurance', acceptedAt: '2026-01-01' }],
+      })
+    );
+  });
+
+  it("the /login incomplete-registration repair path still works", async () => {
+    await assertSucceeds(
+      setDoc(doc(asUser('carol'), 'owner_operators/carol'), {
+        id: 'carol',
+        contactEmail: 'carol@example.com',
+        companyName: '',
+        subscriptionStatus: 'inactive',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      })
+    );
+  });
+
+  it('a super_admin can still grant admin via /admin/settings', async () => {
+    await seedAdmin('root', 'super_admin');
+    await seedOwner('carol');
+    await assertSucceeds(
+      updateDoc(doc(asUser('root'), 'owner_operators/carol'), {
+        isAdmin: true,
+        adminRole: 'admin',
+        adminRoleUpdatedBy: 'root',
+      })
+    );
+  });
+
+  it('a super_admin can still revoke admin', async () => {
+    await seedAdmin('root', 'super_admin');
+    await seedOwner('carol', { isAdmin: true, adminRole: 'admin' });
+    await assertSucceeds(
+      updateDoc(doc(asUser('root'), 'owner_operators/carol'), {
+        isAdmin: false,
+        adminRole: null,
+        adminRevokedBy: 'root',
+      })
+    );
+  });
+
+  it('a super_admin can still suspend a user', async () => {
+    await seedAdmin('root', 'super_admin');
+    await seedOwner('carol');
+    await assertSucceeds(
+      updateDoc(doc(asUser('root'), 'owner_operators/carol'), {
+        isSuspended: true,
+        suspendedReason: 'non-payment',
+        suspendedBy: 'root',
+      })
+    );
+  });
+});
+
 // --- matches: party-or-admin update/delete (DEV-95) -----------------------
 
 describe('matches — party-or-admin write (DEV-95)', () => {
