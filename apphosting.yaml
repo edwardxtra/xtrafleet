@@ -3,7 +3,22 @@
 # See apphosting.qa.yaml for QA environment configuration
 
 runConfig:
-  maxInstances: 1
+  # Raised from 1 (DEV: failed production rollouts, Aug 2026).
+  #
+  # With a cap of 1, the revision currently serving live traffic holds the
+  # only instance, so a new revision has nowhere to start and fails its
+  # startup probe — Cloud Run reports "container failed to start and listen
+  # on the port" and then "Resource readiness deadline exceeded", even though
+  # the build itself succeeded and the image published fine.
+  #
+  # This matches every symptom: builds pass, deploys fail, QA (which has
+  # almost no traffic, so its instance scales to zero between rollouts)
+  # deploys the identical commit without trouble.
+  #
+  # maxInstances is only a ceiling — with minInstances unset the backend
+  # still scales to zero, so this adds deploy headroom without adding
+  # idle cost.
+  maxInstances: 4
 
 env:
   - variable: NEXT_PUBLIC_APP_URL
