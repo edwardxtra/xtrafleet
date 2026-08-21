@@ -143,8 +143,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (isUserLoading || !user || !roleChecked) return <div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>;
 
   return (
-    <SidebarProvider>
+    // The banner has to sit OUTSIDE SidebarProvider. That renders
+    // `flex min-h-svh w-full` — a flex ROW — so a direct child becomes a
+    // column beside the sidebar, stretched to full viewport height, rather
+    // than a bar across the top. Wrap the whole layout in a column instead
+    // and let SidebarProvider take the remaining height.
+    <div className="flex min-h-svh w-full flex-col">
       <ImpersonationBanner />
+      <SidebarProvider className="min-h-0 flex-1">
       <Sidebar>
         <SidebarHeader><Logo linkTo="/" forceLight /></SidebarHeader>
         <SidebarNav onSignOutClick={() => setShowLogoutDialog(true)} isAdmin={isAdmin} />
@@ -200,6 +206,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </SidebarProvider>
+      </SidebarProvider>
+    </div>
   );
 }
