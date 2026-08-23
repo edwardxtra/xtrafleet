@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, X, ArrowRight, CheckCircle2 } from "lucide-react";
 import { useState } from "react";
+import { hasCurrent, type AttestationEntry } from "@/lib/attestations";
 
 interface OnboardingStatus {
   profileComplete?: boolean;
@@ -13,19 +14,28 @@ interface OnboardingStatus {
 
 interface OnboardingBannerProps {
   onboardingStatus?: OnboardingStatus;
+  attestations?: AttestationEntry[];
 }
 
-export function OnboardingBanner({ onboardingStatus }: OnboardingBannerProps) {
+export function OnboardingBanner({ onboardingStatus, attestations }: OnboardingBannerProps) {
   const [dismissed, setDismissed] = useState(false);
 
   if (dismissed) return null;
   if (!onboardingStatus) return null;
 
-  // Compliance attestations were retired in DEV-154 — they now happen
-  // contextually at marketplace, driver-add, and match-confirm surfaces
-  // rather than as a setup step.
+  // DEV-154 retired attestations as a setup step, moving them to contextual
+  // surfaces. The two COMPANY-level ones are listed again here because they
+  // do not behave contextually: without them the matches page refuses to
+  // render at all ("Complete Your Profile First"). Signup captures them, so
+  // this only ever fires for accounts created another way — chiefly
+  // admin-onboarded customers, who otherwise meet a wall with no prior hint.
+  // Per-driver and per-match attestations stay contextual and are NOT listed.
+  const profileAttestationsComplete =
+    hasCurrent(attestations, 'profileInsurance') && hasCurrent(attestations, 'profileAuthority');
+
   const steps = [
     { key: 'profile', label: 'Company Profile', complete: !!onboardingStatus.profileComplete, href: '/dashboard/profile' },
+    { key: 'attestations', label: 'Compliance Attestations', complete: profileAttestationsComplete, href: '/dashboard/profile' },
     { key: 'fmcsa', label: 'FMCSA Clearinghouse', complete: onboardingStatus.fmcsaDesignated === true, href: '/onboarding/fmcsa-clearinghouse' },
   ];
 
