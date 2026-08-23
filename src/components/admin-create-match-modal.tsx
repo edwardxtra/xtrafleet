@@ -69,6 +69,13 @@ export function AdminCreateMatchModal({
   const [selectedLoad, setSelectedLoad] = useState<LoadWithOwner | null>(null);
   const [selectedDriver, setSelectedDriver] = useState<DriverWithOwner | null>(null);
 
+  // Owner-operators with no Firebase Auth identity — pre-registered accounts
+  // nobody has claimed yet. A match involving one is legal to create, but the
+  // other side can never sign in to accept it or sign the TLA, so it would sit
+  // pending indefinitely. Flagged rather than blocked: lining up work for a
+  // customer before they activate is a legitimate white-glove workflow.
+  const [ownersWithoutSignIn, setOwnersWithoutSignIn] = useState<Set<string>>(new Set());
+
   const [rate, setRate] = useState<string>("");
   const [pickupDate, setPickupDate] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
@@ -110,6 +117,7 @@ export function AdminCreateMatchModal({
         });
 
         const names: Record<string, string> = {};
+        const emails: Record<string, string> = {};
         await Promise.all(
           Array.from(ownerIds).map(async (ownerId) => {
             try {
@@ -117,6 +125,7 @@ export function AdminCreateMatchModal({
               if (ownerDoc.exists()) {
                 const d = ownerDoc.data();
                 names[ownerId] = d.legalName || d.companyName || "Unknown";
+                if (d.contactEmail) emails[ownerId] = String(d.contactEmail).trim().toLowerCase();
               }
             } catch (e) {
               console.error("Error fetching owner:", e);
@@ -126,6 +135,27 @@ export function AdminCreateMatchModal({
 
         setLoads(rawLoads.map((l) => ({ ...l, ownerName: names[l.ownerId] })));
         setDrivers(rawDrivers.map((d) => ({ ...d, ownerName: names[d.ownerId] })));
+
+        // Firestore cannot tell us who has a sign-in identity; only the server
+        // can. Best-effort — the modal stays fully usable without the flag.
+        try {
+          const res = await fetch('/api/admin/users/auth-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emails: Object.values(emails) }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const withAuth = new Set<string>(data.withAuth || []);
+            const missing = new Set<string>();
+            Object.entries(emails).forEach(([ownerId, email]) => {
+              if (!withAuth.has(email)) missing.add(ownerId);
+            });
+            setOwnersWithoutSignIn(missing);
+          }
+        } catch (e) {
+          console.warn('[admin-create-match] auth-status lookup failed', e);
+        }
       } catch (error) {
         console.error("Error loading matchable data:", error);
         showError("Failed to load loads and drivers");
@@ -182,6 +212,15 @@ export function AdminCreateMatchModal({
 
   const sameOwner =
     !!selectedLoad && !!selectedDriver && selectedLoad.ownerId === selectedDriver.ownerId;
+
+  const partiesWithoutSignIn = [
+    selectedLoad && ownersWithoutSignIn.has(selectedLoad.ownerId)
+      ? `${selectedLoad.ownerName || 'the load owner'} (load owner)`
+      : null,
+    selectedDriver && ownersWithoutSignIn.has(selectedDriver.ownerId)
+      ? `${selectedDriver.ownerName || 'the driver owner'} (driver owner)`
+      : null,
+  ].filter(Boolean) as string[];
 
   const previewScore = useMemo(() => {
     if (!selectedLoad || !selectedDriver) return null;
@@ -445,6 +484,19 @@ export function AdminCreateMatchModal({
         )}
 
         {/* Match score preview */}
+        {partiesWithoutSignIn.length > 0 && (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 text-amber-800 text-sm">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>
+              {partiesWithoutSignIn.join(' and ')}{' '}
+              {partiesWithoutSignIn.length === 1 ? 'has' : 'have'} never signed in, so{' '}
+              {partiesWithoutSignIn.length === 1 ? 'that party' : 'those parties'} cannot accept
+              this match or sign a TLA — it will sit pending until they activate. You can still
+              create it; send an activation email from Admin → Users when you are ready.
+            </span>
+          </div>
+        )}
+
         {selectedLoad && selectedDriver && !sameOwner && previewScore !== null && (
           <div className="flex items-center gap-2 text-sm">
             <CheckCircle className="h-4 w-4 text-green-600" />

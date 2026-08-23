@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { useUnreadMessagesCount } from "@/hooks/use-unread-messages";
 import { usePendingRequestsCount } from "@/hooks/use-pending-requests-count";
 import { ImpersonationBanner } from "@/components/impersonation-banner";
+import type { AttestationEntry } from "@/lib/attestations";
 
 interface OnboardingStatus {
   profileComplete?: boolean;
@@ -87,6 +88,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | undefined>(undefined);
+  // The setup banner also reports the two company-level attestations, which
+  // gate the marketplace. They live on the same doc already being read.
+  const [attestations, setAttestations] = useState<AttestationEntry[] | undefined>(undefined);
 
   useEffect(() => {
     if (!isUserLoading && !user && !isLoggingOut) {
@@ -108,6 +112,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const ownerData = ownerDoc.data();
           setIsAdmin(ownerData.isAdmin === true);
           setOnboardingStatus(ownerData.onboardingStatus);
+          setAttestations(ownerData.attestations);
         }
         setRoleChecked(true);
       } catch (error) {
@@ -129,6 +134,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const data = snap.data();
           setIsAdmin(data.isAdmin === true);
           setOnboardingStatus(data.onboardingStatus);
+          setAttestations(data.attestations);
         }
       },
       (error) => console.error('Error subscribing to onboarding status:', error),
@@ -176,7 +182,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
         <main className="flex-1 overflow-auto p-3 md:p-6">
-          <OnboardingBanner onboardingStatus={onboardingStatus} />
+          <OnboardingBanner onboardingStatus={onboardingStatus} attestations={attestations} />
           {children}
         </main>
         <footer className="border-t bg-background px-3 md:px-6 py-3">
