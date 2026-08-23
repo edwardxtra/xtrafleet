@@ -1,4 +1,5 @@
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { stripUndefined } from './firestore-utils';
 import { Firestore } from 'firebase/firestore';
 
 export type AuditAction =
@@ -51,11 +52,18 @@ export async function logAuditAction(
   entry: Omit<AuditLogEntry, 'id' | 'timestamp' | 'createdAt'>
 ): Promise<string> {
   const auditRef = collection(firestore, 'audit_logs');
-  const docRef = await addDoc(auditRef, {
+  // Audit entries are assembled from optional fields on the record being acted
+  // on — a match with no TLA, a load with no rate, a user with no phone — so
+  // `details` routinely carries `undefined`. The client SDK rejects that
+  // outright, and because logging runs AFTER the action it is recording, the
+  // throw surfaced as "failed" on work that had already succeeded (cancelling
+  // a match reported an error while the match was in fact cancelled).
+  // stripUndefined leaves the serverTimestamp() sentinel below intact.
+  const docRef = await addDoc(auditRef, stripUndefined({
     ...entry,
     timestamp: serverTimestamp(),
     createdAt: new Date().toISOString(),
-  });
+  }));
   return docRef.id;
 }
 
