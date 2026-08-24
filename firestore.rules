@@ -13,15 +13,37 @@ service cloud.firestore {
       return request.auth.uid in participants;
     }
 
+    // DEV-199: read the admin fields defensively.
+    //
+    // Most owner_operators documents have no `isAdmin` field at all — it is
+    // absent, not false. Reading a missing property in rules is an ERROR,
+    // not false, so the direct `.data.isAdmin` form threw for those users
+    // instead of returning false.
+    //
+    // That was never a security hole: an evaluation error denies the
+    // request, so the outcome was "denied" either way, and legitimate paths
+    // were unaffected because short-circuit evaluation means a normal
+    // self-edit satisfies `isOwner(...) && selfUpdateIsClean()` and never
+    // reaches isSuperAdmin(). What it cost was diagnosability — denials
+    // surfaced in the Rules Playground as a red error
+    // ("Property isAdmin is undefined on object") rather than a clean
+    // DENIED, and the helpers behaved differently depending on whether a
+    // document happened to carry the field.
+    //
+    // `.data.get(field, default)` is the same accessor this file already
+    // uses for `accountStatus` below.
     function isAdmin() {
       return isSignedIn() &&
-        get(/databases/$(database)/documents/owner_operators/$(request.auth.uid)).data.isAdmin == true;
+        get(/databases/$(database)/documents/owner_operators/$(request.auth.uid))
+          .data.get('isAdmin', false) == true;
     }
 
     function isSuperAdmin() {
       return isSignedIn() &&
-        get(/databases/$(database)/documents/owner_operators/$(request.auth.uid)).data.isAdmin == true &&
-        get(/databases/$(database)/documents/owner_operators/$(request.auth.uid)).data.adminRole == 'super_admin';
+        get(/databases/$(database)/documents/owner_operators/$(request.auth.uid))
+          .data.get('isAdmin', false) == true &&
+        get(/databases/$(database)/documents/owner_operators/$(request.auth.uid))
+          .data.get('adminRole', '') == 'super_admin';
     }
 
     match /users/{userId} {

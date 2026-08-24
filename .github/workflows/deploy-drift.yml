@@ -1,0 +1,120 @@
+name: Deploy drift
+
+# Detects the failure mode that cost a day in Aug 2026: a merge to `main`
+# lands, CI is green, GitHub shows it merged — and the App Hosting rollout
+# fails, so production keeps serving the previous revision. Nothing is
+# broken (Cloud Run holds the last healthy revision), which is exactly why
+# nobody noticed. Three consecutive prod rollouts failed and it was found
+# only because someone happened to open the console.
+#
+# This compares the commit each environment is actually serving, read from
+# its public /api/version endpoint, against the tip of the branch that
+# deploys to it. A failure here means "the environment is not running what
+# its branch says" — regardless of HOW the deploy failed, which matters
+# because the console mislabelled those rollouts as "Build failed" when the
+# build had succeeded and Cloud Run had refused the revision.
+#
+# Notification: GitHub emails the repo owner when a scheduled workflow
+# fails, so this needs no extra secrets or webhook wiring to reach someone.
+
+on:
+  schedule:
+    # Every 30 minutes. A failed rollout is caught within ~30 min of the
+    # grace window closing, comfortably inside the "roughly 15 minutes
+    # after we could reasonably know" bar once deploy time is accounted for.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+# A late run comparing an old SHA is worse than no run.
+concurrency:
+  group: deploy-drift
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      # Never let a prod failure mask a QA failure, or vice versa.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Production
+            branch: main
+            url: https://xtrafleet.com
+          - name: QA
+            branch: qa
+            url: https://xtrafleet-qa--xtrafleet-qa.us-central1.hosted.app
+
+    steps:
+      - name: Check out ${{ matrix.branch }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+          # Only need the tip commit and its timestamp.
+          fetch-depth: 1
+
+      - name: Compare deployed commit against ${{ matrix.branch }}
+        env:
+          TARGET_URL: ${{ matrix.url }}
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          set -uo pipefail
+
+          # A rollout takes roughly 5-15 minutes; the Aug 2026 incident had
+          # one run past 20. Below this age a mismatch means "still
+          # deploying", not "drifted", so don't cry wolf on every merge.
+          GRACE_MINUTES=25
+
+          EXPECTED_SHA="$(git rev-parse HEAD)"
+          COMMIT_EPOCH="$(git log -1 --format=%ct)"
+          NOW_EPOCH="$(date +%s)"
+          AGE_MINUTES=$(( (NOW_EPOCH - COMMIT_EPOCH) / 60 ))
+
+          echo "Branch          : $BRANCH"
+          echo "Expected commit : $EXPECTED_SHA"
+          echo "Commit age      : ${AGE_MINUTES}m"
+          echo "Target          : $TARGET_URL"
+          echo
+
+          RESPONSE="$(curl --silent --show-error --fail-with-body \
+                           --max-time 30 --retry 3 --retry-delay 5 \
+                           -H 'Cache-Control: no-cache' \
+                           "$TARGET_URL/api/version" 2>&1)" || {
+            echo "::error title=$BRANCH unreachable::Could not read $TARGET_URL/api/version"
+            echo "$RESPONSE"
+            exit 1
+          }
+
+          echo "Response: $RESPONSE"
+          echo
+
+          DEPLOYED_SHA="$(echo "$RESPONSE" | jq -r '.sha // "unknown"')"
+          SHA_SOURCE="$(echo "$RESPONSE"   | jq -r '.shaSource // "unknown"')"
+          REVISION="$(echo "$RESPONSE"     | jq -r '.revision // "unknown"')"
+          BUILT_AT="$(echo "$RESPONSE"     | jq -r '.builtAt // "unknown"')"
+
+          # A placeholder SHA would make every future run pass silently,
+          # which is the exact failure this workflow exists to prevent.
+          # Fail loudly the first time instead, so we switch mechanisms.
+          if [ "$DEPLOYED_SHA" = "unknown" ] || [ "$SHA_SOURCE" = "unknown" ]; then
+            echo "::error title=$BRANCH build provenance missing::/api/version returned sha='$DEPLOYED_SHA' source='$SHA_SOURCE'. The builder exposed no commit, so drift cannot be detected. See scripts/build-info.js — the App Hosting build sets neither COMMIT_SHA nor keeps .git, and needs another mechanism."
+            exit 1
+          fi
+
+          if [ "$DEPLOYED_SHA" = "$EXPECTED_SHA" ]; then
+            echo "OK — $BRANCH is serving $EXPECTED_SHA (revision $REVISION)"
+            exit 0
+          fi
+
+          if [ "$AGE_MINUTES" -lt "$GRACE_MINUTES" ]; then
+            echo "Mismatch, but $BRANCH tip is only ${AGE_MINUTES}m old (grace ${GRACE_MINUTES}m)."
+            echo "Deploy is most likely still in flight. Not failing."
+            echo "  expected $EXPECTED_SHA"
+            echo "  serving  $DEPLOYED_SHA"
+            exit 0
+          fi
+
+          echo "::error title=$BRANCH is serving a stale build::Expected $EXPECTED_SHA (merged ${AGE_MINUTES}m ago) but $TARGET_URL is serving $DEPLOYED_SHA, built $BUILT_AT on revision $REVISION. The rollout did not complete. Check the App Hosting rollouts for this backend — note the console may label a Cloud Run readiness failure as 'Build failed'."
+          exit 1
