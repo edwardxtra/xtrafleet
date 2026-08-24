@@ -1,6 +1,17 @@
+const { getBuildInfo } = require('./scripts/build-info');
+
+const buildInfo = getBuildInfo();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   /* config options here */
+  // Build provenance, inlined at build time so /api/version can report which
+  // commit is actually serving traffic (DEV-200).
+  env: {
+    NEXT_PUBLIC_BUILD_SHA: buildInfo.sha,
+    NEXT_PUBLIC_BUILD_SHA_SOURCE: buildInfo.shaSource,
+    NEXT_PUBLIC_BUILD_TIME: buildInfo.builtAt,
+  },
   typescript: {
     ignoreBuildErrors: true,
   },

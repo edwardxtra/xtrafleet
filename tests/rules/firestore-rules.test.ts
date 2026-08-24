@@ -78,6 +78,27 @@ async function seedAdmin(uid: string, role: 'admin' | 'super_admin' = 'admin') {
   await seedOwner(uid, { isAdmin: true, adminRole: role });
 }
 
+/**
+ * Seed an owner_operator with NO `isAdmin` / `adminRole` fields at all (DEV-199).
+ *
+ * This is what most real documents look like — the fields are absent, not
+ * false. `seedOwner` always writes `isAdmin: false`, which is precisely why
+ * the missing-field behaviour went unnoticed: every existing test seeded a
+ * document that the old direct-read helpers could evaluate.
+ *
+ * Deliberately does NOT go through seedOwner, so no default can creep in.
+ */
+async function seedLegacyOwner(uid: string, data: Record<string, unknown> = {}) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'owner_operators', uid), {
+      legalName: `Owner ${uid}`,
+      contactEmail: `${uid}@example.com`,
+      accountStatus: 'active',
+      ...data,
+    });
+  });
+}
+
 /** Seed a match doc with the given party uids. */
 async function seedMatch(
   matchId: string,
@@ -309,6 +330,142 @@ describe('owner_operators — the guard does not break real flows', () => {
         suspendedBy: 'root',
       })
     );
+  });
+});
+
+// --- isAdmin()/isSuperAdmin() on documents missing the field (DEV-199) ----
+
+describe('isAdmin()/isSuperAdmin() — documents with no isAdmin field', () => {
+  /**
+   * Before DEV-199 these helpers read `.data.isAdmin` directly. Reading a
+   * missing property in Firestore rules is an ERROR, not false, so for the
+   * many owner_operators documents that carry no `isAdmin` field the helpers
+   * threw rather than returning false.
+   *
+   * The outcome was never insecure — an evaluation error denies the request
+   * too — but a denial-by-error is indistinguishable from a rules bug when
+   * you are staring at the Rules Playground, which is what cost time while
+   * verifying the privilege-escalation guard:
+   *
+   *   Error: simulator.rules line [23], column [9].
+   *   Property isAdmin is undefined on object.
+   *
+   * These tests pin the clean-false behaviour. Each one drives a path where
+   * short-circuit evaluation does NOT spare the helper — otherwise it would
+   * pass with or without the fix and prove nothing.
+   */
+
+  it('denies (not errors) reading a pre-activated doc — isAdmin() is actually reached', async () => {
+    // The get rule is: not-pre-activated || isOwner || isAdmin().
+    // A pre-activated doc read by a stranger fails the first two, so
+    // isAdmin() is genuinely evaluated. This is the exact call that threw.
+    await seedLegacyOwner('legacy-user');
+    await seedOwner('newbie', { accountStatus: 'pre-activated' });
+    await assertFails(getDoc(doc(asUser('legacy-user'), 'owner_operators/newbie')));
+  });
+
+  it('denies a users/{uid} delete — isSuperAdmin() is actually reached', async () => {
+    // users/{userId} delete is gated on isSuperAdmin() alone, with nothing
+    // ahead of it to short-circuit.
+    await seedLegacyOwner('legacy-user');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'users', 'someone-else'), { email: 'x@example.com' });
+    });
+    await assertFails(deleteDoc(doc(asUser('legacy-user'), 'users/someone-else')));
+  });
+
+  it('denies self-promotion from a doc with no isAdmin field', async () => {
+    await seedLegacyOwner('mallory');
+    await assertFails(
+      updateDoc(doc(asUser('mallory'), 'owner_operators/mallory'), { isAdmin: true })
+    );
+  });
+
+  it('still allows an ordinary self-edit from a doc with no isAdmin field', async () => {
+    // Short-circuits before isAdmin(), so this passed before the fix too —
+    // kept as the regression guard that the fix changed nothing for real users.
+    await seedLegacyOwner('carol');
+    await assertSucceeds(
+      updateDoc(doc(asUser('carol'), 'owner_operators/carol'), {
+        legalName: 'Carol Hauling LLC',
+        city: 'Providence',
+      })
+    );
+  });
+
+  it('treats an admin with isAdmin but no adminRole as not-super', async () => {
+    // isSuperAdmin() reads adminRole, which is absent here. Previously that
+    // second read errored; now it defaults to '' and cleanly fails the
+    // super_admin comparison. A plain admin must not inherit super powers
+    // just because the role field was never written.
+    await seedLegacyOwner('half-admin', { isAdmin: true });
+    await seedOwner('victim');
+    await assertFails(
+      updateDoc(doc(asUser('half-admin'), 'owner_operators/victim'), { isSuspended: true })
+    );
+  });
+
+  it('does not change behaviour for a real super_admin', async () => {
+    await seedAdmin('root', 'super_admin');
+    await seedOwner('carol');
+    await assertSucceeds(
+      updateDoc(doc(asUser('root'), 'owner_operators/carol'), {
+        isSuspended: true,
+        suspendedBy: 'root',
+      })
+    );
+  });
+
+  it('does not change behaviour for a real admin reading a pre-activated doc', async () => {
+    await seedAdmin('helper', 'admin');
+    await seedOwner('newbie', { accountStatus: 'pre-activated' });
+    await assertSucceeds(getDoc(doc(asUser('helper'), 'owner_operators/newbie')));
+  });
+
+  /**
+   * The assertions above cannot, on their own, catch the bug they describe.
+   *
+   * A rules evaluation error denies the request exactly as `false` does, and
+   * every use of isAdmin()/isSuperAdmin() in firestore.rules sits last in its
+   * OR chain — so no clause runs after them where the two outcomes would
+   * diverge. To a client, error and false are the same DENIED. All seven
+   * tests above pass against the pre-fix rules too.
+   *
+   * The distinction is only visible in the emulator's rule-coverage report,
+   * which records the failing expression's causeMessage:
+   *
+   *   Property isAdmin is undefined on object.
+   *
+   * So this asserts on that report. Coverage accumulates across the whole
+   * file (clearFirestore does not reset it), which makes this a stronger
+   * check than a per-test one: no rule evaluated anywhere in this suite may
+   * fail by reading a property that isn't there. Revert the .data.get()
+   * helpers and this goes red while everything else stays green.
+   *
+   * Depends on running after the tests that exercise the missing-field docs,
+   * which within a file it does — vitest preserves declaration order.
+   */
+  it('leaves no undefined-property evaluation errors anywhere in the suite', async () => {
+    const res = await fetch(
+      `http://127.0.0.1:8080/emulator/v1/projects/${PROJECT_ID}:ruleCoverage?type=json`
+    );
+    expect(res.ok).toBe(true);
+
+    const coverage = await res.json();
+
+    // causeMessage is nested at varying depths; walk the whole report.
+    const causes: string[] = [];
+    JSON.stringify(coverage.report, (key, value) => {
+      if (key === 'causeMessage' && typeof value === 'string') causes.push(value);
+      return value;
+    });
+
+    const undefinedProperty = causes.filter((c) => /is undefined on object/.test(c));
+    expect(
+      undefinedProperty,
+      `Rules read a property that does not exist. Use .data.get(field, default) ` +
+        `instead of .data.field. Offending: ${[...new Set(undefinedProperty)].join(' | ')}`
+    ).toEqual([]);
   });
 });
 
