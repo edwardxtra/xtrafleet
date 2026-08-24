@@ -5,7 +5,23 @@
 # To deploy: Link this backend in Firebase Console to your QA project.
 
 runConfig:
-  maxInstances: 1
+  # Kept at parity with production (apphosting.yaml). DEV-201.
+  #
+  # QA sat at 1 while production was raised to 4 after the Aug 2026 rollout
+  # failures. QA got away with a cap of 1 only because it has almost no
+  # traffic, so its single instance scales to zero between rollouts and the
+  # incoming revision finds a free slot. The moment QA holds a warm instance
+  # — a load test, a demo, a stray crawler — it hits the identical wall:
+  # the live revision owns the only instance, the new revision can't start,
+  # and the rollout fails with "Resource readiness deadline exceeded" while
+  # the build itself reports success.
+  #
+  # Parity also matters for its own sake: QA is only a gate if it is
+  # configured like the thing it gates.
+  #
+  # maxInstances is a ceiling, not a reservation — with minInstances unset
+  # the backend still scales to zero, so this adds no idle cost.
+  maxInstances: 4
 
 env:
   - variable: NEXT_PUBLIC_APP_URL
