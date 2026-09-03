@@ -33,35 +33,38 @@ email from QA is indistinguishable from a production one to the recipient.
 
 ## Where the zone lives
 
-> **TODO — fill this in.** This could not be determined from the repo, and
-> this session's network policy blocks outbound DNS (no `dig`; DNS-over-HTTPS
-> to `dns.google` and `cloudflare-dns.com` returns 403 at the proxy), so the
-> nameservers could not be read live either.
+**Cloud DNS.** Confirmed 2026-09-03:
 
-Answer it with either of these, then replace this section:
-
-```bash
-# 1. Who is authoritative? (run from any machine with normal network access)
-dig +short NS xtrafleet.com
-
-# 2. Is it a Cloud DNS zone in the prod project?
-gcloud dns managed-zones list --project=studio-5112915880-e9ca2 \
-  --format="table(name,dnsName,visibility)"
+```
+$ dig +short NS xtrafleet.com
+ns-cloud-e1.googledomains.com.
+ns-cloud-e2.googledomains.com.
+ns-cloud-e3.googledomains.com.
+ns-cloud-e4.googledomains.com.
 ```
 
-- Nameservers like `ns-cloud-*.googledomains.com` **and** a zone listed in
-  step 2 → the zone is in **Cloud DNS**, and the Jan 2027 changes below are
-  worth a second look.
-- Anything else (Cloudflare, Namecheap, GoDaddy, Squarespace, …) → the zone
-  is at that registrar/provider, **Cloud DNS is not authoritative for
-  `xtrafleet.com`, and neither Cloud DNS change affects us at all.**
+`ns-cloud-*.googledomains.com` is the Cloud DNS nameserver set, so records
+are edited in the Google Cloud console (or `gcloud dns`), **not** at a
+registrar's DNS panel.
 
-Record the answer here, including which account holds the login.
+Two things still worth writing down when someone has the consoles open:
+
+- **Which project and zone.** Almost certainly the production project, but
+  read it rather than assume:
+  `gcloud dns managed-zones list --project=studio-5112915880-e9ca2 --format="table(name,dnsName,visibility)"`
+- **The registrar.** Where the domain is *registered* is separate from where
+  its DNS is *served*, and only the nameservers are established above. Google
+  Domains was sold to Squarespace in 2023, so a domain originally registered
+  there now renews at Squarespace while still delegating to Cloud DNS. This
+  matters for renewals and transfers, not for records.
 
 ## Records that matter
 
-Authoritative values live in the consoles, not here — this is a checklist of
-what must exist, so a missing record is recognisable:
+Each record's correct *value* comes from the console named in the last
+column; the record itself is then created in **Cloud DNS** (that split trips
+people up — Firebase and Resend tell you what to publish, they don't publish
+it). This is a checklist of what must exist, so a missing record is
+recognisable:
 
 | Record | Type | Purpose | Read the correct value from |
 |---|---|---|---|
@@ -78,7 +81,7 @@ existing record's `include:` list rather than adding a second record.
 ## Inspecting the current records
 
 ```bash
-# Full zone inventory (only if the zone is in Cloud DNS)
+# Full zone inventory (zone name from the command above)
 gcloud dns record-sets list --zone=<zone-name> --project=studio-5112915880-e9ca2
 
 # Per-type, via public resolvers — works regardless of who hosts the zone
@@ -105,20 +108,42 @@ in the Resend dashboard, not in CI.
 
 ## Cloud DNS changes effective January 5, 2027
 
-Both were assessed against this codebase and are **no-ops for XtraFleet**,
-*provided* the zone turns out not to be in Cloud DNS — and still no-ops even
-if it is, for the reasons given:
+Cloud DNS is authoritative for this domain (above), so both notices land on
+our zone. Both were assessed against this codebase; **neither requires a
+change here.**
 
-1. **CNAME chasing across public/private zones.** Only affects private zones,
-   response policies, and Compute Engine internal DNS. XtraFleet has no VPC,
-   no private zones, no response policies, and no Compute Engine instances —
-   everything it resolves (`xtrafleet.com`, `*.hosted.app`,
-   `*.firebaseapp.com`, Stripe, Resend, Upstash) is public.
+### 1. CNAME chasing across public and private zones
 
-2. **`ANY` queries return one record set instead of all** (RFC 8482) in
-   public authoritative zones. No automation here issues `ANY` queries: no
-   `dig`/`nslookup`/`host` in `scripts/` or `.github/workflows/`, no
-   `node:dns` import or DNS library in `src/`, `tests/`, or `package.json`.
-   The only impact is on manual troubleshooting habits — use the per-type
-   `dig` commands or `gcloud dns record-sets list` above instead of
-   `dig ... ANY`.
+**No effect.** This only changes resolution where a private zone, a response
+policy, or Compute Engine internal DNS exists to chase *into*. XtraFleet has
+no VPC, no Compute Engine instances, and — as far as the repo shows — no
+private zones or response policies: everything it resolves is public
+(`xtrafleet.com`, `*.hosted.app`, `*.firebaseapp.com`, Stripe, Resend,
+Upstash). With nothing in the private class, public-to-private chasing has
+nowhere to go.
+
+Worth one command to confirm, since it was never verified against the live
+project — both should come back empty:
+
+```bash
+gcloud dns managed-zones list --project=studio-5112915880-e9ca2 \
+  --filter="visibility=private" --format="table(name,dnsName)"
+gcloud dns response-policies list --project=studio-5112915880-e9ca2
+```
+
+### 2. `ANY` queries return one record set instead of all (RFC 8482)
+
+**Applies to our zone, but breaks nothing.** No automation here issues `ANY`
+queries: no `dig`/`nslookup`/`host` in `scripts/` or `.github/workflows/`, no
+`node:dns` import or DNS library in `src/`, `tests/`, or `package.json`. The
+site and email are unaffected either way — browsers and mail servers query
+specific types (`A`, `MX`, `TXT`), never `ANY`.
+
+The only thing that changes is a **manual habit**: after 2027-01-05,
+`dig xtrafleet.com ANY` returns a single record set rather than an overview
+of the zone. Use the per-type `dig` commands or
+`gcloud dns record-sets list` above instead.
+
+There is also an upside worth knowing: because Cloud DNS applies this at the
+authoritative layer, the domain gets DNS amplification/reflection protection
+with no configuration from us.
