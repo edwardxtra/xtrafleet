@@ -264,5 +264,23 @@ service cloud.firestore {
       allow read: if isSignedIn() && isAdmin();
       allow write: if false;
     }
+
+    // TMS integration connections (DEV-155). Written and read ONLY by the
+    // server via the Admin SDK. Closed to clients entirely — even the
+    // non-secret fields (provider, external account id, granted
+    // capabilities) describe a customer's back-office topology, and the
+    // credentialRef names a secret-store entry. Admins inspect these through
+    // a server route, not by reading Firestore directly.
+    match /tms_connections/{connectionId} {
+      allow read, write: if false;
+    }
+
+    // Raw inbound TMS webhook deliveries (DEV-155). Append-only server-side
+    // log used for idempotency and replay; the document id is the provider's
+    // event id. Payloads are provider data verbatim, so they never go to a
+    // client.
+    match /tms_events/{eventId} {
+      allow read, write: if false;
+    }
   }
 }

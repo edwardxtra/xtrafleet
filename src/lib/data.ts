@@ -1,4 +1,5 @@
 import type { TrailerType } from './trailer-types';
+import type { ExternalRef } from './tms/types';
 
 export type Review = {
   id: string;
@@ -73,6 +74,11 @@ export type Driver = {
   accountStatus?: AccountStatus;
   createdByAdmin?: string; // admin UID, when created on the user's behalf
   activatedAt?: string;    // ISO timestamp the user completed activation
+  // Counterparts in connected TMS/ELD systems (DEV-155). Absent on every
+  // record today — nothing is integrated yet. Present so that when a fleet
+  // does connect one, we can reconcile rosters without a data migration
+  // across live driver documents.
+  externalRefs?: ExternalRef[];
 };
 
 export type Load = {
@@ -92,6 +98,16 @@ export type Load = {
     distanceText?: string;
     durationText?: string;
   };
+  // --- TMS / node awareness (DEV-155) ---
+  // Counterparts in connected TMS systems. A load can carry several: the
+  // same shipment often exists in both a shipper's and a broker's TMS.
+  externalRefs?: ExternalRef[];
+  // Transport nodes from src/lib/nodes.ts, resolved at import/creation time.
+  // Stored rather than recomputed so a later change to the node catalog
+  // can't silently re-bucket historical loads.
+  originNodeId?: string;
+  destinationNodeId?: string;
+  corridorId?: string;
 };
 
 export type BillingHistoryItem = {
