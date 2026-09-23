@@ -1,0 +1,18 @@
+{
+  "description": "Inactive authority. allowedToOperate=false drives the Red path — the hard gate in checkCarrier(). Use to assert a match is BLOCKED.",
+  "success": true,
+  "carrier": {
+    "dotNumber": "2000002",
+    "legalName": "E2E REVOKED TRANSPORT INC",
+    "mcNumber": "900002",
+    "carrierOperation": "Interstate",
+    "isBrokerOnly": false,
+    "hqState": "FL",
+    "hqCity": "Tampa",
+    "hqZip": "33602",
+    "safetyRating": "Unsatisfactory",
+    "authorityStatus": "INACTIVE",
+    "allowedToOperate": false,
+    "saferDiscrepancy": false
+  }
+}

@@ -12,6 +12,9 @@
  *   When they disagree we set saferDiscrepancy=true for the UI to warn the user.
  */
 
+// E2E seam — env-gated, non-production only. See src/lib/fmcsa-fixtures.ts.
+import { isFmcsaFixtureMode } from './fmcsa-fixtures';
+
 const FMCSA_BASE = 'https://mobile.fmcsa.dot.gov/qc/services';
 const SAFER_QUERY = 'https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=USDOT&query_string=';
 const LI_BASE = 'https://li-public.fmcsa.dot.gov/LIVIEW';
@@ -736,6 +739,14 @@ export async function lookupByDOT(dotNumber: string): Promise<FMCSALookupResult>
   const cleaned = cleanDOT(dotNumber);
   if (!cleaned || cleaned === 'NaN') {
     return { success: false, error: 'Invalid DOT number format' };
+  }
+
+  // Recorded responses for the E2E suite. Requires FMCSA_FIXTURE_MODE=1 AND a
+  // non-production NODE_ENV — production cannot opt in. Dynamically imported so
+  // the fs dependency never reaches a client bundle.
+  if (isFmcsaFixtureMode()) {
+    const { lookupFromFixture } = await import('./fmcsa-fixtures');
+    return lookupFromFixture(cleaned);
   }
 
   try {

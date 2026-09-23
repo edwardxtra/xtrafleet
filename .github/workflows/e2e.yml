@@ -30,6 +30,9 @@ jobs:
       RADAR_SECRET_KEY: ''
       RESEND_API_KEY: ''
       STRIPE_SECRET_KEY: ''
+      # Recorded FMCSA responses — no FMCSA_WEB_KEY in CI, and the compliance
+      # gate calls the API synchronously by design. See src/lib/fmcsa-fixtures.ts.
+      FMCSA_FIXTURE_MODE: '1'
 
     steps:
       - uses: actions/checkout@v4

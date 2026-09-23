@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { seedOwner, logInAs, closeSeedApp, FIXTURE_DOT } from './seed';
 import { attachPageDiagnostics, signUpOwner, reachDashboard } from './helpers';
 
 /**
@@ -25,6 +26,7 @@ import { attachPageDiagnostics, signUpOwner, reachDashboard } from './helpers';
 
 test.describe('T3 — Load posting', () => {
   test.beforeEach(({ page }) => attachPageDiagnostics(page));
+  test.afterAll(() => closeSeedApp());
 
   test('an onboarded-at-signup owner passes the attestation gate and reaches the load form', async ({ page }) => {
     await signUpOwner(page);
@@ -52,16 +54,46 @@ test.describe('T3 — Load posting', () => {
     await expect(page.getByText(/complete your profile first/i)).toHaveCount(0);
   });
 
-  // The happy path still needs to fill the full load form (Origin,
-  // Destination, Load Type, Compensation, pickup date, CDL class) and read it
-  // back on two surfaces — fragile enough to keep as a follow-up. Attestation
-  // seeding is no longer a blocker (signup handles it); only the form-fill is.
-  test.fixme('a posted load appears on /dashboard/loads AND in Find Match My Assets', async ({ page }) => {
-    await signUpOwner(page);
-    await reachDashboard(page);
-    // TODO: fill /dashboard/loads/new (Origin, Destination, Load Type,
-    //       Compensation, today's pickup date, CDL class), submit.
-    // TODO: assert the load shows on /dashboard/loads.
-    // TODO: assert the load shows on /dashboard/matches under My Assets.
+  test('a posted load appears on /dashboard/loads AND in Find Match My Assets', async ({ page }) => {
+    // Seeding gives a profile-complete owner directly; the subject of this test
+    // is posting a load through the UI, so the load itself is never seeded.
+    const owner = await seedOwner({ dotNumber: FIXTURE_DOT.clean });
+    await logInAs(page, owner.email, owner.password);
+
+    const origin = 'Boston, MA';
+    const destination = `Worcester, MA ${Date.now()}`;
+
+    await page.goto('/dashboard/loads/new');
+    await page.getByLabel(/^origin/i).fill(origin);
+    await page.getByLabel(/^destination/i).fill(destination);
+
+    // Radix Select: click the trigger, take the first option. Which load type
+    // it is does not matter here — only that the form accepts a valid one.
+    await page.getByRole('combobox').first().click();
+    await page.getByRole('option').first().click();
+
+    await page.getByLabel(/driver compensation/i).fill('1850');
+
+    const pickup = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+    await page.locator('#pickupDate').fill(pickup);
+
+    // CDL Class Required is a checkbox group; ids are cdl-<class>.
+    await page.locator('#cdl-A').check();
+    // Separate required consent — validateForm() rejects without it.
+    await page.locator('#verificationConsent').check();
+
+    // The form is two-step: validate into a review screen, then publish.
+    await page.getByRole('button', { name: /review load/i }).click();
+    await page.getByRole('button', { name: /publish load/i }).click();
+
+    // Surface 1: the loads list.
+    await page.goto('/dashboard/loads');
+    await expect(page.getByText(destination).first()).toBeVisible({ timeout: 20_000 });
+
+    // Surface 2: the match marketplace's My Assets panel. A load that exists
+    // but never reaches this panel is invisible to matching, which is the
+    // regression worth catching.
+    await page.goto('/dashboard/matches');
+    await expect(page.getByText(destination).first()).toBeVisible({ timeout: 20_000 });
   });
 });

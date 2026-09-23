@@ -54,8 +54,15 @@ test.describe('T2 — Self-driver onboarding', () => {
     await expect(selfDriverRow).toHaveCount(1, { timeout: 10_000 });
   });
 
-  // Un-fixme once the suite is green and the Radix Select option selectors
-  // for cdlState / cdlClass have been verified against a real run.
+  // STILL DISABLED. The state blocker is gone — tests/e2e/seed.ts can now
+  // produce an owner with a self-driver at any compliance level, so this no
+  // longer needs the add-self-as-driver flow as setup. What remains is purely
+  // selector work: the Radix Select options for cdlState / cdlClass, and the
+  // row → "Complete Driver Profile" banner path, verified against a real run.
+  // The form fields themselves are known (see driver-profile-completion.tsx:
+  // Date of Birth, CDL Number, CDL Issuing State, CDL Class, Medical
+  // Certificate Expiration, the Authorization & Disclosure checkbox, and a
+  // "Submit Profile" button).
   test.fixme('completing the self-driver profile flips the attestation to Verified', async ({ page }) => {
     await signUpOwner(page);
     await reachDashboard(page);
