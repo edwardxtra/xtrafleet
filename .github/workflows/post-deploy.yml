@@ -1,0 +1,101 @@
+name: Post-deploy verification
+
+# Confirms that the commit just pushed is the commit the environment ends up
+# SERVING — the step that has been done by hand after every promotion.
+#
+# `deploy-drift.yml` already compares deployed SHA against branch tip, but it
+# cannot answer "did THIS deploy land":
+#   - it runs on a 30-minute cron, and GitHub does not honour that on a
+#     low-activity repo (observed gaps over three hours), so the answer can
+#     arrive long after anyone has stopped looking;
+#   - its 25-minute grace window means a run fired right after a merge passes
+#     regardless of the outcome, by design.
+#
+# Drift detection is the periodic safety net. This is the per-deploy check:
+# it starts when the push lands and waits for the rollout, so a failed
+# rollout goes red within minutes of being knowable rather than at whatever
+# point the cron next happens to fire.
+#
+# It verifies the deploy; it does not gate the merge. By the time it runs the
+# code is already on its way out.
+
+on:
+  push:
+    branches: [main, qa]
+  workflow_dispatch:
+
+# A superseded deploy is not worth waiting on — the newer push has its own run.
+concurrency:
+  group: post-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: ${{ github.ref_name == 'main' && 'Production' || 'QA' }} is serving this commit
+    runs-on: ubuntu-latest
+    # Generous: rollouts run 5-15 minutes and the Aug 2026 incident had one
+    # past 20. Must exceed the polling budget below so the job reports the
+    # real failure rather than dying on the runner's own timeout.
+    timeout-minutes: 30
+
+    steps:
+      - name: Wait for ${{ github.ref_name }} to serve ${{ github.sha }}
+        env:
+          TARGET_URL: ${{ github.ref_name == 'main' && 'https://xtrafleet.com' || 'https://xtrafleet-qa--xtrafleet-qa.us-central1.hosted.app' }}
+          EXPECTED_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -uo pipefail
+
+          DEADLINE_MINUTES=25
+          INTERVAL_SECONDS=30
+          DEADLINE=$(( $(date +%s) + DEADLINE_MINUTES * 60 ))
+
+          echo "Branch   : $BRANCH"
+          echo "Expected : $EXPECTED_SHA"
+          echo "Target   : $TARGET_URL"
+          echo "Waiting up to ${DEADLINE_MINUTES}m, polling every ${INTERVAL_SECONDS}s."
+          echo
+
+          LAST_SEEN="never responded"
+          ATTEMPT=0
+
+          while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+
+            # A rollout in progress legitimately returns errors or the old
+            # revision, so a failed poll is not yet a failed deploy.
+            RESPONSE="$(curl --silent --show-error --fail-with-body \
+                             --max-time 30 \
+                             -H 'Cache-Control: no-cache' \
+                             "$TARGET_URL/api/version" 2>&1)" || {
+              echo "[$ATTEMPT] unreachable — retrying"
+              LAST_SEEN="unreachable"
+              sleep "$INTERVAL_SECONDS"
+              continue
+            }
+
+            DEPLOYED_SHA="$(echo "$RESPONSE" | jq -r '.sha // "unknown"')"
+            SHA_SOURCE="$(echo "$RESPONSE"   | jq -r '.shaSource // "unknown"')"
+            REVISION="$(echo "$RESPONSE"     | jq -r '.revision // "unknown"')"
+
+            # Without provenance every future run would pass silently, which
+            # is the failure this workflow exists to prevent. Stop now.
+            if [ "$DEPLOYED_SHA" = "unknown" ] || [ "$SHA_SOURCE" = "unknown" ]; then
+              echo "::error title=$BRANCH build provenance missing::/api/version returned sha='$DEPLOYED_SHA' source='$SHA_SOURCE'. The deployed commit cannot be read, so this check cannot verify anything. See scripts/build-info.js."
+              exit 1
+            fi
+
+            if [ "$DEPLOYED_SHA" = "$EXPECTED_SHA" ]; then
+              echo
+              echo "OK — $BRANCH is serving $EXPECTED_SHA (revision $REVISION) after ${ATTEMPT} poll(s)."
+              exit 0
+            fi
+
+            echo "[$ATTEMPT] serving $DEPLOYED_SHA (revision $REVISION) — not yet $EXPECTED_SHA"
+            LAST_SEEN="$DEPLOYED_SHA (revision $REVISION)"
+            sleep "$INTERVAL_SECONDS"
+          done
+
+          echo "::error title=$BRANCH did not roll out::After ${DEADLINE_MINUTES}m, $TARGET_URL is still serving $LAST_SEEN instead of $EXPECTED_SHA. The rollout did not complete — production keeps serving the previous healthy revision, so nothing will look broken. Check the App Hosting rollouts for this backend; note the console may label a Cloud Run readiness failure as 'Build failed'."
+          exit 1
