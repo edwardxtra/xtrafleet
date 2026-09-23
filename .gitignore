@@ -36,3 +36,9 @@ Thumbs.db
 /test-results/
 /blob-report/
 /playwright/.cache/
+
+# Document-extraction eval (DEV-153): real compliance documents contain driver
+# PII and must never be committed. Only the README and example manifest are.
+eval/*
+!eval/README.md
+!eval/ground-truth.example.json
