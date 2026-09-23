@@ -1,0 +1,23 @@
+{
+  "description": "Clean carrier — active authority, no SAFER discrepancy. Drives the Green path through runComplianceGate().",
+  "success": true,
+  "carrier": {
+    "dotNumber": "1000001",
+    "legalName": "E2E CLEAR FREIGHT LLC",
+    "dbaName": "E2E Clear Freight",
+    "mcNumber": "900001",
+    "carrierOperation": "Interstate",
+    "isBrokerOnly": false,
+    "hqState": "MA",
+    "hqCity": "Boston",
+    "hqAddress": "1 Seaport Blvd",
+    "hqZip": "02210",
+    "phone": "6175550100",
+    "safetyRating": "Satisfactory",
+    "authorityStatus": "ACTIVE",
+    "insuranceRequired": "750",
+    "insuranceOnFile": "1000",
+    "allowedToOperate": true,
+    "saferDiscrepancy": false
+  }
+}

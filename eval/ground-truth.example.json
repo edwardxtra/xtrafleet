@@ -1,0 +1,26 @@
+[
+  {
+    "documentId": "coi-001",
+    "file": "documents/coi-001.pdf",
+    "documentType": "insurance_coi",
+    "expiryDate": "2027-03-14",
+    "documentNumber": "POL-4471-A",
+    "namedParty": "ABC Trucking LLC"
+  },
+  {
+    "documentId": "med-002",
+    "file": "documents/med-002.jpg",
+    "documentType": "medical_certificate",
+    "expiryDate": "2027-11-02",
+    "documentNumber": null,
+    "namedParty": "Carlos Cruz"
+  },
+  {
+    "documentId": "cdl-003",
+    "file": "documents/cdl-003.png",
+    "documentType": "cdl",
+    "expiryDate": "2029-06-30",
+    "documentNumber": "S1234567",
+    "namedParty": "Carlos Cruz"
+  }
+]

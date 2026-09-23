@@ -1,0 +1,17 @@
+{
+  "description": "QCMobile says active, SAFER says inactive. saferDiscrepancy=true drives the Yellow path (Layer 3 cross-source disagreement) — allowed but flagged.",
+  "success": true,
+  "carrier": {
+    "dotNumber": "3000003",
+    "legalName": "E2E DISCREPANCY CARRIERS LLC",
+    "mcNumber": "900003",
+    "carrierOperation": "Interstate",
+    "isBrokerOnly": false,
+    "hqState": "MA",
+    "hqCity": "Worcester",
+    "hqZip": "01604",
+    "authorityStatus": "ACTIVE",
+    "allowedToOperate": true,
+    "saferDiscrepancy": true
+  }
+}

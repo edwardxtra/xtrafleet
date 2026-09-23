@@ -65,7 +65,16 @@ export default defineConfig({
           UPSTASH_REDIS_REST_TOKEN: '',
           RADAR_SECRET_KEY: '',
           RESEND_API_KEY: '',
-          STRIPE_SECRET_KEY: '',
+          // Placeholder Stripe credentials — NOT real keys. See the same block in
+          // .github/workflows/e2e.yml; tests/e2e/stripe-events.ts explains why the
+          // match-fee webhook path needs no Stripe account.
+          STRIPE_SECRET_KEY: 'sk_test_e2e_placeholder_not_a_real_key',
+          STRIPE_WEBHOOK_SECRET: 'whsec_e2e_test_secret',
+          // Serve recorded FMCSA responses instead of calling QCMobile/SAFER.
+          // CI has no FMCSA_WEB_KEY, so without this the compliance gate sees
+          // every carrier as Unverified and blocks every match — the happy
+          // path would be untestable. See src/lib/fmcsa-fixtures.ts.
+          FMCSA_FIXTURE_MODE: '1',
         },
       },
 });

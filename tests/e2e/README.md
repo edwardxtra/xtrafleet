@@ -66,3 +66,52 @@ These need a live run + small additions before they can be un-fixme'd:
 ## CI
 
 `.github/workflows/e2e.yml` runs the full suite on every PR targeting `qa` or `main`. The Playwright HTML report is uploaded as an artifact on every run (passing or failing); look for `playwright-report` in the workflow artifacts when investigating a failure.
+
+## Seeding (`seed.ts`)
+
+Driving every precondition through the UI is why most of this suite was
+disabled: reaching "an owner with a compliant driver and a posted load" took a
+dozen fragile steps before a test asserted anything. The CI job already exports
+`FIRESTORE_EMULATOR_HOST` and `FIREBASE_AUTH_EMULATOR_HOST` into the test
+process, so `seed.ts` writes that state directly with the Admin SDK.
+
+```ts
+const owner  = await seedOwner({ dotNumber: FIXTURE_DOT.clean });
+const driver = await seedDriver(owner.uid, { compliance: 'green' });
+await logInAs(page, owner.email, owner.password);
+```
+
+Presets are verified against the real scorer — `green`/`yellow`/`red` produce
+exactly those results from `getComplianceStatus()`. Attestations are built with
+the production `buildAttestationEntry()` helper, so a change to attestation text
+or version cannot silently desync the suite from what `/api/register` writes.
+
+**Seed preconditions, never the subject.** A test for "posting a load shows it
+on /dashboard/loads" must post through the UI; seeding the load would assert
+nothing. `seedLoad` is for tests where a load is setup for something else.
+
+## FMCSA fixtures
+
+`runComplianceGate()` calls FMCSA synchronously during match formation — a
+claim-supporting invariant from DEV-157, not an accident. CI has no
+`FMCSA_WEB_KEY`, so every carrier used to resolve `Unverified` and only the
+blocked path was reachable.
+
+`FMCSA_FIXTURE_MODE=1` (set in `playwright.config.ts` and `e2e.yml`) swaps the
+transport under `lookupByDOT()` for recorded responses. The gate still calls,
+still decides — only the network hop is replaced. Pick a carrier's outcome with
+`FIXTURE_DOT.clean` / `.revoked` / `.discrepancy` / `.unknown`; see
+`fixtures/fmcsa/README.md`.
+
+The mode cannot activate in production: it requires the flag **and**
+`NODE_ENV !== 'production'`, asserted in `src/lib/__tests__/fmcsa-fixtures.test.ts`.
+
+## Running locally
+
+```bash
+npm run test:e2e      # under `firebase emulators:exec`, see package.json
+```
+
+If Playwright's bundled browser version does not match what is installed
+locally, pass `--config` with a `launchOptions.executablePath` override rather
+than editing `playwright.config.ts` — CI installs its own browsers.
