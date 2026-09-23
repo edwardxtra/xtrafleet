@@ -8,6 +8,35 @@ export interface TLAGenerationData {
 }
 
 /**
+ * Resolve a carrier's address for the lease.
+ *
+ * Two write paths populate this and they disagree: the self-serve profile
+ * (src/lib/actions.ts) stores a single canonical `hqAddress` line, while
+ * admin onboarding (api/admin/onboard) stores `address`. Prefer the
+ * canonical line, then fall back to composing the split fields with the
+ * same FMCSA-style join the profile form uses ("Street, City, ST ZIP").
+ *
+ * Returns '' when nothing is on file rather than omitting the key: the
+ * field is required on TLA['lessor'|'lessee'], and generate-tla-pdf.ts
+ * already guards with `if (tla.lessor.address)` so an empty string keeps
+ * the address block out of the rendered PDF.
+ */
+function resolveAddress(oo: OwnerOperator): string {
+  const canonical = oo.hqAddress?.trim();
+  if (canonical) return canonical;
+
+  const street = oo.address?.trim();
+  const cityStateZip = [
+    oo.city?.trim(),
+    [oo.state?.trim(), oo.zip?.trim()].filter(Boolean).join(' '),
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  return [street, cityStateZip].filter(Boolean).join(', ');
+}
+
+/**
  * Generate a TLA document from match and party data
  * Filters out undefined values to prevent Firestore errors
  */
@@ -21,6 +50,7 @@ export function generateTLA(data: TLAGenerationData): Omit<TLA, 'id'> {
   const lessor: TLA['lessor'] = {
     ownerOperatorId: match.driverOwnerId,
     legalName: lessorInfo.legalName || lessorInfo.companyName || 'Unknown',
+    address: resolveAddress(lessorInfo),
     contactEmail: lessorInfo.contactEmail || '',
   };
   if (lessorInfo.dotNumber) lessor.dotNumber = lessorInfo.dotNumber;
@@ -31,6 +61,7 @@ export function generateTLA(data: TLAGenerationData): Omit<TLA, 'id'> {
   const lessee: TLA['lessee'] = {
     ownerOperatorId: match.loadOwnerId,
     legalName: lesseeInfo.legalName || lesseeInfo.companyName || 'Unknown',
+    address: resolveAddress(lesseeInfo),
     contactEmail: lesseeInfo.contactEmail || '',
   };
   if (lesseeInfo.dotNumber) lessee.dotNumber = lesseeInfo.dotNumber;

@@ -147,7 +147,12 @@ export function calculateTripDuration(startedAt: string, endedAt: string): numbe
   try {
     const start = parseISO(startedAt);
     const end = parseISO(endedAt);
-    return differenceInMinutes(end, start);
+    const minutes = differenceInMinutes(end, start);
+    // differenceInMinutes does NOT throw on an unparseable timestamp — it
+    // returns NaN, so the catch below never fired for the case it was written
+    // for, and formatTripDuration rendered a literal "NaN hour NaN min" into
+    // the trip summary. Fall back to the 0 the catch always intended.
+    return Number.isFinite(minutes) ? minutes : 0;
   } catch {
     return 0;
   }
