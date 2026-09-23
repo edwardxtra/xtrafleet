@@ -66,6 +66,11 @@ export default defineConfig({
           RADAR_SECRET_KEY: '',
           RESEND_API_KEY: '',
           STRIPE_SECRET_KEY: '',
+          // Serve recorded FMCSA responses instead of calling QCMobile/SAFER.
+          // CI has no FMCSA_WEB_KEY, so without this the compliance gate sees
+          // every carrier as Unverified and blocks every match — the happy
+          // path would be untestable. See src/lib/fmcsa-fixtures.ts.
+          FMCSA_FIXTURE_MODE: '1',
         },
       },
 });
