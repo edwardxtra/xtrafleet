@@ -418,3 +418,85 @@ export async function seedPendingMatch(
   await logInAs(page, loadOwner.email, loadOwner.password);
   return { loadOwner, driverOwner, driver, load, match };
 }
+
+// --- TLAs ------------------------------------------------------------------
+
+export interface SeedTlaOptions {
+  matchId: string;
+  lessorOwnerId: string;
+  lesseeOwnerId: string;
+  driverId?: string;
+  /** Pre-mark the match fee as paid — used to assert redelivery idempotency. */
+  matchFeePaid?: boolean;
+  overrides?: Record<string, unknown>;
+}
+
+/**
+ * A signed TLA awaiting its match fee.
+ *
+ * Seeded rather than driven because the subject of the Stripe tests is what
+ * the webhook does to this document, not how it came to exist — the
+ * two-party signing flow is covered elsewhere.
+ */
+export async function seedTla(opts: SeedTlaOptions): Promise<{ id: string }> {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+
+  await db()
+    .collection('tlas')
+    .doc(id)
+    .set({
+      matchId: opts.matchId,
+      lessor: {
+        ownerOperatorId: opts.lessorOwnerId,
+        legalName: 'E2E Lessor Carrier LLC',
+        address: '12 Depot St, Lowell, MA 01852',
+        contactEmail: 'lessor@xtrafleet-e2e.test',
+      },
+      lessee: {
+        ownerOperatorId: opts.lesseeOwnerId,
+        legalName: 'E2E Lessee Carrier Inc',
+        address: '900 Port Rd, Tampa, FL 33602',
+        contactEmail: 'lessee@xtrafleet-e2e.test',
+      },
+      driver: { id: opts.driverId ?? 'e2e-driver', name: 'E2E Driver' },
+      trip: {
+        origin: 'Boston, MA',
+        destination: 'Worcester, MA',
+        cargo: 'Palletized dry goods',
+        weight: 20000,
+        startDate: isoDaysFromNow(2),
+      },
+      payment: { amount: 1850 },
+      insurance: {},
+      status: 'signed',
+      matchFeePaid: opts.matchFeePaid ?? false,
+      createdAt: now,
+      version: 1,
+      ...opts.overrides,
+    });
+
+  return { id };
+}
+
+/** Read a TLA document back, for asserting what the webhook did to it. */
+export async function readTla(tlaId: string): Promise<Record<string, any> | undefined> {
+  const snap = await db().collection('tlas').doc(tlaId).get();
+  return snap.exists ? (snap.data() as Record<string, any>) : undefined;
+}
+
+/** Read a payments document, keyed by PaymentIntent id. */
+export async function readPayment(paymentIntentId: string): Promise<Record<string, any> | undefined> {
+  const snap = await db().collection('payments').doc(paymentIntentId).get();
+  return snap.exists ? (snap.data() as Record<string, any>) : undefined;
+}
+
+/** Count audit_logs entries for one action against one target. */
+export async function countAuditLogs(action: string, targetId: string): Promise<number> {
+  const snap = await db()
+    .collection('audit_logs')
+    .where('action', '==', action)
+    .where('targetId', '==', targetId)
+    .get();
+  return snap.size;
+}
