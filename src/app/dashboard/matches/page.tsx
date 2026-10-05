@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { Driver, Load } from "@/lib/data";
+import type { Driver, Load, Match } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -41,6 +41,12 @@ import {
   type MatchScore,
   type LoadMatchScore,
 } from "@/lib/matching";
+import {
+  buildWindow,
+  COMMITTED_MATCH_STATUSES,
+  commitmentsFromMatches,
+  indexCommitmentsByDriver,
+} from "@/lib/commitments";
 import { Progress } from "@/components/ui/progress";
 import { MatchRequestModal } from "@/components/match-request-modal";
 import { DriverMatchRequestModal } from "@/components/driver-match-request-modal";
@@ -117,6 +123,38 @@ export default function MatchesPage() {
     }
     checkProfileAttestations();
   }, [user, firestore]);
+
+  // DEV-203: every match that currently holds a driver, across all owners.
+  //
+  // Drivers in the pool belong to OTHER owners, so we need their commitments
+  // too — `matches` is readable by any signed-in user, which makes this
+  // possible client-side. TLAs are not fetched: the match status mirrors the
+  // TLA lifecycle (tla_pending -> tla_signed -> in_progress), so matches
+  // alone cover the same commitments without a second subscription.
+  // commitmentsFromTlas() exists for server-side callers that hold both.
+  const [committingMatches, setCommittingMatches] = useState<Match[]>([]);
+
+  useEffect(() => {
+    if (!firestore || !user?.uid) return;
+    const unsubscribe = onSnapshot(
+      query(
+        collection(firestore, "matches"),
+        where("status", "in", [...COMMITTED_MATCH_STATUSES]),
+      ),
+      (snapshot) => {
+        setCommittingMatches(snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Match)));
+      },
+      (err) => console.error(`${LOG_PREFIX} committingMatches snapshot error:`, err)
+    );
+    return () => unsubscribe();
+  }, [firestore, user?.uid]);
+
+  // Driver id -> commitments, so the matcher can exclude anyone already
+  // spoken for in the requested window.
+  const commitmentIndex = useMemo(
+    () => indexCommitmentsByDriver(commitmentsFromMatches(committingMatches)),
+    [committingMatches]
+  );
 
   // Subscribe to MY pending loads.
   // "Pending" is the legacy status string; the current /api/loads POST
@@ -284,7 +322,7 @@ export default function MatchesPage() {
       ? findMatchingDrivers(
           selectedLoad,
           driverPoolForLoad,
-          { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10 }
+          { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10, commitments: commitmentIndex }
         )
       : [];
 
@@ -301,7 +339,7 @@ export default function MatchesPage() {
     findMatchingDriversAsync(
       selectedLoad,
       driverPoolForLoad,
-      { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10 }
+      { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10, commitments: commitmentIndex }
     )
       .then((resolved) => {
         if (cancelled) return;
@@ -327,7 +365,12 @@ export default function MatchesPage() {
   // equipment drivers appear in driverMatches with a low score, not here.
   const ineligibleDriversForLoad =
     selectedLoad && selectionMode === "load" && driverPoolForLoad.length > 0
-      ? findIneligibleDrivers(driverPoolForLoad, { onlyGreenCompliance: true, onlyAvailable: true })
+      ? findIneligibleDrivers(driverPoolForLoad, {
+          onlyGreenCompliance: true,
+          onlyAvailable: true,
+          commitments: commitmentIndex,
+          requestedWindow: buildWindow(selectedLoad?.pickupDate) ?? undefined,
+        })
       : [];
 
   const loadMatches =

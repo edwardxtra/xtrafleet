@@ -1,5 +1,12 @@
 import type { Driver, Load } from "@/lib/data";
 import { differenceInDays, parseISO } from "date-fns";
+import {
+  buildWindow,
+  findConflict,
+  describeConflict,
+  type DateWindow,
+  type DriverCommitment,
+} from "./commitments";
 import type { TrailerType } from "./trailer-types";
 
 const LOG_PREFIX = "[matching]";
@@ -68,6 +75,18 @@ export interface MatchingOptions {
   onlyGreenCompliance?: boolean;
   onlyAvailable?: boolean;
   maxResults?: number;
+  /**
+   * DEV-203 — the window being asked about. Without it there is nothing to
+   * compare commitments against, so the conflict check is skipped entirely
+   * and behaviour is unchanged.
+   */
+  requestedWindow?: DateWindow;
+  /**
+   * DEV-203 — existing commitments keyed by driver id. Callers fetch these
+   * (see commitmentsFromMatches / commitmentsFromTlas) and index them with
+   * indexCommitmentsByDriver. Absent = no conflict checking.
+   */
+  commitments?: Record<string, DriverCommitment[]>;
 }
 
 const DEFAULT_OPTIONS: MatchingOptions = {
@@ -692,6 +711,14 @@ export function findMatchingDrivers(
 ): MatchScore[] {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
+  // DEV-203: when the caller gave commitments but no explicit window, derive
+  // it from the load's pickup date. findIneligibleDrivers has no load, so it
+  // always needs the window passed in — this convenience is local to here.
+  if (opts.commitments && !opts.requestedWindow) {
+    const derived = buildWindow(load.pickupDate);
+    if (derived) opts.requestedWindow = derived;
+  }
+
   // PR 1: equipment is no longer a hard filter — it falls through to scoring.
   // The remaining hard filters are availability + expired compliance docs.
   const eligible = drivers.filter((driver) => filterEligibility(driver, opts) === null);
@@ -732,6 +759,13 @@ function filterEligibility(driver: Driver, opts: MatchingOptions): string | null
     if (expired.length > 0) {
       return `Expired: ${expired.map((d) => d.label).join(", ")}`;
     }
+  }
+  // DEV-203: already spoken for in the requested window. Checked last so the
+  // cheaper filters short-circuit first, and only when the caller supplied
+  // both a window and the commitment index.
+  if (opts.requestedWindow && opts.commitments) {
+    const conflict = findConflict(opts.commitments[driver.id], opts.requestedWindow);
+    if (conflict) return describeConflict(conflict);
   }
   return null;
 }
