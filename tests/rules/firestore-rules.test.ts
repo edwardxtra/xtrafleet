@@ -715,3 +715,79 @@ describe('activation_tokens — server-only (DEV-158)', () => {
     );
   });
 });
+
+// --- tlas / matches: read scoping ----------------------------------------
+
+describe('tlas — only the parties and admins can read an agreement', () => {
+  // A TLA carries the lessor's and lessee's legal names, addresses, contact
+  // emails and phones; the driver's CDL number, CDL state and medical card
+  // expiry; pickup/delivery addresses with contact names and phones; and
+  // each signature's IP address. `allow read: if isSignedIn()` made all of
+  // it readable by anyone who could register an account.
+  it('a stranger cannot read a TLA they are not party to', async () => {
+    await seedTLA('t-read', { lessorOwnerId: 'lessor', lesseeOwnerId: 'lessee' });
+    await assertFails(getDoc(doc(asUser('stranger'), 'tlas/t-read')));
+  });
+
+  it('an unauthenticated caller cannot read a TLA', async () => {
+    await seedTLA('t-read-anon', { lessorOwnerId: 'lessor', lesseeOwnerId: 'lessee' });
+    await assertFails(getDoc(doc(asUnauth(), 'tlas/t-read-anon')));
+  });
+
+  // The three tests below are what stop the rule from simply being
+  // `allow read: if false`, which would also pass the two above.
+  it('the lessor can read their own TLA', async () => {
+    await seedTLA('t-lessor', { lessorOwnerId: 'lessor', lesseeOwnerId: 'lessee' });
+    await assertSucceeds(getDoc(doc(asUser('lessor'), 'tlas/t-lessor')));
+  });
+
+  it('the lessee can read their own TLA', async () => {
+    await seedTLA('t-lessee', { lessorOwnerId: 'lessor', lesseeOwnerId: 'lessee' });
+    await assertSucceeds(getDoc(doc(asUser('lessee'), 'tlas/t-lessee')));
+  });
+
+  it('an admin can read any TLA', async () => {
+    // The admin console lists every TLA with an unfiltered collection read,
+    // so losing this would break it.
+    await seedAdmin('admin1');
+    await seedTLA('t-admin', { lessorOwnerId: 'lessor', lesseeOwnerId: 'lessee' });
+    await assertSucceeds(getDoc(doc(asUser('admin1'), 'tlas/t-admin')));
+  });
+});
+
+describe('matches — read is still open to any signed-in user (known gap)', () => {
+  /**
+   * This pins CURRENT behaviour, not desired behaviour.
+   *
+   * `matches` is readable by any signed-in user, which exposes every
+   * carrier's agreed rates and counter-offers marketplace-wide. It is not
+   * tightened here because DEV-203's cross-carrier conflict detection is
+   * built directly on it: the matches page subscribes to every committed
+   * match, across all owners, to find drivers already spoken for. A
+   * party-scoped read rule would reject that query outright and silently
+   * disable double-booking detection.
+   *
+   * Closing it needs a server-side endpoint that returns commitment
+   * WINDOWS (driverId, start, end) instead of whole match documents. Until
+   * that exists, this test exists so the gap is visible and measured rather
+   * than assumed closed. When the follow-up lands, this test should flip to
+   * assertFails.
+   */
+  it('a stranger CAN currently read a match they are not party to', async () => {
+    await seedMatch('m-read', {
+      loadOwnerId: 'load-owner',
+      driverOwnerId: 'driver-owner',
+      driverId: 'driver-uid',
+    });
+    await assertSucceeds(getDoc(doc(asUser('stranger'), 'matches/m-read')));
+  });
+
+  it('an unauthenticated caller still cannot read a match', async () => {
+    await seedMatch('m-read-anon', {
+      loadOwnerId: 'load-owner',
+      driverOwnerId: 'driver-owner',
+      driverId: 'driver-uid',
+    });
+    await assertFails(getDoc(doc(asUnauth(), 'matches/m-read-anon')));
+  });
+});
