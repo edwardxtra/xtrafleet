@@ -85,6 +85,11 @@ const documentExtractionFlow = ai.defineFlow(
   },
   async (input) => {
     const { output } = await documentExtractionPrompt(input);
-    return output!;
+    // DEV-174: see the note in the sibling flows — a null output must not
+    // become an undefined wearing the result type's clothes.
+    if (!output) {
+      throw new Error('extractDocumentFlow: the model returned no structured output.');
+    }
+    return output;
   }
 );
