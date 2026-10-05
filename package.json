@@ -27,7 +27,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
-    "eval:docs": "npx tsx scripts/eval-doc-extraction.ts"
+    "eval:docs": "npx tsx scripts/eval-doc-extraction.ts",
+    "eval:agent": "npx tsx scripts/eval-agent.ts"
   },
   "dependencies": {
     "@genkit-ai/googleai": "^1.14.1",
