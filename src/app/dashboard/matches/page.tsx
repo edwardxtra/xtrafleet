@@ -590,6 +590,19 @@ export default function MatchesPage() {
                                       <span className="truncate">{companyName}</span>
                                     </p>
                                   )}
+                                  {/* DEV-204: never let an unconfirmed driver
+                                      read as a confirmed one. 'unknown' means
+                                      nobody declared dates, not that they are
+                                      free — say so plainly. */}
+                                  {match.availabilityVerdict === "unknown" ? (
+                                    <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+                                      Availability unconfirmed for these dates
+                                    </p>
+                                  ) : match.availabilityVerdict === "available" ? (
+                                    <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-0.5">
+                                      Available &mdash; {match.availabilityDetail}
+                                    </p>
+                                  ) : null}
                                 </div>
                                 <Badge className={`flex-shrink-0 text-xs ${getComplianceBadgeStyle(complianceStatus)}`}>
                                   <ShieldCheck className="h-3 w-3 mr-1" />{complianceStatus}
