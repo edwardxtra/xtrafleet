@@ -17,6 +17,7 @@ import {
   type GroundTruth,
 } from '@/lib/document-extraction/score';
 import type { ExtractedDocument } from '@/lib/document-extraction/schema';
+import { ExtractDocumentInputSchema } from '@/lib/document-extraction/schema';
 
 // --- normalizeDate ---------------------------------------------------------
 // The single most consequential function here: a date that survives
@@ -320,5 +321,32 @@ describe('recommendThreshold', () => {
   it('refuses to recommend on too few samples', () => {
     const results = [scoreDocument('a', extraction(), truth())];
     expect(recommendThreshold(summarize(results), 0.01, 20)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DEV-174: input bounds. The route guard gives the friendly error; these
+// bounds are the backstop if anything ever reaches the flow without it.
+// ---------------------------------------------------------------------------
+
+describe('ExtractDocumentInputSchema bounds', () => {
+  const valid = 'data:image/png;base64,AAAA';
+
+  it('accepts a normal document', () => {
+    expect(ExtractDocumentInputSchema.safeParse({ documentDataUri: valid }).success).toBe(true);
+  });
+
+  it('rejects an empty data URI', () => {
+    expect(ExtractDocumentInputSchema.safeParse({ documentDataUri: '' }).success).toBe(false);
+  });
+
+  it('rejects a payload beyond the 10 MB decoded cap', () => {
+    const tooBig = `data:image/png;base64,${'A'.repeat(14_000_000)}`;
+    expect(ExtractDocumentInputSchema.safeParse({ documentDataUri: tooBig }).success).toBe(false);
+  });
+
+  it('still accepts a payload just inside the cap', () => {
+    const atCap = `data:image/png;base64,${'A'.repeat(13_000_000)}`;
+    expect(ExtractDocumentInputSchema.safeParse({ documentDataUri: atCap }).success).toBe(true);
   });
 });

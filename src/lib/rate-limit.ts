@@ -57,6 +57,14 @@ export const rateLimiters = {
 
   // Account activation: 10 per hour per IP (defense against token guessing)
   activation: makeLimiter(10, '1 h', 'ratelimit:activation'),
+
+  // AI document extraction: 30 per hour per user (DEV-174). Each call sends
+  // a whole document to a model, so these are the expensive ones.
+  aiDocumentExtraction: makeLimiter(30, '1 h', 'ratelimit:aiDocumentExtraction'),
+
+  // AI conversational flows: 60 per hour per user (DEV-174). Chattier than
+  // extraction but far cheaper per call, so a higher ceiling.
+  aiAgent: makeLimiter(60, '1 h', 'ratelimit:aiAgent'),
 };
 
 // Helper function to get client identifier (IP or user ID)

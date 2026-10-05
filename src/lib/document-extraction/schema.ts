@@ -116,8 +116,14 @@ export const ExtractedDocumentSchema = z.object({
 export type ExtractedDocument = z.infer<typeof ExtractedDocumentSchema>;
 
 export const ExtractDocumentInputSchema = z.object({
+  // DEV-174: bounded at the schema level as well as in the route guard.
+  // ~13.4M base64 characters decodes to the 10 MB AI_INPUT_LIMITS cap; the
+  // guard gives the friendly error, this stops anything reaching the model
+  // if a caller ever bypasses it.
   documentDataUri: z
     .string()
+    .min(1)
+    .max(13_981_016)
     .describe("The document as a data URI: 'data:<mimetype>;base64,<encoded>'. Accepts image/* and application/pdf."),
   expectedDocumentType: z
     .enum(DOCUMENT_TYPES)
