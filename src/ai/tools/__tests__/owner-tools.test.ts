@@ -26,10 +26,17 @@ describe('buildOwnerTools', () => {
   const tools = buildOwnerTools('owner-123');
 
   it('exposes exactly the read-only tools the agent needs', () => {
-    expect(tools.map((t) => actionOf(t).name).sort()).toEqual(['getMyDrivers', 'getMyLoads']);
+    expect(tools.map((t) => actionOf(t).name).sort()).toEqual([
+      'findAvailableDrivers',
+      'getMyDrivers',
+      'getMyLoads',
+    ]);
   });
 
   it('NEVER accepts an owner or user id as a tool argument', () => {
+    // Covers findAvailableDrivers too, which reads ACROSS carriers — there
+    // the closure still decides who is asking, and so whose own fleet is
+    // excluded from the results.
     // The security invariant. If an owner id were a parameter, a confused or
     // prompt-injected model could name someone else's and the query would
     // faithfully serve it.
@@ -44,6 +51,14 @@ describe('buildOwnerTools', () => {
     const byName = Object.fromEntries(tools.map((t) => [actionOf(t).name, inputKeys(t)]));
     expect(byName.getMyDrivers).toEqual(['nameContains']);
     expect(byName.getMyLoads).toEqual(['onlyOpen']);
+    // The capacity search takes trip details only — never a carrier, owner
+    // or driver id it could be steered toward.
+    expect(byName.findAvailableDrivers).toEqual([
+      'origin',
+      'destination',
+      'pickupDate',
+      'trailerType',
+    ]);
   });
 
   it('builds an independent tool set per owner', () => {
