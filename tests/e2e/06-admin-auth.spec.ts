@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedOwner, logInAs, closeSeedApp, FIXTURE_DOT } from './seed';
+import { seedOwner, logInAs, closeSeedApp, countAuditEntries, FIXTURE_DOT } from './seed';
 import { attachPageDiagnostics } from './helpers';
 
 /**
@@ -59,16 +59,17 @@ const ADMIN_ROUTES: AdminRoute[] = [
   { method: 'GET', path: '/api/admin/conversations/SUBJECT/messages', danger: 'reads any conversation\'s messages' },
   { method: 'POST', path: '/api/admin/conversations/SUBJECT/messages/delete', body: {}, danger: 'deletes messages' },
   { method: 'GET', path: '/api/admin/health', danger: 'exposes system health' },
+  { method: 'POST', path: '/api/admin/impersonate/stop', body: { reason: 'test' }, danger: 'forges impersonation_ended audit entries' },
 ];
 
 /**
- * /api/admin/impersonate/stop is deliberately NOT here. It only audit-logs
- * the END of an impersonation session, is called after the client has
- * already signed out (so there is no session left to authenticate), and
- * returns 200 even on failure by design. Asserting a 401 would encode the
- * opposite of its intent. Its lack of a guard does mean an anonymous caller
- * can append `impersonation_ended` entries to audit_logs — noted for a
- * separate decision, not silently changed here.
+ * /api/admin/impersonate/stop was previously excluded from this list, on the
+ * route's own stated reasoning that it runs "after the client has already
+ * signed out, so there is no session left to authenticate". That was wrong in
+ * a specific way: the banner calls it BEFORE signing out, and the caller is
+ * authenticated — as the impersonated target, whose token carries the
+ * server-minted `impersonatedBy` claim. The route now derives both identities
+ * from that token, so it is an ordinary gated route and belongs here.
  */
 
 const REFUSED = [401, 403];
@@ -119,6 +120,23 @@ test.describe('T6 — every admin route refuses a non-admin', () => {
     }
 
     expect(failures, `Admin routes reachable by a signed-in non-admin:\n${failures.join('\n')}`).toEqual([]);
+  });
+
+  test('a refused impersonate/stop call writes no audit entry', async ({ request }) => {
+    // The status code is only half the property. This route's entire job is
+    // to append to audit_logs, so a 401 that still wrote the row would leave
+    // the forgery intact — anyone could name any admin as having ended an
+    // impersonation that never happened, in the log you consult during an
+    // incident.
+    const before = await countAuditEntries('impersonation_ended');
+
+    const res = await request.post('/api/admin/impersonate/stop', {
+      headers: { 'content-type': 'application/json' },
+      data: { adminUid: 'forged-admin', targetUid: 'forged-target', reason: 'forged' },
+    });
+    expect(REFUSED).toContain(res.status());
+
+    expect(await countAuditEntries('impersonation_ended')).toBe(before);
   });
 
   test('a refused clear-data call deletes nothing', async ({ page }) => {

@@ -82,19 +82,16 @@ export function ImpersonationBanner() {
   async function stop(reason = 'Stopped via banner') {
     if (!state || stopping) return;
     setStopping(true);
-    const snapshot = state;
     try {
-      // Best-effort audit + clear cookie before the client signs out so the
-      // admin's logout state is clean.
+      // Audit + clear cookie BEFORE the client signs out — the route derives
+      // both identities from the still-live impersonated session's token, so
+      // it has to run while that session exists. Only `reason` is sent; the
+      // uids used to travel in this body and were trusted, which let anyone
+      // forge an impersonation_ended entry.
       await fetch('/api/admin/impersonate/stop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          adminUid: snapshot.adminUid,
-          adminEmail: snapshot.adminEmail,
-          targetUid: snapshot.targetUid,
-          reason,
-        }),
+        body: JSON.stringify({ reason }),
       }).catch(() => {});
       try {
         await auth.signOut();
