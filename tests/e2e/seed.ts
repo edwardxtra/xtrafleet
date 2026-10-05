@@ -70,6 +70,16 @@ function db(): Firestore {
 }
 
 /** Release the Admin SDK app so Playwright's process can exit cleanly. */
+/**
+ * How many `audit_logs` entries carry this action. Used to prove a refused
+ * call wrote nothing — a 401 that still appended a row would be no defence
+ * for a log whose whole value is being trustworthy.
+ */
+export async function countAuditEntries(action: string): Promise<number> {
+  const snap = await db().collection('audit_logs').where('action', '==', action).get();
+  return snap.size;
+}
+
 export async function closeSeedApp(): Promise<void> {
   if (app) {
     await deleteApp(app);
