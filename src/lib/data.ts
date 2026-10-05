@@ -17,6 +17,30 @@ export type AccountStatus =
   | 'active'        // fully activated, has Firebase Auth credentials
   | 'suspended';    // disabled
 
+/**
+ * A span a driver is declared available for (DEV-204).
+ *
+ * `availability` on its own is a current-state enum with no time dimension,
+ * so it cannot answer "is this driver free next Tuesday". Windows add that.
+ *
+ * `source` is the point: owner-operators declare these by hand today, and a
+ * TMS or ELD writes the identical structure later. The matcher never learns
+ * the difference, so the integration becomes a populate rather than a
+ * refactor — the same move `externalRefs` makes for TMS identity.
+ */
+export type AvailabilityWindow = {
+  /** ISO date, inclusive. */
+  start: string;
+  /** ISO date, inclusive. */
+  end: string;
+  /** Where the driver starts and returns, when it differs from their base. */
+  homeBase?: string;
+  note?: string;
+  source: 'manual' | 'tms' | 'eld';
+  /** When this window was recorded, for staleness checks later. */
+  recordedAt?: string;
+};
+
 export type Driver = {
   id: string;
   name: string;
@@ -24,6 +48,12 @@ export type Driver = {
   location: string;
   certifications: string[];
   availability: "Available" | "On-trip" | "Off-duty";
+  /**
+   * Declared availability spans (DEV-204). Absent on every legacy driver —
+   * code reading this must treat "none declared" as UNKNOWN, never as
+   * unavailable. See src/lib/availability.ts.
+   */
+  availabilityWindows?: AvailabilityWindow[];
   vehicleType: "Dry Van" | "Reefer" | "Flatbed"; // Legacy - single type
   vehicleTypes?: string[]; // New - array of types driver can haul
   trailerTypes?: TrailerType[]; // New - array of types driver can haul

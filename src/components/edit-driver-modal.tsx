@@ -20,11 +20,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus, X } from "lucide-react";
 import { useAuth, useFirestore } from "@/firebase";
 import { doc, updateDoc } from "firebase/firestore";
 import { showSuccess, showError } from "@/lib/toast-utils";
-import type { Driver } from "@/lib/data";
+import type { Driver, AvailabilityWindow } from "@/lib/data";
+import { manualWindow } from "@/lib/availability";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TRAILER_TYPES } from "@/lib/trailer-types";
 import { MultiSelect, type Option } from "@/components/ui/multi-select";
@@ -59,6 +60,12 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
     drugAndAlcoholScreeningDate: "",
   });
 
+  // DEV-204: declared availability spans. Held separately from formData
+  // because they are a list, not a scalar field.
+  const [windows, setWindows] = useState<AvailabilityWindow[]>([]);
+  const [draftStart, setDraftStart] = useState("");
+  const [draftEnd, setDraftEnd] = useState("");
+
   useEffect(() => {
     if (driver) {
       // Migrate legacy vehicleType to vehicleTypes array
@@ -82,6 +89,9 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
         preEmploymentScreeningDate: driver.preEmploymentScreeningDate?.split("T")[0] || "",
         drugAndAlcoholScreeningDate: driver.drugAndAlcoholScreeningDate?.split("T")[0] || "",
       });
+      setWindows(driver.availabilityWindows || []);
+      setDraftStart("");
+      setDraftEnd("");
     }
   }, [driver]);
 
@@ -118,6 +128,8 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
       if (formData.location) updateData.location = formData.location;
       if (formData.phoneNumber) updateData.phoneNumber = formData.phoneNumber;
       if (formData.availability) updateData.availability = formData.availability;
+      // DEV-204: always write the array so removing the last window persists.
+      updateData.availabilityWindows = windows;
       if (formData.profileSummary) updateData.profileSummary = formData.profileSummary;
       
       // Vehicle types - multi-select array
@@ -257,7 +269,88 @@ export function EditDriverModal({ open, onOpenChange, driver, onSuccess }: EditD
                       <SelectItem value="Off-duty">Off-duty</SelectItem>
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Current status only. For specific dates, declare availability below.
+                  </p>
                 </div>
+              </div>
+
+              {/* DEV-204: declared availability spans. The status dropdown
+                  above cannot answer "is this driver free next Tuesday" —
+                  these can. Left empty, matching treats this driver's
+                  availability as UNKNOWN rather than unavailable, so they
+                  still appear in results, just unconfirmed. */}
+              <div className="space-y-2 rounded-md border p-3">
+                <Label>Availability dates</Label>
+                <p className="text-xs text-muted-foreground">
+                  Dates this driver is free to take work. Leave empty if you&apos;re not
+                  sure &mdash; they&apos;ll still show in matches, marked unconfirmed.
+                </p>
+
+                {windows.length > 0 && (
+                  <ul className="space-y-1">
+                    {windows.map((w, i) => (
+                      <li
+                        key={`${w.start}-${w.end}-${i}`}
+                        className="flex items-center justify-between rounded bg-muted px-2 py-1 text-sm"
+                      >
+                        <span>
+                          {w.start} &rarr; {w.end}
+                          {w.source !== "manual" && (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              from {w.source.toUpperCase()}
+                            </span>
+                          )}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Remove availability ${w.start} to ${w.end}`}
+                          onClick={() => setWindows(windows.filter((_, idx) => idx !== i))}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="flex items-end gap-2">
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="availability-start" className="text-xs">From</Label>
+                    <Input
+                      id="availability-start"
+                      type="date"
+                      value={draftStart}
+                      onChange={(e) => setDraftStart(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="availability-end" className="text-xs">To</Label>
+                    <Input
+                      id="availability-end"
+                      type="date"
+                      value={draftEnd}
+                      onChange={(e) => setDraftEnd(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={!draftStart || !draftEnd || draftEnd < draftStart}
+                    onClick={() => {
+                      setWindows([...windows, manualWindow(draftStart, draftEnd)]);
+                      setDraftStart("");
+                      setDraftEnd("");
+                    }}
+                  >
+                    <Plus className="mr-1 h-3 w-3" /> Add
+                  </Button>
+                </div>
+                {draftStart && draftEnd && draftEnd < draftStart && (
+                  <p className="text-xs text-destructive">End date must be on or after the start date.</p>
+                )}
               </div>
 
               <div className="space-y-2">

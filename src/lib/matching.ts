@@ -7,6 +7,11 @@ import {
   type DateWindow,
   type DriverCommitment,
 } from "./commitments";
+import {
+  resolveAvailability,
+  excludesFromResults,
+  type AvailabilityVerdict,
+} from "./availability";
 import type { TrailerType } from "./trailer-types";
 
 const LOG_PREFIX = "[matching]";
@@ -61,6 +66,12 @@ export interface MatchScore {
   breakdown: MatchScoreBreakdown;
   rank: number;
   isBestMatch: boolean;
+  /**
+   * DEV-204 — 'unknown' means nobody has declared windows for this driver,
+   * NOT that they are busy. Surface it; never render it as a yes.
+   */
+  availabilityVerdict?: AvailabilityVerdict;
+  availabilityDetail?: string;
 }
 
 export interface LoadMatchScore {
@@ -711,10 +722,11 @@ export function findMatchingDrivers(
 ): MatchScore[] {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
-  // DEV-203: when the caller gave commitments but no explicit window, derive
-  // it from the load's pickup date. findIneligibleDrivers has no load, so it
-  // always needs the window passed in — this convenience is local to here.
-  if (opts.commitments && !opts.requestedWindow) {
+  // DEV-203/204: derive the window from the load's pickup date when the
+  // caller did not pass one. Both the commitment check and the availability
+  // resolution need it. findIneligibleDrivers has no load, so it always
+  // needs the window passed in explicitly — this convenience is local here.
+  if (!opts.requestedWindow) {
     const derived = buildWindow(load.pickupDate);
     if (derived) opts.requestedWindow = derived;
   }
@@ -730,7 +742,18 @@ export function findMatchingDrivers(
   const scored: MatchScore[] = eligible.map((driver) => {
     const breakdown = calculateMatchScore(driver, load);
     const score = getTotalScore(breakdown);
-    return { driver, score, breakdown, rank: 0, isBestMatch: false };
+    // DEV-204: carry the verdict through so the UI (and later the capacity
+    // agent) can say "availability unconfirmed" rather than implying a yes.
+    const availability = resolveAvailability(driver, opts.requestedWindow);
+    return {
+      driver,
+      score,
+      breakdown,
+      rank: 0,
+      isBestMatch: false,
+      availabilityVerdict: availability.verdict,
+      availabilityDetail: availability.detail,
+    };
   });
 
   // PR 3: infeasible-by-schedule drivers always sort below feasible ones,
@@ -750,8 +773,15 @@ export function findMatchingDrivers(
 // they're eligible. Used both by findMatchingDrivers and the new
 // findIneligibleDrivers helper so the two stay in lockstep.
 function filterEligibility(driver: Driver, opts: MatchingOptions): string | null {
-  if (opts.onlyAvailable && driver.availability !== "Available") {
-    return `Not available (${driver.availability || "no status"})`;
+  // DEV-204: declared availability windows are authoritative when present;
+  // the legacy enum is the fallback. Only a definite 'unavailable' excludes —
+  // 'unknown' still ranks, because hiding a driver nobody has declared
+  // windows for would make this less useful than the phone call it replaces.
+  if (opts.onlyAvailable) {
+    const availability = resolveAvailability(driver, opts.requestedWindow);
+    if (excludesFromResults(availability.verdict)) {
+      return `Not available (${availability.detail})`;
+    }
   }
   if (opts.onlyGreenCompliance) {
     const expiryDetails = buildExpiryDetails(driver);
