@@ -5,7 +5,10 @@ import {
   assertFails,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel } from 'firebase/firestore';
+import {
+  doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel,
+  collectionGroup, getDocs, query, where,
+} from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -789,5 +792,92 @@ describe('matches — read is still open to any signed-in user (known gap)', () 
       driverId: 'driver-uid',
     });
     await assertFails(getDoc(doc(asUnauth(), 'matches/m-read-anon')));
+  });
+});
+
+
+// --- drivers: the collection-group rule overrides the nested guard --------
+
+/** Seed a driver under an owner. */
+async function seedDriverDoc(
+  ownerId: string,
+  driverId: string,
+  data: Record<string, unknown> = {}
+) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), `owner_operators/${ownerId}/drivers/${driverId}`), {
+      name: 'Seed Driver',
+      accountStatus: 'active',
+      ...data,
+    });
+  });
+}
+
+describe('drivers — pre-activation guard is inert (known gap)', () => {
+  /**
+   * This pins CURRENT behaviour, not desired behaviour.
+   *
+   * The nested rule guards pre-activated drivers (DEV-158):
+   *
+   *   allow get: if accountStatus != 'pre-activated' || isOwner || isAdmin
+   *
+   * But `match /{path=**}/drivers/{driverId} { allow read: if isSignedIn(); }`
+   * ALSO matches that same path, and Firestore grants access when ANY
+   * matching rule allows it. So the guard above never denies anything: the
+   * blanket collection-group read overrides it on both the direct-get and
+   * the query path. The first test below is what proves it — a stranger
+   * reads a pre-activated driver by the very path the nested rule claims to
+   * protect.
+   *
+   * This is not a one-line fix. A driver document is the whole DQF — CDL
+   * number and state, MVR number, medical card expiry, insurance policy
+   * number, phone and email, plus storage URLs for the CDL scan, MVR and
+   * drug-and-alcohol screening (and those URLs carry Firebase download
+   * tokens, so they resolve for anyone holding them regardless of
+   * storage.rules). Closing it means the marketplace matcher stops reading
+   * whole driver documents client-side: dashboard/matches subscribes to an
+   * UNFILTERED collectionGroup('drivers'), and any rule that depends on
+   * document data denies such a query outright.
+   *
+   * A client-side filter cannot rescue it either — legacy drivers carry no
+   * accountStatus field, and a Firestore query cannot match a missing
+   * field, so filtering would silently drop them from the marketplace. The
+   * fix is a projecting server endpoint (plus a backfill), which is why it
+   * is recorded here rather than attempted in passing.
+   *
+   * These flip to assertFails when that lands.
+   */
+  it('a stranger CAN currently read a pre-activated driver by direct get', async () => {
+    await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
+    await assertSucceeds(
+      getDoc(doc(asUser('stranger'), 'owner_operators/owner-a/drivers/pre-driver'))
+    );
+  });
+
+  it('a stranger CAN currently reach pre-activated drivers via collectionGroup', async () => {
+    await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
+    await assertSucceeds(
+      getDocs(
+        query(
+          collectionGroup(asUser('stranger'), 'drivers'),
+          where('accountStatus', '==', 'pre-activated')
+        )
+      )
+    );
+  });
+
+  it('an unauthenticated caller is still refused', async () => {
+    // The one part of the guard that does hold.
+    await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
+    await assertFails(
+      getDoc(doc(asUnauth(), 'owner_operators/owner-a/drivers/pre-driver'))
+    );
+  });
+
+  it('the marketplace reads drivers across owners with no filter at all', async () => {
+    // Pins the constraint any fix has to work around: this is the shape the
+    // matcher actually issues.
+    await seedDriverDoc('owner-a', 'active-driver');
+    await assertSucceeds(getDocs(collectionGroup(asUser('stranger'), 'drivers')));
   });
 });
