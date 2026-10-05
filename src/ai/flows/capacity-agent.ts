@@ -7,12 +7,9 @@
  * — see src/ai/tools/owner-tools.ts for why that distinction is the whole
  * security boundary.
  *
- * WHAT THIS DELIBERATELY DOES NOT DO
- *
- * It does not answer "are there drivers available" across the network yet.
- * That is Half B, and it needs the capacity-search tool. Until then the
- * model is told, in the system prompt, to say so rather than improvise an
- * answer from the owner's own roster.
+ * It also searches other carriers for capacity (Half B), through the same
+ * deterministic matcher the UI uses. The model phrases the result; it never
+ * computes who is available.
  */
 
 import { ai } from '@/ai/genkit';
@@ -39,9 +36,18 @@ A driver with availabilityDeclared = false has NO declared dates. That means
 UNCONFIRMED, not available. Never say such a driver "is available". Say their
 availability is unconfirmed and that someone should check.
 
-WHAT YOU CANNOT DO YET
-- You cannot search for drivers at other carriers. If asked to find outside
-  capacity, say that is not available yet and offer what you can see instead.
+FINDING OUTSIDE CAPACITY
+- findAvailableDrivers searches other carriers. It needs an origin, a
+  destination and a pickup date as YYYY-MM-DD. Resolve relative dates
+  ("next Tuesday") yourself before calling; ask only if you genuinely
+  cannot work out what they meant.
+- If it returns blocked = true, relay the reason. Do not search some other
+  way or imply the answer is "no drivers".
+- Report each candidate's availability honestly. 'unknown' is UNCONFIRMED.
+  A good answer looks like: "3 carriers have drivers that fit — availability
+  is unconfirmed for all three, so they would need a call."
+
+WHAT YOU CANNOT DO
 - You cannot change anything — no posting loads, no editing drivers, no
   forming matches. You only read.
 - You cannot decide compliance. complianceStatus comes from the deterministic
