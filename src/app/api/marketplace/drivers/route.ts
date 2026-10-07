@@ -32,19 +32,10 @@
  * scales with the network.
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { getFirebaseAdmin } from '@/lib/firebase-admin-singleton';
-import { authenticateRequest, type AuthenticatedUser } from '@/lib/api-auth';
 import { withCors } from '@/lib/api-cors';
-import { hasCurrent, type AttestationEntry, type AttestationType } from '@/lib/attestations';
+import { requireMarketplaceAccess, parseLimit } from '@/lib/marketplace/access';
 import { projectDriver, isMarketplaceVisible } from '@/lib/marketplace/projection';
 import type { Driver } from '@/lib/data';
-
-/**
- * Same gate as the matching UI and the AI agent's findAvailableDrivers. A
- * carrier sees other carriers' capacity only once its own insurance and DOT
- * authority attestations are on file.
- */
-const MARKETPLACE_ATTESTATIONS: AttestationType[] = ['profileInsurance', 'profileAuthority'];
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -55,44 +46,13 @@ function json(body: Record<string, unknown>, status: number) {
 
 async function handleGet(request: NextRequest) {
   try {
-    // authenticateRequest THROWS on failure and returns the decoded token, so
-    // it needs its own try — the outer catch would turn a missing session into
-    // a 500 and tell the caller the server broke rather than that they are not
-    // signed in.
-    let decoded: AuthenticatedUser;
-    try {
-      decoded = await authenticateRequest(request);
-    } catch {
-      return json({ error: 'You must be signed in.' }, 401);
-    }
-    const callerId = decoded.uid;
-
-    const { db } = await getFirebaseAdmin();
-
     // Gate before reading anything.
-    const ownerSnap = await db.collection('owner_operators').doc(callerId).get();
-    const ownerData = ownerSnap.exists
-      ? (ownerSnap.data() as { attestations?: AttestationEntry[] })
-      : {};
-    const missing = MARKETPLACE_ATTESTATIONS.filter((t) => !hasCurrent(ownerData.attestations, t));
-    if (missing.length > 0) {
-      return json(
-        {
-          error:
-            'Finding outside capacity needs your profile compliance attestations on file first — ' +
-            'insurance and DOT authority. Complete those on your profile and this will work.',
-          missingAttestations: missing,
-        },
-        403
-      );
-    }
+    const access = await requireMarketplaceAccess(request);
+    if (!access.ok) return access.response;
+    const { db } = access;
 
     const params = request.nextUrl.searchParams;
-    const requested = parseInt(params.get('limit') ?? '', 10);
-    const limit = Math.min(
-      Number.isFinite(requested) && requested > 0 ? requested : DEFAULT_LIMIT,
-      MAX_LIMIT
-    );
+    const limit = parseLimit(params.get('limit'), { fallback: DEFAULT_LIMIT, max: MAX_LIMIT });
     const cursor = params.get('cursor');
 
     // Ordered by document path so the cursor is stable and needs no extra
