@@ -18,6 +18,7 @@
  */
 import type { AvailabilityWindow, Driver, Load, Match } from '@/lib/data';
 import { commitmentsFromMatches, type DriverCommitment } from '@/lib/commitments';
+import { getComplianceStatus, type ComplianceStatus } from '@/lib/compliance';
 
 /** Exactly the fields the deterministic matcher reads. */
 export interface MarketplaceDriver {
@@ -37,6 +38,20 @@ export interface MarketplaceDriver {
   cdlExpiry?: string;
   medicalCardExpiry?: string;
   insuranceExpiry?: string;
+  /**
+   * The compliance verdict, computed on the SERVER from the full document.
+   *
+   * This has to be sent as a verdict rather than left to the client, and the
+   * reason is easy to miss: getComplianceStatus requires cdlLicense,
+   * motorVehicleRecordNumber, backgroundCheckDate, preEmploymentScreeningDate
+   * and drugAndAlcoholScreeningDate to be PRESENT, and returns Red when any
+   * is missing. Those are exactly the fields this projection withholds. So a
+   * client calling getComplianceStatus on a projected driver gets Red for a
+   * fully compliant one — a confident wrong answer, not a gap.
+   *
+   * Same approach as src/ai/tools/owner-tools.ts, for the same reason.
+   */
+  complianceStatus: ComplianceStatus;
 }
 
 /**
@@ -81,6 +96,9 @@ export function projectDriver(
     ...(raw.cdlExpiry ? { cdlExpiry: raw.cdlExpiry } : {}),
     ...(raw.medicalCardExpiry ? { medicalCardExpiry: raw.medicalCardExpiry } : {}),
     ...(raw.insuranceExpiry ? { insuranceExpiry: raw.insuranceExpiry } : {}),
+    // Computed from `raw`, the full document — never from the projection.
+    // A partial record scores Red, which is the safe direction to be wrong in.
+    complianceStatus: getComplianceStatus(raw as Driver),
   };
 }
 

@@ -4,6 +4,7 @@ import {
   isMarketplaceVisible,
   WITHHELD_DRIVER_FIELDS,
 } from '@/lib/marketplace/projection';
+import { getComplianceStatus } from '@/lib/compliance';
 import type { Driver } from '@/lib/data';
 
 /**
@@ -147,5 +148,54 @@ describe('isMarketplaceVisible', () => {
 
   it('shows an active driver', () => {
     expect(isMarketplaceVisible({ accountStatus: 'active', isActive: true } as Driver)).toBe(true);
+  });
+});
+
+describe('projectDriver — the compliance verdict travels, the inputs do not', () => {
+  /**
+   * The trap this pins.
+   *
+   * getComplianceStatus requires cdlLicense, motorVehicleRecordNumber,
+   * backgroundCheckDate, preEmploymentScreeningDate and
+   * drugAndAlcoholScreeningDate to be PRESENT, and returns Red when any is
+   * missing. Those are exactly the fields the projection withholds.
+   *
+   * So a client that keeps calling getComplianceStatus on a projected driver
+   * gets Red for a fully compliant one. Measured, not assumed: before
+   * complianceStatus existed, the projected version of the Green fixture
+   * below scored Red. That is a confident wrong answer — the badge on every
+   * outside driver in the match results would read non-compliant while the
+   * matcher went on ranking them, because the matcher reads the expiry dates
+   * (which survive) and not getComplianceStatus.
+   */
+  it('carries a verdict computed from the full document', () => {
+    const raw = fullDriver();
+    const projected = projectDriver(raw, 'd1', 'owner-1');
+    // The same answer the raw document would have produced.
+    expect(projected.complianceStatus).toBe(getComplianceStatus(raw));
+  });
+
+  it('is not Red-by-omission for a compliant driver', () => {
+    const projected = projectDriver(fullDriver(), 'd1', 'owner-1');
+    expect(projected.complianceStatus).not.toBe('Red');
+  });
+
+  it('does not survive a round trip through getComplianceStatus', () => {
+    // The projection is deliberately NOT a valid input to that function, so
+    // the verdict must be read from the field. If this ever starts returning
+    // the right answer, the projection has begun leaking the inputs.
+    const projected = projectDriver(fullDriver(), 'd1', 'owner-1');
+    expect(getComplianceStatus(projected as unknown as Driver)).toBe('Red');
+    expect(projected.complianceStatus).not.toBe('Red');
+  });
+
+  it('still reports Red for a driver that genuinely is', () => {
+    const expired = { ...fullDriver(), cdlExpiry: '2020-01-01' };
+    expect(projectDriver(expired, 'd1', 'owner-1').complianceStatus).toBe('Red');
+  });
+
+  it('reports Red for a document missing a required field', () => {
+    const { cdlLicense: _dropped, ...noCdl } = fullDriver();
+    expect(projectDriver(noCdl as Driver, 'd1', 'owner-1').complianceStatus).toBe('Red');
   });
 });
