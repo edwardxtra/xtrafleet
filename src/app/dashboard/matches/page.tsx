@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -92,6 +92,23 @@ export default function MatchesPage() {
   const [loadsLoading, setLoadsLoading] = useState(true);
   const [allLoadsLoading, setAllLoadsLoading] = useState(true);
 
+  // Which marketplace feeds failed to load.
+  //
+  // Each subscription below used to report its errors to the console only, so
+  // a failed listener left its state as an empty array and the page rendered a
+  // marketplace with nothing in it. "No capacity exists" and "we could not ask"
+  // looked identical, and the honest answer — we do not know — was the one
+  // outcome the UI could not express.
+  //
+  // Measured in tests/scale: past roughly 18k driver documents the
+  // collection-group listener stops delivering entirely and retries in a loop
+  // ("WebChannelConnection RPC 'Listen' stream transport errored"), so this is
+  // the state a carrier would actually have seen.
+  const [failedFeeds, setFailedFeeds] = useState<string[]>([]);
+  const noteFeedFailure = useCallback((feed: string) => {
+    setFailedFeeds((prev) => (prev.includes(feed) ? prev : [...prev, feed]));
+  }, []);
+
   const { user } = useUser();
   const firestore = useFirestore();
 
@@ -144,7 +161,10 @@ export default function MatchesPage() {
       (snapshot) => {
         setCommittingMatches(snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Match)));
       },
-      (err) => console.error(`${LOG_PREFIX} committingMatches snapshot error:`, err)
+      (err) => {
+        console.error(`${LOG_PREFIX} committingMatches snapshot error:`, err);
+        noteFeedFailure('existing commitments');
+      }
     );
     return () => unsubscribe();
   }, [firestore, user?.uid]);
@@ -174,7 +194,11 @@ export default function MatchesPage() {
         setLoadsLoading(false);
         console.log(`${LOG_PREFIX} myPendingLoads updated: ${loads.length}`);
       },
-      (err) => console.error(`${LOG_PREFIX} myPendingLoads snapshot error:`, err)
+      (err) => {
+        console.error(`${LOG_PREFIX} myPendingLoads snapshot error:`, err);
+        setLoadsLoading(false);
+        noteFeedFailure('your loads');
+      }
     );
     return () => unsubscribe();
   }, [firestore, user?.uid]);
@@ -199,7 +223,11 @@ export default function MatchesPage() {
         setAllLoadsLoading(false);
         console.log(`${LOG_PREFIX} allPendingLoads updated: ${loads.length}`);
       },
-      (err) => console.error(`${LOG_PREFIX} allPendingLoads snapshot error:`, err)
+      (err) => {
+        console.error(`${LOG_PREFIX} allPendingLoads snapshot error:`, err);
+        setAllLoadsLoading(false);
+        noteFeedFailure('loads from other carriers');
+      }
     );
     return () => unsubscribe();
   }, [firestore, user?.uid]);
@@ -219,7 +247,11 @@ export default function MatchesPage() {
         setDriversLoading(false);
         console.log(`${LOG_PREFIX} allDrivers updated: ${drivers.length}`);
       },
-      (err) => console.error(`${LOG_PREFIX} allDrivers snapshot error:`, err)
+      (err) => {
+        console.error(`${LOG_PREFIX} allDrivers snapshot error:`, err);
+        setDriversLoading(false);
+        noteFeedFailure('drivers from other carriers');
+      }
     );
     return () => unsubscribe();
   }, [firestore, user?.uid]);
@@ -422,6 +454,16 @@ export default function MatchesPage() {
 
   return (
     <>
+      {failedFeeds.length > 0 && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Could not load {failedFeeds.join(' or ')}. What you see below is
+            incomplete — treat an empty result as unknown, not as
+            &ldquo;no capacity available&rdquo;. Reload to try again.
+          </AlertDescription>
+        </Alert>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 lg:h-[calc(100vh-8rem)]">
 
         {/* MY ASSETS */}
