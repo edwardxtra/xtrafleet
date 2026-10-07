@@ -1,5 +1,6 @@
 import type { TrailerType } from './trailer-types';
 import type { ExternalRef } from './tms/types';
+import type { LoadStatus } from './load-types';
 
 export type Review = {
   id: string;
@@ -111,13 +112,24 @@ export type Driver = {
   externalRefs?: ExternalRef[];
 };
 
+/**
+ * Load statuses that predate LOAD_STATUSES in load-types.ts.
+ *
+ * `Load.status` was still typed as only these four long after /api/loads
+ * started writing 'live' and 'match_pending', which made the type disagree
+ * with the database: every call site handling a real status needed a cast,
+ * and TypeScript flagged correct comparisons as impossible. The union is now
+ * the canonical LoadStatus plus these, because old documents still carry them.
+ */
+export type LegacyLoadStatus = "Pending" | "Matched" | "In-transit" | "Delivered";
+
 export type Load = {
   id: string;
   origin: string;
   destination: string;
   cargo: string;
   weight: number;
-  status: "Pending" | "Matched" | "In-transit" | "Delivered";
+  status: LoadStatus | LegacyLoadStatus;
   requiredQualifications: string[];
   trailerType?: TrailerType; // New - standardized trailer type
   description?: string;

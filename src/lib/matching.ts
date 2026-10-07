@@ -13,6 +13,7 @@ import {
   type AvailabilityVerdict,
 } from "./availability";
 import type { TrailerType } from "./trailer-types";
+import { isLoadAvailable } from "./marketplace/projection";
 
 const LOG_PREFIX = "[matching]";
 
@@ -888,12 +889,6 @@ export async function findMatchingDriversAsync(
   return opts.maxResults ? scored.slice(0, opts.maxResults) : scored;
 }
 
-// PR 1: equipment is a soft penalty here too; the only hard filter on a load
-// is that its status is in the available-for-matching set. The legacy
-// "Pending" string is kept alongside the current "live" / "match_pending"
-// so old data continues to surface.
-const AVAILABLE_LOAD_STATUSES = new Set(['Pending', 'live', 'match_pending']);
-
 export function findMatchingLoads(
   driver: Driver,
   loads: Load[],
@@ -901,7 +896,11 @@ export function findMatchingLoads(
 ): LoadMatchScore[] {
   const { maxResults = 10 } = options;
 
-  const available = loads.filter((load) => AVAILABLE_LOAD_STATUSES.has(load.status as string));
+  // PR 1: equipment is a soft penalty here too; the only hard filter on a load
+  // is that its status puts it on the board. That test lives in
+  // marketplace/projection.ts so the matcher, the projected endpoint and the
+  // dashboard panel cannot drift apart on which loads are matchable.
+  const available = loads.filter(isLoadAvailable);
 
   console.log(
     `${LOG_PREFIX} findMatchingLoads: ${available.length}/${loads.length} available for driver ${driver.id ?? driver.name}`
