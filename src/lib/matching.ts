@@ -228,6 +228,26 @@ const FALLBACK_COORDINATES: Record<string, { lat: number; lng: number }> = {
   miami: { lat: 25.7617, lng: -80.1918 }, tampa: { lat: 27.9506, lng: -82.4572 },
   orlando: { lat: 28.5383, lng: -81.3792 }, jacksonville: { lat: 30.3322, lng: -81.6557 },
   "fort lauderdale": { lat: 26.1224, lng: -80.1373 }, tallahassee: { lat: 30.4383, lng: -84.2807 },
+  // I-4 / Polk County corridor — the launch market. Absent until Oct 2026, so
+  // every one of these resolved to the `fl` centroid and scored as 0 miles from
+  // every other. The pilot runs here; these need to be exact.
+  lakeland: { lat: 28.0395, lng: -81.9498 }, "plant city": { lat: 28.0186, lng: -82.1126 },
+  "winter haven": { lat: 28.0222, lng: -81.7329 }, bartow: { lat: 27.8964, lng: -81.8431 },
+  auburndale: { lat: 28.0653, lng: -81.7887 }, "haines city": { lat: 28.1139, lng: -81.6201 },
+  davenport: { lat: 28.1614, lng: -81.602 }, "lake wales": { lat: 27.9014, lng: -81.5859 },
+  mulberry: { lat: 27.8964, lng: -81.9734 }, "polk city": { lat: 28.1825, lng: -81.8237 },
+  brandon: { lat: 27.9378, lng: -82.2859 }, zephyrhills: { lat: 28.2336, lng: -82.1812 },
+  "dade city": { lat: 28.3647, lng: -82.1959 }, kissimmee: { lat: 28.292, lng: -81.4076 },
+  sanford: { lat: 28.8003, lng: -81.2731 }, "winter garden": { lat: 28.5653, lng: -81.5862 },
+  // Remaining major Florida metros, so an out-of-corridor driver resolves to a
+  // real place rather than to null.
+  "st petersburg": { lat: 27.7676, lng: -82.6403 }, "saint petersburg": { lat: 27.7676, lng: -82.6403 },
+  clearwater: { lat: 27.9659, lng: -82.8001 }, sarasota: { lat: 27.3364, lng: -82.5307 },
+  "fort myers": { lat: 26.6406, lng: -81.8723 }, naples: { lat: 26.142, lng: -81.7948 },
+  ocala: { lat: 29.1872, lng: -82.1401 }, gainesville: { lat: 29.6516, lng: -82.3248 },
+  pensacola: { lat: 30.4213, lng: -87.2169 }, "daytona beach": { lat: 29.2108, lng: -81.0228 },
+  "west palm beach": { lat: 26.7153, lng: -80.0534 }, "port st lucie": { lat: 27.2939, lng: -80.3503 },
+  "key west": { lat: 24.5551, lng: -81.78 },
   fl: { lat: 28.0, lng: -82.0 }, florida: { lat: 28.0, lng: -82.0 },
   houston: { lat: 29.7604, lng: -95.3698 }, dallas: { lat: 32.7767, lng: -96.797 },
   austin: { lat: 30.2672, lng: -97.7431 }, "san antonio": { lat: 29.4241, lng: -98.4936 },
@@ -381,7 +401,22 @@ export function getCoordinatesSync(location: string): { lat: number; lng: number
 
   // 3. Exact match on any comma-part as a city (handles street addresses like
   //    "123 Main St, Boston, MA" → "boston"). Exact only — never a substring.
-  for (const part of parts) {
+  //
+  //    The trailing part is the STATE and is deliberately excluded. Scanning it
+  //    meant any unlisted city fell through to its state's centroid and was then
+  //    scored as a precise location: "Pensacola, FL" resolved to the Florida
+  //    centroid (28, -82), which sits beside Lakeland, so a driver 440 miles
+  //    away earned the maximum 35/35 proximity score against a Lakeland load.
+  //    Most of Florida — including Lakeland, Plant City and Winter Haven, the
+  //    entire launch corridor — collapsed onto that one point.
+  //
+  //    A bare state still resolves via step 1, because "FL" alone really does
+  //    mean "somewhere in Florida". What must not happen is a state centroid
+  //    standing in for a city the table does not know. Returning null makes
+  //    calculateLocationScoreWeighted award the neutral 10 instead, which is
+  //    the honest answer: we do not know where this is.
+  const cityParts = parts.length > 1 ? parts.slice(0, -1) : parts;
+  for (const part of cityParts) {
     if (FALLBACK_COORDINATES[part]) return FALLBACK_COORDINATES[part];
   }
 
