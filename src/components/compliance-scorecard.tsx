@@ -40,10 +40,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import type { Driver, OwnerOperator } from "@/lib/data";
+import type { ComplianceStatus } from "@/lib/compliance";
+import {
+  type ScorecardScope,
+  type StatusLevel,
+  cdlSectionLevel,
+  insuranceSectionLevel,
+  licenseClassLevel,
+  attestationsLevel,
+  deriveOverallStatus,
+  EXPIRY_WARNING_DAYS,
+} from "@/lib/scorecard-visibility";
 import type { ExpiryDetail } from "@/lib/matching";
 import { AlertCircle } from "lucide-react";
-
-const EXPIRY_WARNING_DAYS = 30;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,11 +60,13 @@ const EXPIRY_WARNING_DAYS = 30;
 
 export type ScorecardRole = "owner_operator" | "driver";
 
+// ScorecardScope and the per-section status decisions live in
+// @/lib/scorecard-visibility so they can be unit tested. This file renders.
+export type { ScorecardScope };
+
 // ---------------------------------------------------------------------------
 // Status helpers
 // ---------------------------------------------------------------------------
-
-type StatusLevel = "green" | "yellow" | "red" | "pending";
 
 interface StatusConfig {
   level: StatusLevel;
@@ -207,6 +218,27 @@ function DetailRow({
 }
 
 // ---------------------------------------------------------------------------
+// Withheld detail row
+// ---------------------------------------------------------------------------
+
+/**
+ * A detail that exists but is not the viewer's to see.
+ *
+ * The label is still rendered, deliberately. Dropping the row entirely would
+ * leave the viewer unable to tell a withheld CDL number from a driver who has
+ * none — and those are opposite facts. Every "not on file" string in this file
+ * used to cover both cases.
+ */
+function WithheldRow({ label }: { label: string }) {
+  return (
+    <div className="flex items-center justify-between py-1 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-muted-foreground italic">Held by the employing carrier</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Status badge row
 // ---------------------------------------------------------------------------
 
@@ -296,46 +328,65 @@ function FMCSASection({ ownerOperator }: { ownerOperator?: Partial<OwnerOperator
 // 2. Insurance / COI (OO-only)
 // ---------------------------------------------------------------------------
 
-function InsuranceSection({ driver }: { driver: Driver }) {
+function InsuranceSection({
+  driver,
+  scope,
+}: {
+  driver: Driver;
+  scope: ScorecardScope;
+}) {
+  const withheld = scope === "marketplace";
   const expiryStatus = getExpiryStatus(driver.insuranceExpiry, "Insurance");
-  const hasInfo = !!(
-    driver.insurerName ||
-    driver.insurancePolicyNumber ||
-    driver.insuranceExpiry
-  );
-
-  const sectionStatus: StatusLevel =
-    expiryStatus.level === "green" && hasInfo
-      ? "green"
-      : expiryStatus.level === "yellow"
-      ? "yellow"
-      : "red";
+  // In marketplace scope the insurer name and policy number are withheld, so
+  // their absence must not count against the driver. The expiry date — which
+  // is what actually says whether the COI is good — is sent either way.
+  const hasInfo = withheld
+    ? !!driver.insuranceExpiry
+    : !!(driver.insurerName || driver.insurancePolicyNumber || driver.insuranceExpiry);
+  const sectionStatus = insuranceSectionLevel(driver, scope);
 
   return (
     <div>
       <SectionHeader icon={FileText} title="Insurance (COI)" status={sectionStatus} />
       <div className="pl-6 space-y-0.5">
         <StatusRow status={expiryStatus} />
-        {driver.insurerName && (
-          <DetailRow label="Insurer" value={driver.insurerName} />
-        )}
-        {driver.insurancePolicyNumber && (
-          <DetailRow
-            label="Policy Number"
-            value={driver.insurancePolicyNumber}
-            mono
-          />
+        {withheld ? (
+          <>
+            <WithheldRow label="Insurer" />
+            <WithheldRow label="Policy Number" />
+          </>
+        ) : (
+          <>
+            {driver.insurerName && (
+              <DetailRow label="Insurer" value={driver.insurerName} />
+            )}
+            {driver.insurancePolicyNumber && (
+              <DetailRow
+                label="Policy Number"
+                value={driver.insurancePolicyNumber}
+                mono
+              />
+            )}
+          </>
         )}
         {driver.insuranceExpiry && (
           <DetailRow
             label="Expiry"
             value={format(parseISO(driver.insuranceExpiry), "MM/dd/yyyy")}
-            url={driver.insuranceUrl}
+            // No link in marketplace scope: insuranceUrl is the certificate
+            // itself, and it carries a Firebase download token, so the URL is
+            // the document regardless of storage.rules.
+            url={withheld ? undefined : driver.insuranceUrl}
           />
         )}
-        {!hasInfo && (
+        {!hasInfo && !withheld && (
           <p className="text-xs text-muted-foreground">
             No insurance information on file.
+          </p>
+        )}
+        {!driver.insuranceExpiry && withheld && (
+          <p className="text-xs text-muted-foreground">
+            No insurance expiry reported for this driver.
           </p>
         )}
       </div>
@@ -348,32 +399,48 @@ function InsuranceSection({ driver }: { driver: Driver }) {
 // 3. CDL Status (both roles)
 // ---------------------------------------------------------------------------
 
-function CDLSection({ driver }: { driver: Driver }) {
+function CDLSection({
+  driver,
+  scope,
+}: {
+  driver: Driver;
+  scope: ScorecardScope;
+}) {
+  const withheld = scope === "marketplace";
   const expiryStatus = getExpiryStatus(driver.cdlExpiry, "CDL");
-  const hasNumber = !!driver.cdlLicense;
-
-  const sectionStatus: StatusLevel =
-    expiryStatus.level === "green" && hasNumber
-      ? "green"
-      : expiryStatus.level === "yellow"
-      ? "yellow"
-      : "red";
+  // The status dot was the worst of this: it required cdlLicense to be present
+  // to go green, so a driver with a valid, unexpired CDL showed RED the moment
+  // the number stopped being sent. See cdlSectionLevel.
+  const hasNumber = withheld ? true : !!driver.cdlLicense;
+  const sectionStatus = cdlSectionLevel(driver, scope);
 
   return (
     <div>
       <SectionHeader icon={Truck} title="CDL Status" status={sectionStatus} />
       <div className="pl-6 space-y-0.5">
         <StatusRow status={expiryStatus} />
-        {driver.cdlLicense && (
-          <DetailRow
-            label="CDL Number"
-            value={driver.cdlLicense}
-            mono
-            url={driver.cdlDocumentUrl || driver.cdlLicenseUrl}
-          />
-        )}
-        {driver.cdlState && (
-          <DetailRow label="Issuing State" value={driver.cdlState} />
+        {withheld ? (
+          <>
+            {/* The number is driver PII, and the URL beside it resolved to the
+                licence scan for anyone holding it. Neither belongs in a match
+                result: the expiry date answers the question being asked. */}
+            <WithheldRow label="CDL Number" />
+            <WithheldRow label="Issuing State" />
+          </>
+        ) : (
+          <>
+            {driver.cdlLicense && (
+              <DetailRow
+                label="CDL Number"
+                value={driver.cdlLicense}
+                mono
+                url={driver.cdlDocumentUrl || driver.cdlLicenseUrl}
+              />
+            )}
+            {driver.cdlState && (
+              <DetailRow label="Issuing State" value={driver.cdlState} />
+            )}
+          </>
         )}
         {driver.cdlExpiry && (
           <DetailRow
@@ -381,8 +448,12 @@ function CDLSection({ driver }: { driver: Driver }) {
             value={format(parseISO(driver.cdlExpiry), "MM/dd/yyyy")}
           />
         )}
-        {!hasNumber && !driver.cdlExpiry && (
-          <p className="text-xs text-muted-foreground">No CDL information on file.</p>
+        {!driver.cdlExpiry && (withheld || !hasNumber) && (
+          <p className="text-xs text-muted-foreground">
+            {withheld
+              ? "No CDL expiry reported for this driver."
+              : "No CDL information on file."}
+          </p>
         )}
       </div>
       <Separator className="mt-3" />
@@ -394,7 +465,14 @@ function CDLSection({ driver }: { driver: Driver }) {
 // 4. License Class & Endorsements (both roles)
 // ---------------------------------------------------------------------------
 
-function LicenseClassSection({ driver }: { driver: Driver }) {
+function LicenseClassSection({
+  driver,
+  scope,
+}: {
+  driver: Driver;
+  scope: ScorecardScope;
+}) {
+  const withheld = scope === "marketplace";
   const hasClass = !!driver.cdlClass;
   const endorsementList =
     typeof driver.endorsements === "string" && driver.endorsements.trim()
@@ -403,7 +481,7 @@ function LicenseClassSection({ driver }: { driver: Driver }) {
       ? driver.endorsements
       : [];
 
-  const sectionStatus: StatusLevel = hasClass ? "green" : "yellow";
+  const sectionStatus = licenseClassLevel(driver, scope);
 
   const ENDORSEMENT_LABELS: Record<string, string> = {
     H: "H — Hazardous Materials",
@@ -422,7 +500,9 @@ function LicenseClassSection({ driver }: { driver: Driver }) {
         status={sectionStatus}
       />
       <div className="pl-6 space-y-0.5">
-        {hasClass ? (
+        {withheld ? (
+          <WithheldRow label="Class" />
+        ) : hasClass ? (
           <DetailRow label="Class" value={`Class ${driver.cdlClass}`} />
         ) : (
           <p className="text-xs text-muted-foreground mb-1">Class not on file.</p>
@@ -439,6 +519,10 @@ function LicenseClassSection({ driver }: { driver: Driver }) {
             </div>
           </div>
         ) : (
+          // Safe to state as a fact in marketplace scope only because
+          // endorsements ARE part of the projection — they are a capability
+          // the matcher needs, not an identifier. If they are ever dropped
+          // from it, this line starts lying.
           <p className="text-xs text-muted-foreground">No endorsements.</p>
         )}
         <p className="text-xs text-muted-foreground italic mt-1">
@@ -454,7 +538,14 @@ function LicenseClassSection({ driver }: { driver: Driver }) {
 // 5. Clearinghouse Eligibility (both roles)
 // ---------------------------------------------------------------------------
 
-function ClearinghouseSection({ driver }: { driver: Driver }) {
+function ClearinghouseSection({
+  driver,
+  scope,
+}: {
+  driver: Driver;
+  scope: ScorecardScope;
+}) {
+  const withheld = scope === "marketplace";
   // clearinghouseStatus field — if not set, we show as Pending Verification
   const hasConsent = !!(driver as any).verificationConsent;
   const status = driver.clearinghouseStatus;
@@ -475,7 +566,9 @@ function ClearinghouseSection({ driver }: { driver: Driver }) {
           <span>No Prohibitions · Pending Verification</span>
         </div>
         <p className="text-xs text-muted-foreground italic">
-          {hasConsent
+          {withheld
+            ? "Clearinghouse results are held by the employing carrier and not shared in match results."
+            : hasConsent
             ? "Verification consent received. Clearinghouse API integration — coming soon."
             : "Future: live FMCSA Drug & Alcohol Clearinghouse query."}
         </p>
@@ -489,7 +582,14 @@ function ClearinghouseSection({ driver }: { driver: Driver }) {
 // 6. Attestations (both roles)
 // ---------------------------------------------------------------------------
 
-function AttestationsSection({ driver }: { driver: Driver }) {
+function AttestationsSection({
+  driver,
+  scope,
+}: {
+  driver: Driver;
+  scope: ScorecardScope;
+}) {
+  const withheld = scope === "marketplace";
   // authorizationConsent is saved on the driver doc when profile is submitted.
   // If profileComplete or profileStatus === 'complete' / 'pending_confirmation',
   // the driver went through the form and checked the box — mark as Verified.
@@ -499,32 +599,49 @@ function AttestationsSection({ driver }: { driver: Driver }) {
     driver.profileStatus === "pending_confirmation" ||
     driver.profileComplete === true;
 
-  const sectionStatus: StatusLevel = hasAttestation ? "green" : "yellow";
+  // See attestationsLevel: every input is withheld in marketplace scope, so the
+  // old false branch asserted something the viewer had no basis for.
+  const sectionStatus = attestationsLevel(
+    driver as Partial<Driver> & { authorizationConsent?: unknown },
+    scope
+  );
 
   return (
     <div>
       <SectionHeader icon={ClipboardCheck} title="Attestations" status={sectionStatus} />
       <div className="pl-6 space-y-1">
-        <div
-          className={`flex items-center gap-1.5 text-xs font-semibold ${
-            hasAttestation ? "text-green-600" : "text-amber-600"
-          }`}
-        >
-          {hasAttestation ? (
-            <CheckCircle className="h-3.5 w-3.5" />
-          ) : (
-            <AlertTriangle className="h-3.5 w-3.5" />
-          )}
-          <span>
-            {hasAttestation ? "Verified" : "Pending"}
-          </span>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Driver Authorization & Disclosure
-          {hasAttestation
-            ? " — signed at profile submission."
-            : " — awaiting profile submission."}
-        </p>
+        {withheld ? (
+          <>
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600">
+              <Clock className="h-3.5 w-3.5" />
+              <span>Not shared</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Driver Authorization &amp; Disclosure — held by the employing carrier.
+            </p>
+          </>
+        ) : (
+          <>
+            <div
+              className={`flex items-center gap-1.5 text-xs font-semibold ${
+                hasAttestation ? "text-green-600" : "text-amber-600"
+              }`}
+            >
+              {hasAttestation ? (
+                <CheckCircle className="h-3.5 w-3.5" />
+              ) : (
+                <AlertTriangle className="h-3.5 w-3.5" />
+              )}
+              <span>{hasAttestation ? "Verified" : "Pending"}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Driver Authorization &amp; Disclosure
+              {hasAttestation
+                ? " — signed at profile submission."
+                : " — awaiting profile submission."}
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -534,23 +651,23 @@ function AttestationsSection({ driver }: { driver: Driver }) {
 // Overall status banner
 // ---------------------------------------------------------------------------
 
-function OverallStatus({ driver }: { driver: Driver }) {
-  const now = new Date();
-  let isExpired = false;
-  let isWarning = false;
-
-  for (const v of [driver.cdlExpiry, driver.medicalCardExpiry, driver.insuranceExpiry]) {
-    if (!v) continue;
-    try {
-      const days = differenceInDays(parseISO(v), now);
-      if (days < 0) { isExpired = true; break; }
-      if (days <= EXPIRY_WARNING_DAYS) isWarning = true;
-    } catch { /* skip */ }
-  }
-
-  const hasRequiredFields = !!(driver.cdlLicense && driver.cdlExpiry);
-  const overallStatus =
-    !hasRequiredFields || isExpired ? "Red" : isWarning ? "Yellow" : "Green";
+function OverallStatus({
+  driver,
+  scope,
+  verdict,
+}: {
+  driver: Driver;
+  scope: ScorecardScope;
+  verdict?: ComplianceStatus;
+}) {
+  // Prefer the verdict the caller passes. It is the authoritative one —
+  // getComplianceStatus in marketplace/projection.ts, computed on the server
+  // from the whole document — and it is also the one the badge beside this
+  // driver in the match list shows. This function's own derivation is a third
+  // implementation of the same idea and disagreed with that badge: it ignores
+  // the screening dates and a missing medical card entirely, so a driver the
+  // list called Red could open to a Green banner.
+  const overallStatus: ComplianceStatus = verdict ?? deriveOverallStatus(driver, scope);
 
   const bg =
     overallStatus === "Green"
@@ -708,6 +825,16 @@ export interface ComplianceScorecardProps {
    * show "Verified by operator" instead of the actual DOT/MC numbers.
    */
   ownerOperator?: Partial<OwnerOperator>;
+  /**
+   * How much of the file the viewer is entitled to. Defaults to "full" so the
+   * own-fleet pages are unaffected; match results pass "marketplace".
+   */
+  scope?: ScorecardScope;
+  /**
+   * The authoritative compliance verdict, when the caller has it. Preferred
+   * over this component's own derivation — see OverallStatus.
+   */
+  verdict?: ComplianceStatus;
   // Decay warning (match context only)
   qualificationWarning?: string;
   expiryDetails?: ExpiryDetail[];
@@ -718,6 +845,8 @@ export function ComplianceScorecard({
   driver,
   role,
   ownerOperator,
+  scope = "full",
+  verdict,
   qualificationWarning,
   expiryDetails,
   onLearnMore,
@@ -726,7 +855,15 @@ export function ComplianceScorecard({
 
   return (
     <div className="space-y-0">
-      <OverallStatus driver={driver} />
+      <OverallStatus driver={driver} scope={scope} verdict={verdict} />
+
+      {scope === "marketplace" && (
+        <p className="text-xs text-muted-foreground mb-3 -mt-1">
+          Document numbers and the files themselves stay with the carrier that
+          employs this driver. Expiry dates and compliance status are shared so
+          you can judge the match.
+        </p>
+      )}
 
       {qualificationWarning && expiryDetails && (
         <DecayWarning
@@ -738,13 +875,13 @@ export function ComplianceScorecard({
 
       {/* OO-only sections */}
       {isOO && <FMCSASection ownerOperator={ownerOperator} />}
-      {isOO && <InsuranceSection driver={driver} />}
+      {isOO && <InsuranceSection driver={driver} scope={scope} />}
 
       {/* Both roles */}
-      <CDLSection driver={driver} />
-      <LicenseClassSection driver={driver} />
-      <ClearinghouseSection driver={driver} />
-      <AttestationsSection driver={driver} />
+      <CDLSection driver={driver} scope={scope} />
+      <LicenseClassSection driver={driver} scope={scope} />
+      <ClearinghouseSection driver={driver} scope={scope} />
+      <AttestationsSection driver={driver} scope={scope} />
     </div>
   );
 }

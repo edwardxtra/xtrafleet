@@ -900,6 +900,20 @@ export default function MatchesPage() {
             <ComplianceScorecard
               driver={breakdownMatch.driver}
               role="owner_operator"
+              // Every driver reachable from here belongs to another carrier:
+              // driverPoolForLoad is explicitly filtered to ownerId !== user.uid.
+              // The scope is therefore constant, not a per-driver check — but it
+              // is written as one so the panel stays correct if this Sheet is
+              // ever reached from a list that includes the viewer's own fleet.
+              scope={
+                breakdownMatch.driver.ownerId && breakdownMatch.driver.ownerId === user?.uid
+                  ? "full"
+                  : "marketplace"
+              }
+              // The same verdict the badge in the match list shows, so the two
+              // cannot disagree. Becomes driver.complianceStatus from the
+              // projection once discovery moves server-side.
+              verdict={getComplianceStatus(breakdownMatch.driver)}
               qualificationWarning={breakdownMatch.breakdown.qualificationWarning}
               expiryDetails={breakdownMatch.breakdown.expiryDetails}
               onLearnMore={() => setShowFormula(true)}
