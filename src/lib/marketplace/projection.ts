@@ -32,6 +32,13 @@ export interface MarketplaceDriver {
   vehicleTypes?: string[];
   trailerTypes?: Driver['trailerTypes'];
   certifications: string[];
+  /**
+   * CDL endorsements (H/N/T/...). A capability, not an identifier: the matcher
+   * needs them and the scorecard's License Class section is the only place
+   * they surface. Kept deliberately — the section states "No endorsements" as
+   * a fact, which is only honest if they are actually sent.
+   */
+  endorsements?: Driver['endorsements'];
   rating?: number;
   // Expiry dates feed the deterministic compliance score. Dates only — never
   // the identifiers or the documents they came from.
@@ -92,6 +99,7 @@ export function projectDriver(
     ...(raw.vehicleTypes ? { vehicleTypes: raw.vehicleTypes } : {}),
     ...(raw.trailerTypes ? { trailerTypes: raw.trailerTypes } : {}),
     certifications: raw.certifications ?? [],
+    ...(raw.endorsements ? { endorsements: raw.endorsements } : {}),
     ...(typeof raw.rating === 'number' ? { rating: raw.rating } : {}),
     ...(raw.cdlExpiry ? { cdlExpiry: raw.cdlExpiry } : {}),
     ...(raw.medicalCardExpiry ? { medicalCardExpiry: raw.medicalCardExpiry } : {}),
