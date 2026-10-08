@@ -4,7 +4,7 @@ import {
   isMarketplaceVisible,
   WITHHELD_DRIVER_FIELDS,
 } from '@/lib/marketplace/projection';
-import { getComplianceStatus } from '@/lib/compliance';
+import { getComplianceStatus, resolveComplianceStatus } from '@/lib/compliance';
 import type { Driver } from '@/lib/data';
 
 /**
@@ -197,5 +197,39 @@ describe('projectDriver — the compliance verdict travels, the inputs do not', 
   it('reports Red for a document missing a required field', () => {
     const { cdlLicense: _dropped, ...noCdl } = fullDriver();
     expect(projectDriver(noCdl as Driver, 'd1', 'owner-1').complianceStatus).toBe('Red');
+  });
+});
+
+describe('resolveComplianceStatus — two shapes reach the UI', () => {
+  it('uses the projected verdict rather than rescoring a projection', () => {
+    // Rescoring is the #273 bug: the projection withholds the inputs, so
+    // getComplianceStatus would call this compliant driver Red.
+    const projected = projectDriver(fullDriver(), 'd1', 'owner-1');
+    expect(resolveComplianceStatus(projected as unknown as Driver)).toBe('Green');
+    expect(getComplianceStatus(projected as unknown as Driver)).toBe('Red');
+  });
+
+  it('scores a full document, which carries no verdict field', () => {
+    const raw = fullDriver();
+    expect('complianceStatus' in raw).toBe(false);
+    expect(resolveComplianceStatus(raw)).toBe(getComplianceStatus(raw));
+  });
+
+  it('falls back to Red for a projection missing the field', () => {
+    // Safe direction: an unknown verdict must not read as compliant.
+    const { complianceStatus: _dropped, ...stripped } = projectDriver(
+      fullDriver(),
+      'd1',
+      'owner-1'
+    );
+    expect(resolveComplianceStatus(stripped as unknown as Driver)).toBe('Red');
+  });
+
+  it('trusts a projected Red over anything it could recompute', () => {
+    const projected = {
+      ...projectDriver(fullDriver(), 'd1', 'owner-1'),
+      complianceStatus: 'Red' as const,
+    };
+    expect(resolveComplianceStatus(projected as unknown as Driver)).toBe('Red');
   });
 });
