@@ -7,7 +7,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel,
-  collectionGroup, getDocs, query, where,
+  collection, collectionGroup, getDocs, query, where,
 } from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -126,6 +126,23 @@ async function seedTLA(
       lessor: { ownerOperatorId: fields.lessorOwnerId, legalName: 'Lessor', contactEmail: '' },
       lessee: { ownerOperatorId: fields.lesseeOwnerId, legalName: 'Lessee', contactEmail: '' },
       ...fields,
+    });
+  });
+}
+
+
+/** Seed a load under an owner. */
+async function seedLoad(ownerId: string, loadId: string, data: Record<string, unknown> = {}) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), `owner_operators/${ownerId}/loads/${loadId}`), {
+      origin: 'Boston, MA',
+      destination: 'Tampa, FL',
+      cargo: 'General freight',
+      weight: 20000,
+      status: 'live',
+      requiredQualifications: [],
+      externalRefs: [{ provider: 'acme-tms', connectionId: 'conn-1', orderNumber: 'SO-99' }],
+      ...data,
     });
   });
 }
@@ -758,31 +775,29 @@ describe('tlas — only the parties and admins can read an agreement', () => {
   });
 });
 
-describe('matches — read is still open to any signed-in user (known gap)', () => {
+describe('matches — the read gap is closed', () => {
   /**
-   * This pins CURRENT behaviour, not desired behaviour.
+   * This block used to pin the OPEN behaviour as a known gap, with the note
+   * "when the follow-up lands, this test should flip to assertFails".
    *
-   * `matches` is readable by any signed-in user, which exposes every
-   * carrier's agreed rates and counter-offers marketplace-wide. It is not
-   * tightened here because DEV-203's cross-carrier conflict detection is
-   * built directly on it: the matches page subscribes to every committed
-   * match, across all owners, to find drivers already spoken for. A
-   * party-scoped read rule would reject that query outright and silently
-   * disable double-booking detection.
+   * It has landed. /api/commitments returns commitment WINDOWS — driverId,
+   * start, end — instead of whole match documents, so the marketplace board
+   * no longer needs to read every carrier's match to find out who is already
+   * booked. The read rule is party-or-admin now, and the rates that used to
+   * ride along (originalTerms, counterTerms, loadSnapshot.price) no longer
+   * leave the server for a non-party.
    *
-   * Closing it needs a server-side endpoint that returns commitment
-   * WINDOWS (driverId, start, end) instead of whole match documents. Until
-   * that exists, this test exists so the gap is visible and measured rather
-   * than assumed closed. When the follow-up lands, this test should flip to
-   * assertFails.
+   * See the `matches — party-or-admin read` block above for the full matrix.
+   * These two stay here as the direct inverse of what they used to assert.
    */
-  it('a stranger CAN currently read a match they are not party to', async () => {
+  it('a stranger can no longer read a match they are not party to', async () => {
+    await seedOwner('stranger');
     await seedMatch('m-read', {
       loadOwnerId: 'load-owner',
       driverOwnerId: 'driver-owner',
       driverId: 'driver-uid',
     });
-    await assertSucceeds(getDoc(doc(asUser('stranger'), 'matches/m-read')));
+    await assertFails(getDoc(doc(asUser('stranger'), 'matches/m-read')));
   });
 
   it('an unauthenticated caller still cannot read a match', async () => {
@@ -813,50 +828,35 @@ async function seedDriverDoc(
   });
 }
 
-describe('drivers — pre-activation guard is inert (known gap)', () => {
+describe('drivers — the pre-activation guard now bites', () => {
   /**
-   * This pins CURRENT behaviour, not desired behaviour.
+   * This block used to pin the OPEN behaviour, with the note "these flip to
+   * assertFails when that lands". It has landed.
    *
-   * The nested rule guards pre-activated drivers (DEV-158):
+   * The nested rule always claimed to guard pre-activated drivers (DEV-158),
+   * but `match /{path=**}/drivers/{driverId} { allow read: if isSignedIn(); }`
+   * matched the same paths, and Firestore grants access when ANY matching
+   * rule allows it — so the guard never denied anything. The collection group
+   * rule is admin-only now, which is what lets the nested one matter.
    *
-   *   allow get: if accountStatus != 'pre-activated' || isOwner || isAdmin
-   *
-   * But `match /{path=**}/drivers/{driverId} { allow read: if isSignedIn(); }`
-   * ALSO matches that same path, and Firestore grants access when ANY
-   * matching rule allows it. So the guard above never denies anything: the
-   * blanket collection-group read overrides it on both the direct-get and
-   * the query path. The first test below is what proves it — a stranger
-   * reads a pre-activated driver by the very path the nested rule claims to
-   * protect.
-   *
-   * This is not a one-line fix. A driver document is the whole DQF — CDL
-   * number and state, MVR number, medical card expiry, insurance policy
-   * number, phone and email, plus storage URLs for the CDL scan, MVR and
-   * drug-and-alcohol screening (and those URLs carry Firebase download
-   * tokens, so they resolve for anyone holding them regardless of
-   * storage.rules). Closing it means the marketplace matcher stops reading
-   * whole driver documents client-side: dashboard/matches subscribes to an
-   * UNFILTERED collectionGroup('drivers'), and any rule that depends on
-   * document data denies such a query outright.
-   *
-   * A client-side filter cannot rescue it either — legacy drivers carry no
-   * accountStatus field, and a Firestore query cannot match a missing
-   * field, so filtering would silently drop them from the marketplace. The
-   * fix is a projecting server endpoint (plus a backfill), which is why it
-   * is recorded here rather than attempted in passing.
-   *
-   * These flip to assertFails when that lands.
+   * A driver document is the whole DQF: CDL and MVR numbers, medical card
+   * expiry, insurance policy number, phone and email, plus storage URLs for
+   * the CDL scan, MVR and drug-and-alcohol screening — and those URLs carry
+   * Firebase download tokens, so they resolve for anyone holding them
+   * regardless of storage.rules.
    */
-  it('a stranger CAN currently read a pre-activated driver by direct get', async () => {
+  it('a stranger can no longer read a pre-activated driver by direct get', async () => {
+    await seedOwner('stranger');
     await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
-    await assertSucceeds(
+    await assertFails(
       getDoc(doc(asUser('stranger'), 'owner_operators/owner-a/drivers/pre-driver'))
     );
   });
 
-  it('a stranger CAN currently reach pre-activated drivers via collectionGroup', async () => {
+  it('a stranger can no longer reach drivers via collectionGroup', async () => {
+    await seedOwner('stranger');
     await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
-    await assertSucceeds(
+    await assertFails(
       getDocs(
         query(
           collectionGroup(asUser('stranger'), 'drivers'),
@@ -866,18 +866,273 @@ describe('drivers — pre-activation guard is inert (known gap)', () => {
     );
   });
 
+  it('the unfiltered marketplace collectionGroup is refused too', async () => {
+    // The exact query /dashboard/matches used to issue. It reads
+    // /api/marketplace/drivers now.
+    await seedOwner('stranger');
+    await seedDriverDoc('owner-a', 'active-driver');
+    await assertFails(getDocs(collectionGroup(asUser('stranger'), 'drivers')));
+  });
+
   it('an unauthenticated caller is still refused', async () => {
-    // The one part of the guard that does hold.
     await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
     await assertFails(
       getDoc(doc(asUnauth(), 'owner_operators/owner-a/drivers/pre-driver'))
     );
   });
 
-  it('the marketplace reads drivers across owners with no filter at all', async () => {
-    // Pins the constraint any fix has to work around: this is the shape the
-    // matcher actually issues.
+  // --- what must KEEP working ---------------------------------------------
+
+  it('a PRE-ACTIVATED driver can still read their own document', async () => {
+    // The regression guard for this change. A driver document's id is the
+    // driver's auth uid, and /driver-dashboard/complete-profile — the page
+    // whose job is to stop being pre-activated — reads it. The driver is
+    // neither isOwner nor isAdmin, so without the
+    // `request.auth.uid == driverId` branch on `allow get` this denies and
+    // onboarding dead-ends. Closing the blanket rule is what exposed it.
+    await seedDriverDoc('owner-a', 'driver-self', { accountStatus: 'pre-activated' });
+    await assertSucceeds(
+      getDoc(doc(asUser('driver-self'), 'owner_operators/owner-a/drivers/driver-self'))
+    );
+  });
+
+  it('the owning carrier can still read their pre-activated driver', async () => {
+    await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
+    await assertSucceeds(
+      getDoc(doc(asUser('owner-a'), 'owner_operators/owner-a/drivers/pre-driver'))
+    );
+  });
+
+  it('an admin can still read a pre-activated driver', async () => {
+    await seedAdmin('an-admin');
+    await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
+    await assertSucceeds(
+      getDoc(doc(asUser('an-admin'), 'owner_operators/owner-a/drivers/pre-driver'))
+    );
+  });
+
+  it('a counterparty can still get an ACTIVE driver on another roster', async () => {
+    // tla-actions.ts and driver-rating-modal.tsx both read the lessor's
+    // driver document by path while acting as the lessee. Narrowing `get`
+    // would break signing and rating.
+    await seedOwner('lessee');
     await seedDriverDoc('owner-a', 'active-driver');
-    await assertSucceeds(getDocs(collectionGroup(asUser('stranger'), 'drivers')));
+    await assertSucceeds(
+      getDoc(doc(asUser('lessee'), 'owner_operators/owner-a/drivers/active-driver'))
+    );
+  });
+
+  it('a legacy driver with NO accountStatus field is treated as active', async () => {
+    // seedDriverDoc writes accountStatus; this one deliberately strips it.
+    // The rule defaults the missing field to 'active' via .data.get(), and
+    // projection.ts uses the same `?? 'active'` default — which is why
+    // closing this rule needed no backfill first.
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'owner_operators/owner-a/drivers/legacy'), {
+        name: 'Legacy Driver',
+      });
+    });
+    await seedOwner('lessee');
+    await assertSucceeds(
+      getDoc(doc(asUser('lessee'), 'owner_operators/owner-a/drivers/legacy'))
+    );
+  });
+
+  it('the owner can still list their own roster', async () => {
+    await seedDriverDoc('owner-a', 'd1');
+    const snap = await assertSucceeds(
+      getDocs(collection(asUser('owner-a'), 'owner_operators/owner-a/drivers'))
+    );
+    expect(snap.size).toBe(1);
+  });
+
+  it('a stranger CANNOT list another carrier\'s roster', async () => {
+    await seedOwner('stranger');
+    await seedDriverDoc('owner-a', 'd1');
+    await assertFails(
+      getDocs(collection(asUser('stranger'), 'owner_operators/owner-a/drivers'))
+    );
+  });
+
+  it('an admin can still list any carrier\'s roster (/admin/users)', async () => {
+    await seedAdmin('an-admin');
+    await seedDriverDoc('owner-a', 'd1');
+    await assertSucceeds(
+      getDocs(collection(asUser('an-admin'), 'owner_operators/owner-a/drivers'))
+    );
+  });
+
+  it('an admin can still run the collectionGroup query (/admin/drivers)', async () => {
+    await seedAdmin('an-admin');
+    await seedDriverDoc('owner-a', 'd1');
+    const snap = await assertSucceeds(getDocs(collectionGroup(asUser('an-admin'), 'drivers')));
+    expect(snap.size).toBeGreaterThan(0);
+  });
+});
+
+
+// --- matches: party-or-admin READ -----------------------------------------
+
+/**
+ * A match document carries both sides' negotiated terms — originalTerms,
+ * counterTerms, loadSnapshot.price. Read was `if isSignedIn()`, so any
+ * registered account could read every carrier's pricing.
+ *
+ * It was open because the marketplace board needed other owners' commitments
+ * to know who was already booked. /api/commitments answers that without the
+ * terms, so the collection can be party-scoped.
+ */
+describe('matches — party-or-admin read', () => {
+  beforeEach(async () => {
+    await seedOwner('load-owner');
+    await seedOwner('driver-owner');
+    await seedOwner('stranger');
+    await seedMatch('m1', {
+      loadOwnerId: 'load-owner',
+      driverOwnerId: 'driver-owner',
+      driverId: 'driver-1',
+    });
+  });
+
+  it('load owner can read their match', async () => {
+    await assertSucceeds(getDoc(doc(asUser('load-owner'), 'matches/m1')));
+  });
+
+  it('driver owner can read the match', async () => {
+    await assertSucceeds(getDoc(doc(asUser('driver-owner'), 'matches/m1')));
+  });
+
+  it('the driver themselves can read the match', async () => {
+    await assertSucceeds(getDoc(doc(asUser('driver-1'), 'matches/m1')));
+  });
+
+  it('the recipient owner can read the match', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'matches/m2'), {
+        status: 'pending',
+        loadOwnerId: 'load-owner',
+        driverOwnerId: 'driver-owner',
+        driverId: 'driver-1',
+        recipientOwnerId: 'driver-owner',
+      });
+    });
+    await assertSucceeds(getDoc(doc(asUser('driver-owner'), 'matches/m2')));
+  });
+
+  it('an unrelated signed-in user CANNOT read the match', async () => {
+    // This is the rate disclosure the change closes.
+    await assertFails(getDoc(doc(asUser('stranger'), 'matches/m1')));
+  });
+
+  it('unauthenticated users cannot read a match', async () => {
+    await assertFails(getDoc(doc(asUnauth(), 'matches/m1')));
+  });
+
+  it('an admin can read any match', async () => {
+    await seedAdmin('an-admin');
+    await assertSucceeds(getDoc(doc(asUser('an-admin'), 'matches/m1')));
+  });
+
+  it('an admin can read a legacy match that has no recipientOwnerId', async () => {
+    // seedMatch writes no recipientOwnerId, which is the shape of a match
+    // predating the field. Worth its own case because the read rule names
+    // that field, but note what it does NOT prove: swapping the rule to
+    // direct property access keeps this green, because the Rules language
+    // absorbs an error in one `||` operand when a later one is true. See the
+    // comment on the rule.
+    await seedAdmin('an-admin');
+    await assertSucceeds(getDoc(doc(asUser('an-admin'), 'matches/m1')));
+  });
+
+  it('a stranger reading a match with no recipientOwnerId is denied, not errored', async () => {
+    await assertFails(getDoc(doc(asUser('stranger'), 'matches/m1')));
+  });
+
+  it('a query filtered to my incoming requests succeeds', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'matches/m3'), {
+        status: 'pending',
+        loadOwnerId: 'load-owner',
+        driverOwnerId: 'driver-owner',
+        driverId: 'driver-1',
+        recipientOwnerId: 'driver-owner',
+      });
+    });
+    const q = query(
+      collection(asUser('driver-owner'), 'matches'),
+      where('recipientOwnerId', '==', 'driver-owner')
+    );
+    const snap = await assertSucceeds(getDocs(q));
+    expect(snap.size).toBe(1);
+  });
+
+  it('an unfiltered list of every match is denied for a non-admin', async () => {
+    // What /dashboard/matches used to do, and what made the whole collection
+    // readable. The board reads /api/commitments now.
+    await assertFails(getDocs(collection(asUser('stranger'), 'matches')));
+  });
+
+  it('an unfiltered list of every match still works for the admin console', async () => {
+    await seedAdmin('an-admin');
+    const snap = await assertSucceeds(getDocs(collection(asUser('an-admin'), 'matches')));
+    expect(snap.size).toBeGreaterThan(0);
+  });
+});
+
+// --- loads: enumeration is owner-or-admin ---------------------------------
+
+/**
+ * A load document carries externalRefs: the poster's TMS connection id and a
+ * deep link into their provider UI, naming their broker and order number.
+ *
+ * `get` stays open — the counterparty to a match reads a single load by path
+ * in tla-actions.ts and messaging-utils.ts. Enumeration does not.
+ */
+describe('loads — get is open, enumeration is owner-or-admin', () => {
+  beforeEach(async () => {
+    await seedOwner('load-owner');
+    await seedOwner('stranger');
+    await seedLoad('load-owner', 'l1');
+  });
+
+  it('the owner can list their own loads', async () => {
+    const snap = await assertSucceeds(
+      getDocs(collection(asUser('load-owner'), 'owner_operators/load-owner/loads'))
+    );
+    expect(snap.size).toBe(1);
+  });
+
+  it('a stranger CANNOT list another carrier\'s loads', async () => {
+    await assertFails(
+      getDocs(collection(asUser('stranger'), 'owner_operators/load-owner/loads'))
+    );
+  });
+
+  it('an admin can list any carrier\'s loads', async () => {
+    await seedAdmin('an-admin');
+    await assertSucceeds(
+      getDocs(collection(asUser('an-admin'), 'owner_operators/load-owner/loads'))
+    );
+  });
+
+  it('a stranger CAN still get a single load by path (match counterparty)', async () => {
+    // Deliberately still allowed: narrowing this would need a get() into
+    // /matches per read, to protect a document you must already know both
+    // the owner id and the load id to request.
+    await assertSucceeds(
+      getDoc(doc(asUser('stranger'), 'owner_operators/load-owner/loads/l1'))
+    );
+  });
+
+  it('a non-admin CANNOT run a collection group query over every load', async () => {
+    // The platform-wide scrape. /dashboard/matches ran exactly this with no
+    // filter at all; it reads /api/marketplace/loads now.
+    await assertFails(getDocs(collectionGroup(asUser('stranger'), 'loads')));
+  });
+
+  it('an admin CAN run a collection group query over every load', async () => {
+    await seedAdmin('an-admin');
+    const snap = await assertSucceeds(getDocs(collectionGroup(asUser('an-admin'), 'loads')));
+    expect(snap.size).toBeGreaterThan(0);
   });
 });
