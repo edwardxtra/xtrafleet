@@ -108,6 +108,28 @@ export function uniqueSeedEmail(prefix = 'seed'): string {
   return `${prefix}+${Date.now()}-${Math.floor(Math.random() * 1e4)}@xtrafleet-e2e.test`;
 }
 
+/**
+ * A label unique to this run, for anything a test will later find by its
+ * visible text.
+ *
+ * WHY THIS EXISTS
+ *
+ * The suite shares one emulator and seeds cumulatively, so two specs using
+ * the same fixture name put two matching elements on the page. A locator then
+ * resolves to whichever came first, and the test reads the wrong record —
+ * passing in isolation and failing in the full suite, or worse, passing in
+ * both while asserting against someone else's data.
+ *
+ * That is not hypothetical: 11-scorecard-scope and 09-marketplace-drivers both
+ * seeded a driver called "Marketplace Driver", and the resulting failure looked
+ * exactly like a real finding about missing endorsements.
+ *
+ * So: any fixture a test will search for by text gets one of these.
+ */
+export function uniqueLabel(prefix: string): string {
+  return `${prefix} ${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+}
+
 // --- Owners ----------------------------------------------------------------
 
 export interface SeedOwnerOptions {
@@ -246,7 +268,12 @@ export interface SeededDriver {
 
 export async function seedDriver(ownerId: string, opts: SeedDriverOptions = {}): Promise<SeededDriver> {
   const id = randomUUID();
-  const name = opts.name ?? 'E2E Driver';
+  // Unique by default. A shared default is what made two specs collide; a
+  // caller that genuinely needs a fixed name can still pass one, but then it
+  // owns the uniqueness. Names are not geocoded, so a suffix is harmless here
+  // — unlike load origins and destinations, which feed getCoordinatesSync and
+  // would silently stop resolving.
+  const name = opts.name ?? uniqueLabel('E2E Driver');
   const compliance = opts.compliance ?? 'green';
 
   await db()
