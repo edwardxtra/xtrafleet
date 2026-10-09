@@ -132,22 +132,57 @@ service cloud.firestore {
       allow delete: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
 
       match /drivers/{driverId} {
-        // Pre-activated drivers (DEV-158) are readable only by their owner
-        // or an admin.
+        // Pre-activated drivers (DEV-158) are readable only by their owner,
+        // the driver themselves, or an admin.
+        //
+        // `request.auth.uid == driverId` is NOT redundant, and leaving it out
+        // is a live onboarding break rather than a theoretical one. A driver
+        // document's id IS the driver's auth uid (the same assumption the
+        // update rule below already makes), and a pre-activated driver reads
+        // their own document on /driver-dashboard/complete-profile — the page
+        // whose whole job is to stop being pre-activated. They are not
+        // isOwner (that is their carrier) and not isAdmin, so without this
+        // branch the first condition is false for them and they cannot load
+        // the page.
+        //
+        // This guard was inert until now: the collection-group rule below
+        // also matched this path with a blanket `if isSignedIn()`, and
+        // Firestore grants access when ANY matching rule allows it. Closing
+        // that rule is what makes these three branches start mattering, which
+        // is why the missing one surfaces as part of the same change.
         allow get: if isSignedIn() && (
           resource.data.get('accountStatus', 'active') != 'pre-activated' ||
           isOwner(ownerOperatorId) ||
+          request.auth.uid == driverId ||
           isAdmin()
         );
-        allow list: if isSignedIn();
+        // Enumeration is owner-or-admin. Every dashboard surface lists only
+        // `owner_operators/{own uid}/drivers`; the one caller that lists
+        // somebody else's roster is /admin/users.
+        allow list: if isSignedIn() && (isOwner(ownerOperatorId) || isAdmin());
         allow create: if isSignedIn() && isOwner(ownerOperatorId);
         allow update: if isSignedIn() && (isOwner(ownerOperatorId) || request.auth.uid == driverId || isAdmin());
         allow delete: if isSignedIn() && (isOwner(ownerOperatorId) || isSuperAdmin());
       }
 
       match /loads/{loadId} {
-        allow read: if isSignedIn();
-        allow list: if isSignedIn();
+        // `get` stays open to any signed-in user. A single load is fetched by
+        // the OTHER party to a match in two places — tla-actions.ts reads the
+        // load behind a TLA, messaging-utils.ts reads it to label a thread —
+        // and neither caller is the load's owner. Narrowing this would need a
+        // get() into /matches per read to prove the caller is a party, which
+        // is a lookup per access to protect a document you must already know
+        // both ids to request.
+        allow get: if isSignedIn();
+        // `list` is the enumeration, and that one is owner-or-admin. Nothing
+        // outside the admin console lists another carrier's loads: the
+        // dashboard lists only its own, and the marketplace board now goes
+        // through /api/marketplace/loads, which projects.
+        //
+        // Note this REPLACES `allow read`, which covered get and list both —
+        // rules are a union, so leaving it alongside would have kept list
+        // open to everyone and made the line below decorative.
+        allow list: if isSignedIn() && (isOwner(ownerOperatorId) || isAdmin());
         allow create: if isSignedIn() && isOwner(ownerOperatorId);
         // Match formation runs server-side (/api/matches/accept) via the Admin
         // SDK, which bypasses rules. Clients may no longer flip a load to
@@ -166,13 +201,56 @@ service cloud.firestore {
     }
 
     // Collection Group Query for drivers
+    // Collection group query for drivers — admin console only.
+    //
+    // This rule is why the nested pre-activation guard above was inert: it
+    // matched the same paths with a blanket `if isSignedIn()`, and access is
+    // granted when ANY matching rule allows it. So a stranger could read a
+    // pre-activated driver by the very path the nested rule claimed to
+    // protect, and could enumerate every driver in the platform besides.
+    //
+    // A driver document is the whole DQF: CDL number and state, MVR number,
+    // medical card expiry, insurance policy number, phone and email, plus
+    // storage URLs for the CDL scan, MVR and drug-and-alcohol screening —
+    // and those URLs carry Firebase download tokens, so they resolve for
+    // anyone holding them regardless of storage.rules.
+    //
+    // /dashboard/matches used to issue an unfiltered collectionGroup query
+    // here; it reads /api/marketplace/drivers now (#271–#276), which projects
+    // about a dozen fields of forty. The remaining client callers are all
+    // admin: /admin/page.tsx, /admin/drivers/page.tsx, and
+    // admin-create-match-modal (imported only by /admin/matches).
+    // src/ai/tools/owner-tools.ts uses the Admin SDK and bypasses rules.
+    //
+    // No backfill is required first. The old note here said closing this
+    // needed one, because legacy drivers carry no accountStatus field and a
+    // Firestore query cannot match a missing field. That constraint applied
+    // to filtering in a QUERY; the projection filters in application code
+    // instead — projection.ts reads `(raw.accountStatus ?? 'active')`, the
+    // same default this file's guard uses via .data.get(). The two agree, so
+    // a legacy driver is treated as active in both places.
     match /{path=**}/drivers/{driverId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && isAdmin();
     }
 
-    // Collection Group Query for loads
+    // Collection group query for loads — admin console only.
+    //
+    // A collection group query matches ONLY this rule, never the nested
+    // /owner_operators/{id}/loads one, so this is the rule that decided
+    // whether any signed-in user could enumerate every load in the platform.
+    // It could, and /dashboard/matches did exactly that: an unfiltered
+    // collectionGroup('loads') subscription streaming every load document to
+    // every browser, status-filtered locally. That board reads
+    // /api/marketplace/loads now, which filters in Firestore and withholds
+    // externalRefs (the poster's TMS connection id and a deep link naming
+    // their broker and order number).
+    //
+    // The three remaining client callers are all admin surfaces:
+    // /admin/page.tsx, /admin/loads/page.tsx, and admin-create-match-modal
+    // (imported only by /admin/matches). Server-side readers use the Admin
+    // SDK and bypass rules entirely.
     match /{path=**}/loads/{loadId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && isAdmin();
     }
 
     // Matches collection
@@ -182,7 +260,48 @@ service cloud.firestore {
     // bypasses these rules entirely via the Admin SDK — these rules only
     // constrain direct client writes (e.g. rejecting an offer, cancelling).
     match /matches/{matchId} {
-      allow read: if isSignedIn();
+      // A match document carries both sides' negotiated terms: originalTerms,
+      // counterTerms, and loadSnapshot.price. `if isSignedIn()` made every
+      // carrier's pricing readable by anyone who could register an account.
+      //
+      // It was open because /dashboard/matches needed OTHER owners'
+      // commitments to know which drivers were already booked, and read the
+      // whole collection to find out. /api/commitments answers that question
+      // with driver ids and date windows instead, so the collection no longer
+      // has to be world-readable to make the board work.
+      //
+      // Every remaining client query filters on one of these four fields:
+      // recipientOwnerId (incoming-matches, requests, use-pending-requests-count),
+      // loadOwnerId (sent-requests, dashboard), driverOwnerId (dashboard),
+      // driverId (driver-dashboard). isAdmin() covers the admin console,
+      // which lists the collection unfiltered.
+      //
+      // `.data.get(field, default)` rather than `.data.field`, for the same
+      // reason as isAdmin() above (DEV-199): a match predating
+      // recipientOwnerId has the field absent, and reading a missing property
+      // is an evaluation error rather than false.
+      //
+      // Measured, not assumed: swapping this one branch to direct access and
+      // re-running the rules suite leaves all 85 tests GREEN, so this is a
+      // readability and convention choice, not a behavioural fix. The reason
+      // is that the Rules language absorbs an error in one `||` operand when
+      // a later one is true — `false || error || isAdmin()` is still true for
+      // an admin, and still a denial for everyone else. There is deliberately
+      // no test asserting a difference between the two forms, because the
+      // emulator says there isn't one.
+      //
+      // It stays in .get() form anyway: it matches the accessor the rest of
+      // this file uses, it denies cleanly instead of surfacing a red
+      // "Property is undefined" in the Rules Playground, and it does not rest
+      // on error-absorption subtleties holding for a branch order someone
+      // reorders later.
+      allow read: if isSignedIn() && (
+        resource.data.get('loadOwnerId', '') == request.auth.uid ||
+        resource.data.get('driverOwnerId', '') == request.auth.uid ||
+        resource.data.get('driverId', '') == request.auth.uid ||
+        resource.data.get('recipientOwnerId', '') == request.auth.uid ||
+        isAdmin()
+      );
       allow create: if isSignedIn();
       allow update: if isSignedIn() && (
         resource.data.loadOwnerId == request.auth.uid ||

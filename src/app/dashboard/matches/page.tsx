@@ -30,9 +30,13 @@ import {
   Loader2,
 } from "lucide-react";
 import { useUser, useFirestore } from "@/firebase";
-import { collection, query, where, collectionGroup, doc, getDoc, onSnapshot } from "firebase/firestore";
-import { fetchMarketplaceDrivers } from "@/lib/marketplace/client";
-import type { MarketplaceDriver } from "@/lib/marketplace/projection";
+import { collection, query, where, doc, getDoc, onSnapshot } from "firebase/firestore";
+import {
+  fetchMarketplaceDrivers,
+  fetchMarketplaceLoads,
+  fetchCommitments,
+} from "@/lib/marketplace/client";
+import type { MarketplaceDriver, MarketplaceLoad } from "@/lib/marketplace/projection";
 import {
   findMatchingDrivers,
   findMatchingDriversAsync,
@@ -45,9 +49,8 @@ import {
 } from "@/lib/matching";
 import {
   buildWindow,
-  COMMITTED_MATCH_STATUSES,
-  commitmentsFromMatches,
   indexCommitmentsByDriver,
+  type DriverCommitment,
 } from "@/lib/commitments";
 import { Progress } from "@/components/ui/progress";
 import { MatchRequestModal } from "@/components/match-request-modal";
@@ -94,7 +97,7 @@ export default function MatchesPage() {
   const [marketplaceDrivers, setMarketplaceDrivers] = useState<MarketplaceDriver[]>([]);
   const [marketplaceLoading, setMarketplaceLoading] = useState(true);
   const [myPendingLoads, setMyPendingLoads] = useState<Load[]>([]);
-  const [allPendingLoads, setAllPendingLoads] = useState<LoadWithOwner[]>([]);
+  const [allPendingLoads, setAllPendingLoads] = useState<MarketplaceLoad[]>([]);
   const [loadsLoading, setLoadsLoading] = useState(true);
   const [allLoadsLoading, setAllLoadsLoading] = useState(true);
 
@@ -147,39 +150,68 @@ export default function MatchesPage() {
     checkProfileAttestations();
   }, [user, firestore]);
 
-  // DEV-203: every match that currently holds a driver, across all owners.
+  // DEV-203: every commitment that currently holds a driver, across all owners.
   //
   // Drivers in the pool belong to OTHER owners, so we need their commitments
-  // too — `matches` is readable by any signed-in user, which makes this
-  // possible client-side. TLAs are not fetched: the match status mirrors the
-  // TLA lifecycle (tla_pending -> tla_signed -> in_progress), so matches
-  // alone cover the same commitments without a second subscription.
-  // commitmentsFromTlas() exists for server-side callers that hold both.
-  const [committingMatches, setCommittingMatches] = useState<Match[]>([]);
+  // too. This used to be a client query over the whole `matches` collection,
+  // which only worked because `matches` was readable by any signed-in user —
+  // and a match document carries both sides' negotiated rates
+  // (originalTerms, counterTerms, loadSnapshot.price). Reading the entire
+  // collection to find out which drivers are busy meant every carrier could
+  // read every other carrier's pricing. /api/commitments returns the windows
+  // and nothing else; the rate fields never reach the browser.
+  //
+  // TLAs are not fetched: the match status mirrors the TLA lifecycle
+  // (tla_pending -> tla_signed -> in_progress), so matches alone cover the
+  // same commitments. commitmentsFromTlas() exists for server-side callers
+  // that hold both.
+  //
+  // UNLIKE the driver and load feeds, an incomplete answer here is NOT
+  // survivable. A missing commitment does not show less capacity — it shows a
+  // driver who is already on a load as bookable. So `complete` is tracked
+  // separately and gates the UI, rather than being folded into failedFeeds
+  // whose banner tells the carrier to read an empty result as unknown. Here
+  // the dangerous result is a NON-empty one.
+  const [commitments, setCommitments] = useState<DriverCommitment[]>([]);
+  const [commitmentsReliable, setCommitmentsReliable] = useState(false);
+  const [commitmentsLoading, setCommitmentsLoading] = useState(true);
 
   useEffect(() => {
-    if (!firestore || !user?.uid) return;
-    const unsubscribe = onSnapshot(
-      query(
-        collection(firestore, "matches"),
-        where("status", "in", [...COMMITTED_MATCH_STATUSES]),
-      ),
-      (snapshot) => {
-        setCommittingMatches(snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Match)));
-      },
-      (err) => {
-        console.error(`${LOG_PREFIX} committingMatches snapshot error:`, err);
-        noteFeedFailure('existing commitments');
-      }
-    );
-    return () => unsubscribe();
-  }, [firestore, user?.uid]);
+    if (!user?.uid) return;
+    let cancelled = false;
+    setCommitmentsLoading(true);
+    fetchCommitments()
+      .then(({ commitments: rows, complete }) => {
+        if (cancelled) return;
+        setCommitments(rows);
+        // The endpoint drains server-side precisely so this can be trusted
+        // when true. False means it gave up part-way, and a partial conflict
+        // list is indistinguishable from "no conflict" downstream.
+        setCommitmentsReliable(complete);
+        console.log(
+          `${LOG_PREFIX} commitments loaded: ${rows.length} (complete=${complete})`
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Leave commitmentsReliable false. An empty index would let the
+        // matcher present every already-committed driver as available —
+        // DEV-204, #270, #273 and #276 were all this same mistake.
+        console.error(`${LOG_PREFIX} commitments fetch failed:`, err);
+      })
+      .finally(() => {
+        if (!cancelled) setCommitmentsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
 
   // Driver id -> commitments, so the matcher can exclude anyone already
   // spoken for in the requested window.
   const commitmentIndex = useMemo(
-    () => indexCommitmentsByDriver(commitmentsFromMatches(committingMatches)),
-    [committingMatches]
+    () => indexCommitmentsByDriver(commitments),
+    [commitments]
   );
 
   // Subscribe to MY pending loads.
@@ -209,34 +241,53 @@ export default function MatchesPage() {
     return () => unsubscribe();
   }, [firestore, user?.uid]);
 
-  // Subscribe to ALL pending loads. Mirrors the my-pending status set
-  // ("Pending" legacy + "live" + "match_pending" current) so newly-posted
-  // loads from other owners are also matchable.
+  // ALL loads on the board — projected by /api/marketplace/loads.
+  //
+  // This replaces a collectionGroup('loads') subscription with NO filter at
+  // all: it streamed every load document in the platform into every browser
+  // and discarded the wrong-status ones locally. Same shape of bug as the
+  // driver listener in #276, and the same two changes to fix it:
+  //
+  //   1. The status filter runs in Firestore now, against the loads index in
+  //      firestore.indexes.json, so the browser stops paying for loads it
+  //      throws away.
+  //   2. The payload is a projection. A load document carries `externalRefs`,
+  //      which holds the poster's TMS connection id and a deep link into
+  //      their provider UI — naming their broker and their order number. The
+  //      posted rate stays: on a load board the rate is the offer. See
+  //      WITHHELD_LOAD_FIELDS.
+  //
+  // Like the driver feed this is a fetch, not a subscription — a realtime
+  // listener over the whole network cannot be both live and bounded. A load
+  // posted elsewhere appears on next page load.
   useEffect(() => {
-    if (!firestore || !user?.uid) return;
-    const AVAILABLE_STATUSES = new Set(['Pending', 'live', 'match_pending']);
-    const unsubscribe = onSnapshot(
-      collectionGroup(firestore, "loads"),
-      (snapshot) => {
-        const loads: LoadWithOwner[] = [];
-        snapshot.docs.forEach((docSnap) => {
-          const data = docSnap.data() as Load;
-          if (!AVAILABLE_STATUSES.has(data.status as string)) return;
-          const ownerId = docSnap.ref.path.split("/")[1];
-          loads.push({ ...data, id: docSnap.id, ownerId });
-        });
+    if (!user?.uid) return;
+    let cancelled = false;
+    setAllLoadsLoading(true);
+    fetchMarketplaceLoads()
+      .then(({ loads, complete }) => {
+        if (cancelled) return;
         setAllPendingLoads(loads);
-        setAllLoadsLoading(false);
-        console.log(`${LOG_PREFIX} allPendingLoads updated: ${loads.length}`);
-      },
-      (err) => {
-        console.error(`${LOG_PREFIX} allPendingLoads snapshot error:`, err);
-        setAllLoadsLoading(false);
+        // A truncated board is less work shown, not wrong work shown. Say so
+        // anyway rather than let it read as the whole market.
+        if (!complete) noteFeedFailure('all loads from other carriers');
+        console.log(
+          `${LOG_PREFIX} allPendingLoads loaded: ${loads.length} (complete=${complete})`
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Deliberately NOT an empty list — see the driver feed below.
+        console.error(`${LOG_PREFIX} allPendingLoads fetch failed:`, err);
         noteFeedFailure('loads from other carriers');
-      }
-    );
-    return () => unsubscribe();
-  }, [firestore, user?.uid]);
+      })
+      .finally(() => {
+        if (!cancelled) setAllLoadsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, noteFeedFailure]);
 
   // MY fleet — owner-scoped, full documents, still realtime.
   //
@@ -527,6 +578,30 @@ export default function MatchesPage() {
 
   return (
     <>
+      {/* Conflict checking unavailable.
+        *
+        * Separate from the failedFeeds banner below on purpose. That one says
+        * "treat an empty result as unknown" — correct for the driver and load
+        * feeds, where a failure shows LESS than exists. Commitments fail the
+        * other way: with no commitment list every busy driver looks free, so
+        * the dangerous output is a full-looking list, and the warning has to
+        * say the opposite thing.
+        *
+        * /api/matches/accept does not re-check conflicts server-side (see
+        * matching.ts: "Absent = no conflict checking"), so this page is the
+        * only thing preventing a double-booking. With no list it has no
+        * information, and the Request Driver action is disabled below.
+        */}
+      {!commitmentsLoading && !commitmentsReliable && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Could not verify which drivers are already committed, so requests
+            are paused. A driver shown as available here may already be on a
+            load — nothing confirms otherwise. Reload to try again.
+          </AlertDescription>
+        </Alert>
+      )}
       {failedFeeds.length > 0 && (
         <Alert variant="destructive" className="mb-4">
           <AlertCircle className="h-4 w-4" />
@@ -781,7 +856,24 @@ export default function MatchesPage() {
                               </button>
                             </CardContent>
                             <CardFooter className="pt-0">
-                              <Button variant="default" size="sm" className="ml-auto" onClick={() => handleSelectDriverMatch(match)}>
+                              {/* Disabled while conflict checking is down.
+                                * A request here creates a match and then a
+                                * TLA; there is no server-side commitment
+                                * check behind it to catch a driver who is
+                                * already hauling. Better to stop than to
+                                * book blind. */}
+                              <Button
+                                variant="default"
+                                size="sm"
+                                className="ml-auto"
+                                disabled={!commitmentsReliable}
+                                title={
+                                  commitmentsReliable
+                                    ? undefined
+                                    : 'Driver commitments could not be verified — requests are paused.'
+                                }
+                                onClick={() => handleSelectDriverMatch(match)}
+                              >
                                 Request Driver<ArrowRight className="h-4 w-4 ml-1" />
                               </Button>
                             </CardFooter>

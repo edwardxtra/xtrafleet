@@ -10,11 +10,36 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Both the client SDK (via NEXT_PUBLIC_USE_FIREBASE_EMULATORS) and the
  * Admin SDK (via FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST)
- * auto-detect emulator mode from env vars set in the webServer command.
+ * auto-detect emulator mode from env vars.
  *
  * Local: `npm run emulators` in one terminal, `npm run test:e2e` in another.
- * CI:    the github action boots both inline before running the suite.
+ * CI:    `firebase emulators:exec … "npm run test:e2e"` boots them inline.
  */
+
+/**
+ * Point the Admin SDK at the emulators for the TEST RUNNER process too, not
+ * just the dev server.
+ *
+ * The webServer block below passes these to the Next.js process it spawns,
+ * which covers anything the app does server-side. But the spec files import
+ * tests/e2e/seed.ts and run it IN THIS PROCESS, and seed.ts reads these two
+ * variables directly — so without them the first seedOwner() call throws
+ * "Seeding requires the Firebase emulators", and the local workflow this
+ * file's own comment describes could not work. It silently only ever worked
+ * under `firebase emulators:exec`, which exports them for the whole command.
+ *
+ * `??=` so an explicit value always wins: emulators:exec sets the same hosts,
+ * and anyone pointing at non-default ports keeps their override.
+ *
+ * This does not weaken seed.ts's guard against seeding a real project. The
+ * guard exists so a misconfigured run cannot write to production; pinning the
+ * Admin SDK to a loopback emulator is what the guard wants. With no emulator
+ * running you get a connection error, never a write to a live database.
+ */
+process.env.FIRESTORE_EMULATOR_HOST ??= '127.0.0.1:8080';
+process.env.FIREBASE_AUTH_EMULATOR_HOST ??= '127.0.0.1:9099';
+process.env.GCLOUD_PROJECT ??= 'xtrafleet-e2e';
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false, // signup flows mutate shared emulator state — keep serial for now
