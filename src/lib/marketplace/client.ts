@@ -18,7 +18,7 @@
  * Auth rides the `fb-id-token` cookie, which authenticateRequest reads. A plain
  * same-origin fetch carries it, so there is no bearer token to plumb through.
  */
-import type { MarketplaceDriver } from './projection';
+import type { MarketplaceDriver, MarketplaceLoad } from './projection';
 import type { DriverCommitment } from '@/lib/commitments';
 
 /** Rows per request while draining. The endpoints cap this at 500. */
@@ -129,4 +129,48 @@ export async function fetchCommitments(
     // Absent means unknown, and unknown is not a yes.
     complete: body.complete === true,
   };
+}
+
+export interface MarketplaceLoadsResult {
+  loads: MarketplaceLoad[];
+  /** False when the drain hit MAX_PAGES — the list is known incomplete. */
+  complete: boolean;
+}
+
+/**
+ * Every load on the marketplace board, projected.
+ *
+ * Replaces the browser's unfiltered collectionGroup('loads') subscription,
+ * which streamed every load document in the platform into every tab and
+ * filtered by status locally.
+ *
+ * A short list here fails in the same benign direction as a short driver
+ * list: the board shows less work than exists, which is visible to the
+ * carrier rather than silently wrong. Contrast fetchCommitments, where a
+ * short list reads as "no conflict".
+ */
+export async function fetchMarketplaceLoads(
+  opts: FetchOptions = {}
+): Promise<MarketplaceLoadsResult> {
+  const pageSize = opts.pageSize ?? PAGE_SIZE;
+  const maxPages = opts.maxPages ?? MAX_PAGES;
+  const fetchImpl = opts.fetchImpl ?? fetch;
+
+  const loads: MarketplaceLoad[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < maxPages; page++) {
+    const url =
+      `/api/marketplace/loads?limit=${pageSize}` +
+      (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '');
+    const body = await getJson(url, fetchImpl);
+    const batch = Array.isArray(body.loads) ? (body.loads as MarketplaceLoad[]) : [];
+    loads.push(...batch);
+
+    const next = typeof body.nextCursor === 'string' ? body.nextCursor : null;
+    if (!next) return { loads, complete: true };
+    cursor = next;
+  }
+
+  return { loads, complete: false };
 }

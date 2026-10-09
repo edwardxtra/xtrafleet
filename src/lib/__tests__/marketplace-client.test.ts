@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { fetchMarketplaceDrivers, fetchCommitments } from '@/lib/marketplace/client';
+import {
+  fetchMarketplaceDrivers,
+  fetchMarketplaceLoads,
+  fetchCommitments,
+} from '@/lib/marketplace/client';
 
 /**
  * The drain, and what it says about its own completeness.
@@ -143,5 +147,53 @@ describe('fetchCommitments', () => {
     const { impl, calls } = fakeFetch([{ commitments: [], complete: true }]);
     await fetchCommitments({ fetchImpl: impl });
     expect(calls).toEqual(['/api/commitments']);
+  });
+});
+
+describe('fetchMarketplaceLoads', () => {
+  it('follows the cursor to the end and reports complete', async () => {
+    const { impl, calls } = fakeFetch([
+      { loads: [{ id: 'l1' }, { id: 'l2' }], nextCursor: 'cur-1' },
+      { loads: [{ id: 'l3' }], nextCursor: null },
+    ]);
+    const res = await fetchMarketplaceLoads({ pageSize: 2, fetchImpl: impl });
+    expect(res.loads.map((l) => l.id)).toEqual(['l1', 'l2', 'l3']);
+    expect(res.complete).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain('/api/marketplace/loads');
+    expect(calls[0]).not.toContain('cursor=');
+    expect(calls[1]).toContain('cursor=cur-1');
+  });
+
+  it('url-encodes the cursor, which is a document path with slashes', async () => {
+    const { impl, calls } = fakeFetch([
+      { loads: [], nextCursor: 'owner_operators/abc/loads/xyz' },
+      { loads: [], nextCursor: null },
+    ]);
+    await fetchMarketplaceLoads({ pageSize: 1, fetchImpl: impl });
+    expect(calls[1]).toContain('cursor=owner_operators%2Fabc%2Floads%2Fxyz');
+  });
+
+  it('reports incomplete rather than looping forever on an endless cursor', async () => {
+    // Every page hands back another cursor. The drain must stop and SAY it
+    // stopped, not present a truncated board as the whole market.
+    const { impl, calls } = fakeFetch([{ loads: [{ id: 'l' }], nextCursor: 'always' }]);
+    const res = await fetchMarketplaceLoads({ pageSize: 1, maxPages: 3, fetchImpl: impl });
+    expect(res.complete).toBe(false);
+    expect(calls).toHaveLength(3);
+  });
+
+  it('throws on a refusal instead of returning an empty board', async () => {
+    // A 403 from the attestation gate must not render as "no loads posted".
+    await expect(
+      fetchMarketplaceLoads({ fetchImpl: erroringFetch(403, { error: 'attestations expired' }) })
+    ).rejects.toThrow(/403.*attestations expired/);
+  });
+
+  it('tolerates a malformed payload without inventing loads', async () => {
+    const { impl } = fakeFetch([{ loads: 'not-an-array', nextCursor: null }]);
+    const res = await fetchMarketplaceLoads({ fetchImpl: impl });
+    expect(res.loads).toEqual([]);
+    expect(res.complete).toBe(true);
   });
 });
