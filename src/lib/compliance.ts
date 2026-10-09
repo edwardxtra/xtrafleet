@@ -162,3 +162,27 @@ export const getComplianceStatusFromItems = (items: ComplianceItem[]): Complianc
 
   return hasYellow ? "Yellow" : "Green";
 };
+
+/**
+ * The compliance verdict for a driver that may be a projection.
+ *
+ * Two shapes reach the UI now and they must be scored differently:
+ *
+ *   - a FULL document (own fleet) has no `complianceStatus` field and has to
+ *     be scored here, from its identifiers and screening dates.
+ *   - a PROJECTED driver (another carrier's, via /api/marketplace/drivers)
+ *     carries `complianceStatus`, computed on the server from the whole
+ *     document before the sensitive fields were dropped.
+ *
+ * Never call getComplianceStatus directly on a projection. It requires
+ * cdlLicense, motorVehicleRecordNumber and the three screening dates to be
+ * present and returns Red when any is missing — which is exactly what the
+ * projection withholds, so a fully compliant driver scores Red (#273).
+ *
+ * The fallback is deliberate rather than defensive: if a projection ever
+ * arrives without the field, this scores it Red, which is the safe direction
+ * to be wrong in.
+ */
+export const resolveComplianceStatus = (
+  driver: Driver & { complianceStatus?: ComplianceStatus }
+): ComplianceStatus => driver.complianceStatus ?? getComplianceStatus(driver);

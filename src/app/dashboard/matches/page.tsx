@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { Driver, Load } from "@/lib/data";
+import type { Driver, Load, Match } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -31,6 +31,8 @@ import {
 } from "lucide-react";
 import { useUser, useFirestore } from "@/firebase";
 import { collection, query, where, collectionGroup, doc, getDoc, onSnapshot } from "firebase/firestore";
+import { fetchMarketplaceDrivers } from "@/lib/marketplace/client";
+import type { MarketplaceDriver } from "@/lib/marketplace/projection";
 import {
   findMatchingDrivers,
   findMatchingDriversAsync,
@@ -41,6 +43,12 @@ import {
   type MatchScore,
   type LoadMatchScore,
 } from "@/lib/matching";
+import {
+  buildWindow,
+  COMMITTED_MATCH_STATUSES,
+  commitmentsFromMatches,
+  indexCommitmentsByDriver,
+} from "@/lib/commitments";
 import { Progress } from "@/components/ui/progress";
 import { MatchRequestModal } from "@/components/match-request-modal";
 import { DriverMatchRequestModal } from "@/components/driver-match-request-modal";
@@ -52,7 +60,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { ComplianceScorecard, ScoringFormulaExplainer } from "@/components/compliance-scorecard";
-import { getComplianceStatus, type ComplianceStatus } from "@/lib/compliance";
+import { getComplianceStatus, resolveComplianceStatus, type ComplianceStatus } from "@/lib/compliance";
 import { hasCurrent, type AttestationEntry, type AttestationType } from "@/lib/attestations";
 
 type DriverWithOwner = Driver & { ownerId: string };
@@ -79,12 +87,33 @@ export default function MatchesPage() {
 
   // Data
   const [ownerNames, setOwnerNames] = useState<Record<string, string>>({});
-  const [allDrivers, setAllDrivers] = useState<DriverWithOwner[]>([]);
-  const [driversLoading, setDriversLoading] = useState(true);
+  // My own roster, full documents. Mine to read; nothing withheld.
+  const [myFleet, setMyFleet] = useState<DriverWithOwner[]>([]);
+  const [myFleetLoading, setMyFleetLoading] = useState(true);
+  // Other carriers' drivers, projected server-side. Never full documents.
+  const [marketplaceDrivers, setMarketplaceDrivers] = useState<MarketplaceDriver[]>([]);
+  const [marketplaceLoading, setMarketplaceLoading] = useState(true);
   const [myPendingLoads, setMyPendingLoads] = useState<Load[]>([]);
   const [allPendingLoads, setAllPendingLoads] = useState<LoadWithOwner[]>([]);
   const [loadsLoading, setLoadsLoading] = useState(true);
   const [allLoadsLoading, setAllLoadsLoading] = useState(true);
+
+  // Which marketplace feeds failed to load.
+  //
+  // Each subscription below used to report its errors to the console only, so
+  // a failed listener left its state as an empty array and the page rendered a
+  // marketplace with nothing in it. "No capacity exists" and "we could not ask"
+  // looked identical, and the honest answer — we do not know — was the one
+  // outcome the UI could not express.
+  //
+  // Measured in tests/scale: past roughly 18k driver documents the
+  // collection-group listener stops delivering entirely and retries in a loop
+  // ("WebChannelConnection RPC 'Listen' stream transport errored"), so this is
+  // the state a carrier would actually have seen.
+  const [failedFeeds, setFailedFeeds] = useState<string[]>([]);
+  const noteFeedFailure = useCallback((feed: string) => {
+    setFailedFeeds((prev) => (prev.includes(feed) ? prev : [...prev, feed]));
+  }, []);
 
   const { user } = useUser();
   const firestore = useFirestore();
@@ -118,6 +147,41 @@ export default function MatchesPage() {
     checkProfileAttestations();
   }, [user, firestore]);
 
+  // DEV-203: every match that currently holds a driver, across all owners.
+  //
+  // Drivers in the pool belong to OTHER owners, so we need their commitments
+  // too — `matches` is readable by any signed-in user, which makes this
+  // possible client-side. TLAs are not fetched: the match status mirrors the
+  // TLA lifecycle (tla_pending -> tla_signed -> in_progress), so matches
+  // alone cover the same commitments without a second subscription.
+  // commitmentsFromTlas() exists for server-side callers that hold both.
+  const [committingMatches, setCommittingMatches] = useState<Match[]>([]);
+
+  useEffect(() => {
+    if (!firestore || !user?.uid) return;
+    const unsubscribe = onSnapshot(
+      query(
+        collection(firestore, "matches"),
+        where("status", "in", [...COMMITTED_MATCH_STATUSES]),
+      ),
+      (snapshot) => {
+        setCommittingMatches(snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Match)));
+      },
+      (err) => {
+        console.error(`${LOG_PREFIX} committingMatches snapshot error:`, err);
+        noteFeedFailure('existing commitments');
+      }
+    );
+    return () => unsubscribe();
+  }, [firestore, user?.uid]);
+
+  // Driver id -> commitments, so the matcher can exclude anyone already
+  // spoken for in the requested window.
+  const commitmentIndex = useMemo(
+    () => indexCommitmentsByDriver(commitmentsFromMatches(committingMatches)),
+    [committingMatches]
+  );
+
   // Subscribe to MY pending loads.
   // "Pending" is the legacy status string; the current /api/loads POST
   // writes "live" by default and bumps to "match_pending" once a match
@@ -136,7 +200,11 @@ export default function MatchesPage() {
         setLoadsLoading(false);
         console.log(`${LOG_PREFIX} myPendingLoads updated: ${loads.length}`);
       },
-      (err) => console.error(`${LOG_PREFIX} myPendingLoads snapshot error:`, err)
+      (err) => {
+        console.error(`${LOG_PREFIX} myPendingLoads snapshot error:`, err);
+        setLoadsLoading(false);
+        noteFeedFailure('your loads');
+      }
     );
     return () => unsubscribe();
   }, [firestore, user?.uid]);
@@ -161,30 +229,88 @@ export default function MatchesPage() {
         setAllLoadsLoading(false);
         console.log(`${LOG_PREFIX} allPendingLoads updated: ${loads.length}`);
       },
-      (err) => console.error(`${LOG_PREFIX} allPendingLoads snapshot error:`, err)
+      (err) => {
+        console.error(`${LOG_PREFIX} allPendingLoads snapshot error:`, err);
+        setAllLoadsLoading(false);
+        noteFeedFailure('loads from other carriers');
+      }
     );
     return () => unsubscribe();
   }, [firestore, user?.uid]);
 
-  // Subscribe to ALL drivers
+  // MY fleet — owner-scoped, full documents, still realtime.
+  //
+  // Split out from what used to be a single collectionGroup('drivers')
+  // listener over the whole platform. My own drivers are mine to read in full:
+  // the scorecard on my fleet needs the CDL number and the COI, and the
+  // subscription is bounded by my own roster rather than by the network.
   useEffect(() => {
     if (!firestore || !user?.uid) return;
     const unsubscribe = onSnapshot(
-      collectionGroup(firestore, "drivers"),
+      collection(firestore, `owner_operators/${user.uid}/drivers`),
       (snapshot) => {
-        const drivers: DriverWithOwner[] = [];
-        snapshot.docs.forEach((docSnap) => {
-          const ownerId = docSnap.ref.path.split("/")[1];
-          drivers.push({ ...docSnap.data() as Driver, id: docSnap.id, ownerId });
-        });
-        setAllDrivers(drivers);
-        setDriversLoading(false);
-        console.log(`${LOG_PREFIX} allDrivers updated: ${drivers.length}`);
+        const drivers: DriverWithOwner[] = snapshot.docs.map((docSnap) => ({
+          ...(docSnap.data() as Driver),
+          id: docSnap.id,
+          ownerId: user.uid,
+        }));
+        setMyFleet(drivers);
+        setMyFleetLoading(false);
+        console.log(`${LOG_PREFIX} myFleet updated: ${drivers.length}`);
       },
-      (err) => console.error(`${LOG_PREFIX} allDrivers snapshot error:`, err)
+      (err) => {
+        console.error(`${LOG_PREFIX} myFleet snapshot error:`, err);
+        setMyFleetLoading(false);
+        noteFeedFailure('your drivers');
+      }
     );
     return () => unsubscribe();
   }, [firestore, user?.uid]);
+
+  // OTHER carriers' drivers — projected by /api/marketplace/drivers.
+  //
+  // This replaces the listener that streamed every driver document in the
+  // platform into every browser. Two things changed, both deliberate:
+  //
+  //   1. The payload is a projection. A driver document is the whole
+  //      qualification file — CDL and MVR numbers, and storage URLs carrying
+  //      Firebase download tokens for the background check and the drug and
+  //      alcohol screening. The matcher reads about a dozen fields of forty.
+  //      Those thirty never leave the server now.
+  //   2. It is a fetch, not a subscription. Outside capacity is a snapshot
+  //      taken when the page loads rather than a live feed. That IS the
+  //      change: a realtime listener over the whole network is what stopped
+  //      delivering past ~18k documents (tests/scale), and it cannot be both
+  //      live and bounded. A carrier added elsewhere appears on next load.
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    setMarketplaceLoading(true);
+    fetchMarketplaceDrivers()
+      .then(({ drivers, complete }) => {
+        if (cancelled) return;
+        setMarketplaceDrivers(drivers);
+        // Known-partial is not the same as all of it. Say so rather than let
+        // the carrier read a truncated list as the whole market.
+        if (!complete) noteFeedFailure('all drivers from other carriers');
+        console.log(
+          `${LOG_PREFIX} marketplaceDrivers loaded: ${drivers.length} (complete=${complete})`
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Deliberately NOT an empty list. A 403 from the attestation gate, or a
+        // missing Firestore index, must not render as "no capacity available".
+        console.error(`${LOG_PREFIX} marketplaceDrivers fetch failed:`, err);
+        noteFeedFailure('drivers from other carriers');
+      })
+      .finally(() => {
+        if (!cancelled) setMarketplaceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, noteFeedFailure]);
 
   // Fetch owner company names
   useEffect(() => {
@@ -192,7 +318,8 @@ export default function MatchesPage() {
       if (!firestore) return;
       const ids = [
         ...new Set([
-          ...allDrivers.map((d) => d.ownerId),
+          // Own fleet is deliberately absent: its owner is the viewer.
+          ...marketplaceDrivers.map((d) => d.ownerId),
           ...allPendingLoads.map((l) => l.ownerId),
         ].filter(Boolean)),
       ];
@@ -212,10 +339,17 @@ export default function MatchesPage() {
       if (Object.keys(names).length > 0) setOwnerNames((prev) => ({ ...prev, ...names }));
     }
     fetchOwnerNames();
-  }, [firestore, allDrivers, allPendingLoads]);
+  }, [firestore, marketplaceDrivers, allPendingLoads]);
 
-  const myDrivers = allDrivers.filter((d) => {
-    if (d.ownerId !== user?.uid) return false;
+  // Did either driver feed fail or come back known-partial? Used to stop the
+  // empty state from asserting that no capacity exists.
+  const driverFeedFailed = failedFeeds.some((f) => f.includes('drivers from other carriers'));
+
+  const myDrivers = myFleet.filter((d) => {
+    // getComplianceStatus is correct here and nowhere else on this page: it
+    // needs cdlLicense, motorVehicleRecordNumber and the screening dates, and
+    // only my own fleet still carries them. For a projected driver it would
+    // return Red for a fully compliant record — see #273.
     const status = getComplianceStatus(d);
     // Yellow drivers (a document expiring soon but still valid) are legal to
     // operate now and should be offerable as matches — only exclude Red
@@ -268,9 +402,18 @@ export default function MatchesPage() {
   // Pool of drivers eligible for the selected load (excluding own fleet
   // + inactive). Same input feeds both findMatchingDrivers (ranking) and
   // findIneligibleDrivers (diagnostic panel).
-  const driverPoolForLoad =
-    selectedLoad && selectionMode === "load" && allDrivers.length > 0
-      ? allDrivers.filter((d) => d.ownerId !== user?.uid && d.isActive !== false)
+  // The pool of other carriers' drivers for the selected load.
+  //
+  // MarketplaceDriver is structurally assignable to Driver — it carries every
+  // field Driver requires — so the matcher and MatchScore need no change. The
+  // cast is to attach ownerId as non-optional, which the matcher's callers read.
+  //
+  // The endpoint does NOT exclude the caller's own drivers, so the ownerId
+  // filter stays. The isActive check is gone: the query only returns active
+  // records, and a projected driver no longer carries the field to check.
+  const driverPoolForLoad: DriverWithOwner[] =
+    selectedLoad && selectionMode === "load" && marketplaceDrivers.length > 0
+      ? (marketplaceDrivers.filter((d) => d.ownerId !== user?.uid) as unknown as DriverWithOwner[])
       : [];
 
   // PR 2: switched from sync findMatchingDrivers to async variant so we
@@ -284,7 +427,7 @@ export default function MatchesPage() {
       ? findMatchingDrivers(
           selectedLoad,
           driverPoolForLoad,
-          { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10 }
+          { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10, commitments: commitmentIndex }
         )
       : [];
 
@@ -301,7 +444,7 @@ export default function MatchesPage() {
     findMatchingDriversAsync(
       selectedLoad,
       driverPoolForLoad,
-      { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10 }
+      { onlyGreenCompliance: true, onlyAvailable: true, maxResults: 10, commitments: commitmentIndex }
     )
       .then((resolved) => {
         if (cancelled) return;
@@ -327,7 +470,12 @@ export default function MatchesPage() {
   // equipment drivers appear in driverMatches with a low score, not here.
   const ineligibleDriversForLoad =
     selectedLoad && selectionMode === "load" && driverPoolForLoad.length > 0
-      ? findIneligibleDrivers(driverPoolForLoad, { onlyGreenCompliance: true, onlyAvailable: true })
+      ? findIneligibleDrivers(driverPoolForLoad, {
+          onlyGreenCompliance: true,
+          onlyAvailable: true,
+          commitments: commitmentIndex,
+          requestedWindow: buildWindow(selectedLoad?.pickupDate) ?? undefined,
+        })
       : [];
 
   const loadMatches =
@@ -379,6 +527,16 @@ export default function MatchesPage() {
 
   return (
     <>
+      {failedFeeds.length > 0 && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Could not load {failedFeeds.join(' or ')}. What you see below is
+            incomplete — treat an empty result as unknown, not as
+            &ldquo;no capacity available&rdquo;. Reload to try again.
+          </AlertDescription>
+        </Alert>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 lg:h-[calc(100vh-8rem)]">
 
         {/* MY ASSETS */}
@@ -439,7 +597,7 @@ export default function MatchesPage() {
                   <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-2">
                     <User className="h-4 w-4" /> My Drivers ({myDrivers.length})
                   </h4>
-                  {driversLoading ? (
+                  {myFleetLoading ? (
                     <div className="p-4 text-center text-muted-foreground text-sm">Loading...</div>
                   ) : myDrivers.length > 0 ? (
                     myDrivers.map((driver) => {
@@ -505,7 +663,8 @@ export default function MatchesPage() {
                   driverMatches.length > 0 ? (
                     <div className="space-y-4">
                       {driverMatches.map((match) => {
-                        const complianceStatus = getComplianceStatus(match.driver);
+                        // A projection: read the verdict, never rescore it.
+                        const complianceStatus = resolveComplianceStatus(match.driver);
                         const companyName = match.driver.ownerId ? ownerNames[match.driver.ownerId] : null;
                         const hasWarning = !!match.breakdown.qualificationWarning;
                         return (
@@ -547,6 +706,19 @@ export default function MatchesPage() {
                                       <span className="truncate">{companyName}</span>
                                     </p>
                                   )}
+                                  {/* DEV-204: never let an unconfirmed driver
+                                      read as a confirmed one. 'unknown' means
+                                      nobody declared dates, not that they are
+                                      free — say so plainly. */}
+                                  {match.availabilityVerdict === "unknown" ? (
+                                    <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+                                      Availability unconfirmed for these dates
+                                    </p>
+                                  ) : match.availabilityVerdict === "available" ? (
+                                    <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-0.5">
+                                      Available &mdash; {match.availabilityDetail}
+                                    </p>
+                                  ) : null}
                                 </div>
                                 <Badge className={`flex-shrink-0 text-xs ${getComplianceBadgeStyle(complianceStatus)}`}>
                                   <ShieldCheck className="h-3 w-3 mr-1" />{complianceStatus}
@@ -645,12 +817,34 @@ export default function MatchesPage() {
                         </div>
                       )}
                     </div>
+                  ) : marketplaceLoading ? (
+                    // Outside capacity is a fetch now, not a live listener, so
+                    // there is a real window where the pool is empty because we
+                    // have not finished asking. Saying "No Matching Drivers"
+                    // during it would be a confident negative — the same
+                    // mistake as DEV-204, #270 and #273.
+                    <div className="flex flex-col items-center justify-center h-64 text-center p-4 border-2 border-dashed rounded-lg">
+                      <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />
+                      <h3 className="mt-4 text-base font-semibold font-headline">
+                        Checking outside capacity
+                      </h3>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Loading drivers from other carriers.
+                      </p>
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-64 text-center p-4 border-2 border-dashed rounded-lg">
                       <Users className="h-12 w-12 text-muted-foreground" />
-                      <h3 className="mt-4 text-base font-semibold font-headline">No Matching Drivers</h3>
+                      <h3 className="mt-4 text-base font-semibold font-headline">
+                        {driverFeedFailed ? "Could Not Check Capacity" : "No Matching Drivers"}
+                      </h3>
                       <p className="mt-2 text-sm text-muted-foreground">
-                        {ineligibleDriversForLoad.length > 0
+                        {driverFeedFailed
+                          // Never assert an empty pool when the request failed.
+                          // "We could not ask" and "nobody is available" are
+                          // different answers and only one of them is known.
+                          ? "We could not load drivers from other carriers, so this is not a complete picture. Reload to try again."
+                          : ineligibleDriversForLoad.length > 0
                           ? `${ineligibleDriversForLoad.length} driver${ineligibleDriversForLoad.length === 1 ? " was" : "s were"} filtered out — see reasons below.`
                           : "No available drivers in the pool."}
                       </p>
@@ -802,6 +996,20 @@ export default function MatchesPage() {
             <ComplianceScorecard
               driver={breakdownMatch.driver}
               role="owner_operator"
+              // Every driver reachable from here belongs to another carrier:
+              // driverPoolForLoad is explicitly filtered to ownerId !== user.uid.
+              // The scope is therefore constant, not a per-driver check — but it
+              // is written as one so the panel stays correct if this Sheet is
+              // ever reached from a list that includes the viewer's own fleet.
+              scope={
+                breakdownMatch.driver.ownerId && breakdownMatch.driver.ownerId === user?.uid
+                  ? "full"
+                  : "marketplace"
+              }
+              // The same verdict the badge in the match list shows, so the two
+              // cannot disagree. Becomes driver.complianceStatus from the
+              // projection once discovery moves server-side.
+              verdict={resolveComplianceStatus(breakdownMatch.driver)}
               qualificationWarning={breakdownMatch.breakdown.qualificationWarning}
               expiryDetails={breakdownMatch.breakdown.expiryDetails}
               onLearnMore={() => setShowFormula(true)}

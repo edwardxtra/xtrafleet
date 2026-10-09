@@ -70,6 +70,29 @@ function db(): Firestore {
 }
 
 /** Release the Admin SDK app so Playwright's process can exit cleanly. */
+/**
+ * How many `audit_logs` entries carry this action. Used to prove a refused
+ * call wrote nothing — a 401 that still appended a row would be no defence
+ * for a log whose whole value is being trustworthy.
+ */
+export async function countAuditEntries(action: string): Promise<number> {
+  const snap = await db().collection('audit_logs').where('action', '==', action).get();
+  return snap.size;
+}
+
+/**
+ * The guarded Admin SDK handle.
+ *
+ * The helpers above write one document per call, which is right for a test
+ * that seeds a handful of records and wrong for the scale benchmark, which
+ * seeds tens of thousands. Tooling that needs batched writes takes this
+ * rather than initialising its own app, so adminApp()'s emulator guard stays
+ * the single place that stops a bulk write reaching a real project.
+ */
+export function seedFirestore(): Firestore {
+  return db();
+}
+
 export async function closeSeedApp(): Promise<void> {
   if (app) {
     await deleteApp(app);

@@ -5,6 +5,7 @@ import { notify } from "@/lib/notifications";
 import { calculateTripDuration, formatTripDuration } from "@/lib/tla-utils";
 import { captureSignatureAudit } from "@/lib/audit-utils";
 import { createConversation } from "@/lib/messaging-utils";
+import { buildSignatureUpdate } from "@/lib/tla-signing";
 import { buildAttestationEntry } from "@/lib/attestations";
 import { MATCH_FEE_WAIVED } from "@/lib/billing-config";
 
@@ -62,46 +63,21 @@ export async function signTLA(params: SignTLAParams): Promise<TLA | null> {
       }
       const current = snap.data() as TLA;
 
-      // Resolve both signatures from fresh data, including the one we're adding.
-      const lessorSignature = role === 'lessor' ? signature : current.lessorSignature;
-      const lesseeSignature = role === 'lessee' ? signature : current.lesseeSignature;
-      const both = !!lessorSignature && !!lesseeSignature;
+      // The decision lives in tla-signing.ts so it can be tested over every
+      // combination of present/absent signatures. `current` is the fresh,
+      // in-transaction document — passing the page-load snapshot here is the
+      // bug this transaction exists to prevent.
+      //
+      // The JSON round-trip strips undefined values Firestore rejects —
+      // optional fields like pickup.instructions or the contact name/phone are
+      // left blank on the sign form.
+      const { update, decision } = buildSignatureUpdate(current, role, signature, {
+        insuranceOption,
+        locations: locations ? JSON.parse(JSON.stringify(locations)) : undefined,
+      });
 
-      const updateData: Record<string, any> = {
-        updatedAt: new Date().toISOString(),
-      };
-
-      if (role === 'lessor') {
-        updateData.lessorSignature = signature;
-      } else {
-        updateData.lesseeSignature = signature;
-
-        if (insuranceOption) {
-          updateData.insurance = {
-            option: insuranceOption,
-            confirmedAt: new Date().toISOString(),
-            confirmedBy: userId,
-          };
-        }
-
-        // Save location details if provided. JSON round-trip strips undefined
-        // values Firestore rejects — optional fields like pickup.instructions or
-        // the contact name/phone are left blank on the sign form.
-        if (locations) {
-          updateData.locations = JSON.parse(JSON.stringify(locations));
-        }
-      }
-
-      if (both) {
-        updateData.status = 'signed';
-        updateData.signedAt = new Date().toISOString();
-      } else {
-        // Whoever just signed is recorded; the OTHER party is still pending.
-        updateData.status = lessorSignature ? 'pending_lessee' : 'pending_lessor';
-      }
-
-      transaction.update(tlaRef, updateData);
-      return { bothSigned: both };
+      transaction.update(tlaRef, update);
+      return { bothSigned: decision.bothSigned };
     });
 
     // ---- Side effects: only after the transaction commits ----

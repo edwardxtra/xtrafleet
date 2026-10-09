@@ -1,6 +1,19 @@
 import type { Driver, Load } from "@/lib/data";
 import { differenceInDays, parseISO } from "date-fns";
+import {
+  buildWindow,
+  findConflict,
+  describeConflict,
+  type DateWindow,
+  type DriverCommitment,
+} from "./commitments";
+import {
+  resolveAvailability,
+  excludesFromResults,
+  type AvailabilityVerdict,
+} from "./availability";
 import type { TrailerType } from "./trailer-types";
+import { isLoadAvailable } from "./marketplace/projection";
 
 const LOG_PREFIX = "[matching]";
 
@@ -54,6 +67,12 @@ export interface MatchScore {
   breakdown: MatchScoreBreakdown;
   rank: number;
   isBestMatch: boolean;
+  /**
+   * DEV-204 — 'unknown' means nobody has declared windows for this driver,
+   * NOT that they are busy. Surface it; never render it as a yes.
+   */
+  availabilityVerdict?: AvailabilityVerdict;
+  availabilityDetail?: string;
 }
 
 export interface LoadMatchScore {
@@ -68,6 +87,18 @@ export interface MatchingOptions {
   onlyGreenCompliance?: boolean;
   onlyAvailable?: boolean;
   maxResults?: number;
+  /**
+   * DEV-203 — the window being asked about. Without it there is nothing to
+   * compare commitments against, so the conflict check is skipped entirely
+   * and behaviour is unchanged.
+   */
+  requestedWindow?: DateWindow;
+  /**
+   * DEV-203 — existing commitments keyed by driver id. Callers fetch these
+   * (see commitmentsFromMatches / commitmentsFromTlas) and index them with
+   * indexCommitmentsByDriver. Absent = no conflict checking.
+   */
+  commitments?: Record<string, DriverCommitment[]>;
 }
 
 const DEFAULT_OPTIONS: MatchingOptions = {
@@ -198,6 +229,26 @@ const FALLBACK_COORDINATES: Record<string, { lat: number; lng: number }> = {
   miami: { lat: 25.7617, lng: -80.1918 }, tampa: { lat: 27.9506, lng: -82.4572 },
   orlando: { lat: 28.5383, lng: -81.3792 }, jacksonville: { lat: 30.3322, lng: -81.6557 },
   "fort lauderdale": { lat: 26.1224, lng: -80.1373 }, tallahassee: { lat: 30.4383, lng: -84.2807 },
+  // I-4 / Polk County corridor — the launch market. Absent until Oct 2026, so
+  // every one of these resolved to the `fl` centroid and scored as 0 miles from
+  // every other. The pilot runs here; these need to be exact.
+  lakeland: { lat: 28.0395, lng: -81.9498 }, "plant city": { lat: 28.0186, lng: -82.1126 },
+  "winter haven": { lat: 28.0222, lng: -81.7329 }, bartow: { lat: 27.8964, lng: -81.8431 },
+  auburndale: { lat: 28.0653, lng: -81.7887 }, "haines city": { lat: 28.1139, lng: -81.6201 },
+  davenport: { lat: 28.1614, lng: -81.602 }, "lake wales": { lat: 27.9014, lng: -81.5859 },
+  mulberry: { lat: 27.8964, lng: -81.9734 }, "polk city": { lat: 28.1825, lng: -81.8237 },
+  brandon: { lat: 27.9378, lng: -82.2859 }, zephyrhills: { lat: 28.2336, lng: -82.1812 },
+  "dade city": { lat: 28.3647, lng: -82.1959 }, kissimmee: { lat: 28.292, lng: -81.4076 },
+  sanford: { lat: 28.8003, lng: -81.2731 }, "winter garden": { lat: 28.5653, lng: -81.5862 },
+  // Remaining major Florida metros, so an out-of-corridor driver resolves to a
+  // real place rather than to null.
+  "st petersburg": { lat: 27.7676, lng: -82.6403 }, "saint petersburg": { lat: 27.7676, lng: -82.6403 },
+  clearwater: { lat: 27.9659, lng: -82.8001 }, sarasota: { lat: 27.3364, lng: -82.5307 },
+  "fort myers": { lat: 26.6406, lng: -81.8723 }, naples: { lat: 26.142, lng: -81.7948 },
+  ocala: { lat: 29.1872, lng: -82.1401 }, gainesville: { lat: 29.6516, lng: -82.3248 },
+  pensacola: { lat: 30.4213, lng: -87.2169 }, "daytona beach": { lat: 29.2108, lng: -81.0228 },
+  "west palm beach": { lat: 26.7153, lng: -80.0534 }, "port st lucie": { lat: 27.2939, lng: -80.3503 },
+  "key west": { lat: 24.5551, lng: -81.78 },
   fl: { lat: 28.0, lng: -82.0 }, florida: { lat: 28.0, lng: -82.0 },
   houston: { lat: 29.7604, lng: -95.3698 }, dallas: { lat: 32.7767, lng: -96.797 },
   austin: { lat: 30.2672, lng: -97.7431 }, "san antonio": { lat: 29.4241, lng: -98.4936 },
@@ -351,7 +402,22 @@ export function getCoordinatesSync(location: string): { lat: number; lng: number
 
   // 3. Exact match on any comma-part as a city (handles street addresses like
   //    "123 Main St, Boston, MA" → "boston"). Exact only — never a substring.
-  for (const part of parts) {
+  //
+  //    The trailing part is the STATE and is deliberately excluded. Scanning it
+  //    meant any unlisted city fell through to its state's centroid and was then
+  //    scored as a precise location: "Pensacola, FL" resolved to the Florida
+  //    centroid (28, -82), which sits beside Lakeland, so a driver 440 miles
+  //    away earned the maximum 35/35 proximity score against a Lakeland load.
+  //    Most of Florida — including Lakeland, Plant City and Winter Haven, the
+  //    entire launch corridor — collapsed onto that one point.
+  //
+  //    A bare state still resolves via step 1, because "FL" alone really does
+  //    mean "somewhere in Florida". What must not happen is a state centroid
+  //    standing in for a city the table does not know. Returning null makes
+  //    calculateLocationScoreWeighted award the neutral 10 instead, which is
+  //    the honest answer: we do not know where this is.
+  const cityParts = parts.length > 1 ? parts.slice(0, -1) : parts;
+  for (const part of cityParts) {
     if (FALLBACK_COORDINATES[part]) return FALLBACK_COORDINATES[part];
   }
 
@@ -692,6 +758,15 @@ export function findMatchingDrivers(
 ): MatchScore[] {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
+  // DEV-203/204: derive the window from the load's pickup date when the
+  // caller did not pass one. Both the commitment check and the availability
+  // resolution need it. findIneligibleDrivers has no load, so it always
+  // needs the window passed in explicitly — this convenience is local here.
+  if (!opts.requestedWindow) {
+    const derived = buildWindow(load.pickupDate);
+    if (derived) opts.requestedWindow = derived;
+  }
+
   // PR 1: equipment is no longer a hard filter — it falls through to scoring.
   // The remaining hard filters are availability + expired compliance docs.
   const eligible = drivers.filter((driver) => filterEligibility(driver, opts) === null);
@@ -703,7 +778,18 @@ export function findMatchingDrivers(
   const scored: MatchScore[] = eligible.map((driver) => {
     const breakdown = calculateMatchScore(driver, load);
     const score = getTotalScore(breakdown);
-    return { driver, score, breakdown, rank: 0, isBestMatch: false };
+    // DEV-204: carry the verdict through so the UI (and later the capacity
+    // agent) can say "availability unconfirmed" rather than implying a yes.
+    const availability = resolveAvailability(driver, opts.requestedWindow);
+    return {
+      driver,
+      score,
+      breakdown,
+      rank: 0,
+      isBestMatch: false,
+      availabilityVerdict: availability.verdict,
+      availabilityDetail: availability.detail,
+    };
   });
 
   // PR 3: infeasible-by-schedule drivers always sort below feasible ones,
@@ -723,8 +809,15 @@ export function findMatchingDrivers(
 // they're eligible. Used both by findMatchingDrivers and the new
 // findIneligibleDrivers helper so the two stay in lockstep.
 function filterEligibility(driver: Driver, opts: MatchingOptions): string | null {
-  if (opts.onlyAvailable && driver.availability !== "Available") {
-    return `Not available (${driver.availability || "no status"})`;
+  // DEV-204: declared availability windows are authoritative when present;
+  // the legacy enum is the fallback. Only a definite 'unavailable' excludes —
+  // 'unknown' still ranks, because hiding a driver nobody has declared
+  // windows for would make this less useful than the phone call it replaces.
+  if (opts.onlyAvailable) {
+    const availability = resolveAvailability(driver, opts.requestedWindow);
+    if (excludesFromResults(availability.verdict)) {
+      return `Not available (${availability.detail})`;
+    }
   }
   if (opts.onlyGreenCompliance) {
     const expiryDetails = buildExpiryDetails(driver);
@@ -732,6 +825,13 @@ function filterEligibility(driver: Driver, opts: MatchingOptions): string | null
     if (expired.length > 0) {
       return `Expired: ${expired.map((d) => d.label).join(", ")}`;
     }
+  }
+  // DEV-203: already spoken for in the requested window. Checked last so the
+  // cheaper filters short-circuit first, and only when the caller supplied
+  // both a window and the commitment index.
+  if (opts.requestedWindow && opts.commitments) {
+    const conflict = findConflict(opts.commitments[driver.id], opts.requestedWindow);
+    if (conflict) return describeConflict(conflict);
   }
   return null;
 }
@@ -789,12 +889,6 @@ export async function findMatchingDriversAsync(
   return opts.maxResults ? scored.slice(0, opts.maxResults) : scored;
 }
 
-// PR 1: equipment is a soft penalty here too; the only hard filter on a load
-// is that its status is in the available-for-matching set. The legacy
-// "Pending" string is kept alongside the current "live" / "match_pending"
-// so old data continues to surface.
-const AVAILABLE_LOAD_STATUSES = new Set(['Pending', 'live', 'match_pending']);
-
 export function findMatchingLoads(
   driver: Driver,
   loads: Load[],
@@ -802,7 +896,11 @@ export function findMatchingLoads(
 ): LoadMatchScore[] {
   const { maxResults = 10 } = options;
 
-  const available = loads.filter((load) => AVAILABLE_LOAD_STATUSES.has(load.status as string));
+  // PR 1: equipment is a soft penalty here too; the only hard filter on a load
+  // is that its status puts it on the board. That test lives in
+  // marketplace/projection.ts so the matcher, the projected endpoint and the
+  // dashboard panel cannot drift apart on which loads are matchable.
+  const available = loads.filter(isLoadAvailable);
 
   console.log(
     `${LOG_PREFIX} findMatchingLoads: ${available.length}/${loads.length} available for driver ${driver.id ?? driver.name}`

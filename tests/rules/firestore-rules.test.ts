@@ -5,7 +5,10 @@ import {
   assertFails,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel } from 'firebase/firestore';
+import {
+  doc, getDoc, setDoc, updateDoc, deleteDoc, setLogLevel,
+  collectionGroup, getDocs, query, where,
+} from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -713,5 +716,168 @@ describe('activation_tokens — server-only (DEV-158)', () => {
     await assertFails(
       setDoc(doc(asUser('alice'), 'activation_tokens/new1'), { tokenHash: 'attempt' })
     );
+  });
+});
+
+// --- tlas / matches: read scoping ----------------------------------------
+
+describe('tlas — only the parties and admins can read an agreement', () => {
+  // A TLA carries the lessor's and lessee's legal names, addresses, contact
+  // emails and phones; the driver's CDL number, CDL state and medical card
+  // expiry; pickup/delivery addresses with contact names and phones; and
+  // each signature's IP address. `allow read: if isSignedIn()` made all of
+  // it readable by anyone who could register an account.
+  it('a stranger cannot read a TLA they are not party to', async () => {
+    await seedTLA('t-read', { lessorOwnerId: 'lessor', lesseeOwnerId: 'lessee' });
+    await assertFails(getDoc(doc(asUser('stranger'), 'tlas/t-read')));
+  });
+
+  it('an unauthenticated caller cannot read a TLA', async () => {
+    await seedTLA('t-read-anon', { lessorOwnerId: 'lessor', lesseeOwnerId: 'lessee' });
+    await assertFails(getDoc(doc(asUnauth(), 'tlas/t-read-anon')));
+  });
+
+  // The three tests below are what stop the rule from simply being
+  // `allow read: if false`, which would also pass the two above.
+  it('the lessor can read their own TLA', async () => {
+    await seedTLA('t-lessor', { lessorOwnerId: 'lessor', lesseeOwnerId: 'lessee' });
+    await assertSucceeds(getDoc(doc(asUser('lessor'), 'tlas/t-lessor')));
+  });
+
+  it('the lessee can read their own TLA', async () => {
+    await seedTLA('t-lessee', { lessorOwnerId: 'lessor', lesseeOwnerId: 'lessee' });
+    await assertSucceeds(getDoc(doc(asUser('lessee'), 'tlas/t-lessee')));
+  });
+
+  it('an admin can read any TLA', async () => {
+    // The admin console lists every TLA with an unfiltered collection read,
+    // so losing this would break it.
+    await seedAdmin('admin1');
+    await seedTLA('t-admin', { lessorOwnerId: 'lessor', lesseeOwnerId: 'lessee' });
+    await assertSucceeds(getDoc(doc(asUser('admin1'), 'tlas/t-admin')));
+  });
+});
+
+describe('matches — read is still open to any signed-in user (known gap)', () => {
+  /**
+   * This pins CURRENT behaviour, not desired behaviour.
+   *
+   * `matches` is readable by any signed-in user, which exposes every
+   * carrier's agreed rates and counter-offers marketplace-wide. It is not
+   * tightened here because DEV-203's cross-carrier conflict detection is
+   * built directly on it: the matches page subscribes to every committed
+   * match, across all owners, to find drivers already spoken for. A
+   * party-scoped read rule would reject that query outright and silently
+   * disable double-booking detection.
+   *
+   * Closing it needs a server-side endpoint that returns commitment
+   * WINDOWS (driverId, start, end) instead of whole match documents. Until
+   * that exists, this test exists so the gap is visible and measured rather
+   * than assumed closed. When the follow-up lands, this test should flip to
+   * assertFails.
+   */
+  it('a stranger CAN currently read a match they are not party to', async () => {
+    await seedMatch('m-read', {
+      loadOwnerId: 'load-owner',
+      driverOwnerId: 'driver-owner',
+      driverId: 'driver-uid',
+    });
+    await assertSucceeds(getDoc(doc(asUser('stranger'), 'matches/m-read')));
+  });
+
+  it('an unauthenticated caller still cannot read a match', async () => {
+    await seedMatch('m-read-anon', {
+      loadOwnerId: 'load-owner',
+      driverOwnerId: 'driver-owner',
+      driverId: 'driver-uid',
+    });
+    await assertFails(getDoc(doc(asUnauth(), 'matches/m-read-anon')));
+  });
+});
+
+
+// --- drivers: the collection-group rule overrides the nested guard --------
+
+/** Seed a driver under an owner. */
+async function seedDriverDoc(
+  ownerId: string,
+  driverId: string,
+  data: Record<string, unknown> = {}
+) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), `owner_operators/${ownerId}/drivers/${driverId}`), {
+      name: 'Seed Driver',
+      accountStatus: 'active',
+      ...data,
+    });
+  });
+}
+
+describe('drivers — pre-activation guard is inert (known gap)', () => {
+  /**
+   * This pins CURRENT behaviour, not desired behaviour.
+   *
+   * The nested rule guards pre-activated drivers (DEV-158):
+   *
+   *   allow get: if accountStatus != 'pre-activated' || isOwner || isAdmin
+   *
+   * But `match /{path=**}/drivers/{driverId} { allow read: if isSignedIn(); }`
+   * ALSO matches that same path, and Firestore grants access when ANY
+   * matching rule allows it. So the guard above never denies anything: the
+   * blanket collection-group read overrides it on both the direct-get and
+   * the query path. The first test below is what proves it — a stranger
+   * reads a pre-activated driver by the very path the nested rule claims to
+   * protect.
+   *
+   * This is not a one-line fix. A driver document is the whole DQF — CDL
+   * number and state, MVR number, medical card expiry, insurance policy
+   * number, phone and email, plus storage URLs for the CDL scan, MVR and
+   * drug-and-alcohol screening (and those URLs carry Firebase download
+   * tokens, so they resolve for anyone holding them regardless of
+   * storage.rules). Closing it means the marketplace matcher stops reading
+   * whole driver documents client-side: dashboard/matches subscribes to an
+   * UNFILTERED collectionGroup('drivers'), and any rule that depends on
+   * document data denies such a query outright.
+   *
+   * A client-side filter cannot rescue it either — legacy drivers carry no
+   * accountStatus field, and a Firestore query cannot match a missing
+   * field, so filtering would silently drop them from the marketplace. The
+   * fix is a projecting server endpoint (plus a backfill), which is why it
+   * is recorded here rather than attempted in passing.
+   *
+   * These flip to assertFails when that lands.
+   */
+  it('a stranger CAN currently read a pre-activated driver by direct get', async () => {
+    await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
+    await assertSucceeds(
+      getDoc(doc(asUser('stranger'), 'owner_operators/owner-a/drivers/pre-driver'))
+    );
+  });
+
+  it('a stranger CAN currently reach pre-activated drivers via collectionGroup', async () => {
+    await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
+    await assertSucceeds(
+      getDocs(
+        query(
+          collectionGroup(asUser('stranger'), 'drivers'),
+          where('accountStatus', '==', 'pre-activated')
+        )
+      )
+    );
+  });
+
+  it('an unauthenticated caller is still refused', async () => {
+    // The one part of the guard that does hold.
+    await seedDriverDoc('owner-a', 'pre-driver', { accountStatus: 'pre-activated' });
+    await assertFails(
+      getDoc(doc(asUnauth(), 'owner_operators/owner-a/drivers/pre-driver'))
+    );
+  });
+
+  it('the marketplace reads drivers across owners with no filter at all', async () => {
+    // Pins the constraint any fix has to work around: this is the shape the
+    // matcher actually issues.
+    await seedDriverDoc('owner-a', 'active-driver');
+    await assertSucceeds(getDocs(collectionGroup(asUser('stranger'), 'drivers')));
   });
 });

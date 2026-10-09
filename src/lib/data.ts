@@ -1,5 +1,6 @@
 import type { TrailerType } from './trailer-types';
 import type { ExternalRef } from './tms/types';
+import type { LoadStatus } from './load-types';
 
 export type Review = {
   id: string;
@@ -17,6 +18,30 @@ export type AccountStatus =
   | 'active'        // fully activated, has Firebase Auth credentials
   | 'suspended';    // disabled
 
+/**
+ * A span a driver is declared available for (DEV-204).
+ *
+ * `availability` on its own is a current-state enum with no time dimension,
+ * so it cannot answer "is this driver free next Tuesday". Windows add that.
+ *
+ * `source` is the point: owner-operators declare these by hand today, and a
+ * TMS or ELD writes the identical structure later. The matcher never learns
+ * the difference, so the integration becomes a populate rather than a
+ * refactor — the same move `externalRefs` makes for TMS identity.
+ */
+export type AvailabilityWindow = {
+  /** ISO date, inclusive. */
+  start: string;
+  /** ISO date, inclusive. */
+  end: string;
+  /** Where the driver starts and returns, when it differs from their base. */
+  homeBase?: string;
+  note?: string;
+  source: 'manual' | 'tms' | 'eld';
+  /** When this window was recorded, for staleness checks later. */
+  recordedAt?: string;
+};
+
 export type Driver = {
   id: string;
   name: string;
@@ -24,6 +49,12 @@ export type Driver = {
   location: string;
   certifications: string[];
   availability: "Available" | "On-trip" | "Off-duty";
+  /**
+   * Declared availability spans (DEV-204). Absent on every legacy driver —
+   * code reading this must treat "none declared" as UNKNOWN, never as
+   * unavailable. See src/lib/availability.ts.
+   */
+  availabilityWindows?: AvailabilityWindow[];
   vehicleType: "Dry Van" | "Reefer" | "Flatbed"; // Legacy - single type
   vehicleTypes?: string[]; // New - array of types driver can haul
   trailerTypes?: TrailerType[]; // New - array of types driver can haul
@@ -81,13 +112,24 @@ export type Driver = {
   externalRefs?: ExternalRef[];
 };
 
+/**
+ * Load statuses that predate LOAD_STATUSES in load-types.ts.
+ *
+ * `Load.status` was still typed as only these four long after /api/loads
+ * started writing 'live' and 'match_pending', which made the type disagree
+ * with the database: every call site handling a real status needed a cast,
+ * and TypeScript flagged correct comparisons as impossible. The union is now
+ * the canonical LoadStatus plus these, because old documents still carry them.
+ */
+export type LegacyLoadStatus = "Pending" | "Matched" | "In-transit" | "Delivered";
+
 export type Load = {
   id: string;
   origin: string;
   destination: string;
   cargo: string;
   weight: number;
-  status: "Pending" | "Matched" | "In-transit" | "Delivered";
+  status: LoadStatus | LegacyLoadStatus;
   requiredQualifications: string[];
   trailerType?: TrailerType; // New - standardized trailer type
   description?: string;
