@@ -36,6 +36,24 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      // Mobile specs are the other project's job. Without this they would run
+      // twice — once at each width — and the suite is serial, so that is real
+      // wall-clock cost for no extra coverage.
+      testIgnore: '**/*.mobile.spec.ts',
+    },
+    {
+      // A phone-width pass. CLAUDE.md's pre-merge checklist asks for "mobile
+      // responsive (if UI changes)" and nothing was checking it.
+      //
+      // Pixel 7 rather than an iPhone on purpose: iOS device descriptors need
+      // WebKit, which is a second browser download in CI and in the container.
+      // Chromium at 412x915 with a touch pointer catches the layout and
+      // tap-target regressions that actually happen here; it does not catch
+      // Safari-specific rendering, which is a genuine gap rather than a
+      // decision this config can hide.
+      name: 'mobile-chromium',
+      use: { ...devices['Pixel 7'] },
+      testMatch: '**/*.mobile.spec.ts',
     },
   ],
 
